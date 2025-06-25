@@ -11,7 +11,7 @@ env_variables:
   WHATSAPP_VERIFY_TOKEN: "kumon_verify_token_2024"
 
   # OpenAI Configuration
-  OPENAI_MODEL: "gpt-4-turbo-preview"
+  OPENAI_MODEL: "gpt-4o-mini"
 
   # Business Configuration
   BUSINESS_NAME: "Kumon"
@@ -19,10 +19,10 @@ env_variables:
   BUSINESS_HOURS: "Segunda a Sexta: 8h às 18h"
 
   # Business Hours Configuration
-  BUSINESS_HOURS_START: "8"
+  BUSINESS_HOURS_START: "9"
   BUSINESS_HOURS_END: "18"
   BUSINESS_DAYS: "[0,1,2,3,4]"
-  APPOINTMENT_DURATION_MINUTES: "60"
+  APPOINTMENT_DURATION_MINUTES: "30"
   BUFFER_TIME_MINUTES: "15"
 
   # Timezone

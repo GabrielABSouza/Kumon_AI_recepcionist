@@ -6,15 +6,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import logging
 
-from app.api.v1 import whatsapp, health
+from app.api.v1 import whatsapp, health, units
 from app.core.config import settings
 from app.core.logger import app_logger
 
 # Create FastAPI app instance
 app = FastAPI(
     title="Kumon AI Receptionist",
-    description="AI-powered WhatsApp receptionist for Kumon",
-    version="1.0.0",
+    description="AI-powered WhatsApp receptionist for Kumon with multi-unit support",
+    version="2.0.0",
     docs_url="/docs",
     redoc_url="/redoc"
 )
@@ -24,7 +24,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Configure this properly for production
     allow_credentials=True,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["*"],
 )
 
@@ -46,7 +46,13 @@ async def general_exception_handler(request, exc):
     )
 
 # Include routers
-app.include_router(whatsapp.router, prefix="/api/v1/whatsapp", tags=["whatsapp"])
+# Legacy single-unit webhook (for backward compatibility)
+app.include_router(whatsapp.router, prefix="/api/v1/whatsapp", tags=["whatsapp-legacy"])
+
+# New multi-unit management and webhooks
+app.include_router(units.router, prefix="/api/v1", tags=["units"])
+
+# Health and utility endpoints
 app.include_router(health.router, prefix="/api/v1", tags=["health"])
 
 # Root path operation
@@ -56,15 +62,27 @@ async def root():
     app_logger.info("Root endpoint accessed")
     return {
         "message": "Kumon AI Receptionist API",
-        "version": "1.0.0",
+        "version": "2.0.0",
         "status": "running",
-        "docs": "/docs"
+        "features": [
+            "Multi-unit support",
+            "Unit-specific webhooks",
+            "WhatsApp Business API integration",
+            "AI-powered responses",
+            "Appointment booking"
+        ],
+        "docs": "/docs",
+        "endpoints": {
+            "legacy_webhook": "/api/v1/whatsapp/webhook",
+            "unit_webhooks": "/api/v1/units/{unit_id}/webhook",
+            "unit_management": "/api/v1/units"
+        }
     }
 
 # Startup event
 @app.on_event("startup")
 async def startup_event():
-    app_logger.info("Kumon AI Receptionist API starting up...")
+    app_logger.info("Kumon AI Receptionist API v2.0 starting up with multi-unit support...")
 
 # Shutdown event  
 @app.on_event("shutdown")
