@@ -21,8 +21,8 @@ class UnitManager:
         # You can remove this and load from database in production
         default_units = [
             {
-                "unit_id": "kumon-central",
-                "unit_name": "Kumon Central",
+                "user_id": "kumon-central",
+                "username": "Kumon Central",
                 "address": "Rua Principal, 123 - Centro",
                 "phone": "(11) 9999-1234",
                 "email": "central@kumon.com.br",
@@ -52,16 +52,16 @@ class UnitManager:
         for unit_data in default_units:
             unit_config = UnitConfig(**unit_data)
             unit = Unit(config=unit_config)
-            self._units[unit_data["unit_id"]] = unit
-            app_logger.info(f"Initialized default unit: {unit_data['unit_name']}")
+            self._units[unit_data["user_id"]] = unit
+            app_logger.info(f"Initialized default unit: {unit_data['username']}")
     
     def create_unit(self, request: CreateUnitRequest) -> UnitResponse:
         """Create a new unit"""
-        unit_id = f"kumon-{uuid.uuid4().hex[:8]}"
+        user_id = f"kumon-{uuid.uuid4().hex[:8]}"
         
         unit_config = UnitConfig(
-            unit_id=unit_id,
-            unit_name=request.unit_name,
+            user_id=user_id,
+            username=request.username,
             address=request.address,
             phone=request.phone,
             email=request.email,
@@ -74,13 +74,13 @@ class UnitManager:
         )
         
         unit = Unit(config=unit_config)
-        self._units[unit_id] = unit
+        self._units[user_id] = unit
         
-        app_logger.info(f"Created new unit: {unit_id} - {request.unit_name}")
+        app_logger.info(f"Created new unit: {user_id} - {request.username}")
         
         return UnitResponse(
-            unit_id=unit_id,
-            unit_name=unit_config.unit_name,
+            user_id=user_id,
+            username=unit_config.username,
             address=unit_config.address,
             phone=unit_config.phone,
             is_active=unit_config.is_active,
@@ -88,9 +88,9 @@ class UnitManager:
             updated_at=unit_config.updated_at
         )
     
-    def get_unit(self, unit_id: str) -> Optional[Unit]:
+    def get_unit(self, user_id: str) -> Optional[Unit]:
         """Get a unit by ID"""
-        return self._units.get(unit_id)
+        return self._units.get(user_id)
     
     def get_unit_by_phone_number_id(self, phone_number_id: str) -> Optional[Unit]:
         """Get a unit by WhatsApp phone number ID"""
@@ -105,8 +105,8 @@ class UnitManager:
         for unit in self._units.values():
             if not active_only or unit.config.is_active:
                 units.append(UnitResponse(
-                    unit_id=unit.config.unit_id,
-                    unit_name=unit.config.unit_name,
+                    user_id=unit.config.user_id,
+                    username=unit.config.username,
                     address=unit.config.address,
                     phone=unit.config.phone,
                     is_active=unit.config.is_active,
@@ -115,15 +115,15 @@ class UnitManager:
                 ))
         return units
     
-    def update_unit(self, unit_id: str, request: UpdateUnitRequest) -> Optional[UnitResponse]:
+    def update_unit(self, user_id: str, request: UpdateUnitRequest) -> Optional[UnitResponse]:
         """Update an existing unit"""
-        unit = self._units.get(unit_id)
+        unit = self._units.get(user_id)
         if not unit:
             return None
         
         # Update fields that are provided
-        if request.unit_name is not None:
-            unit.config.unit_name = request.unit_name
+        if request.username is not None:
+            unit.config.username = request.username
         if request.address is not None:
             unit.config.address = request.address
         if request.phone is not None:
@@ -143,11 +143,11 @@ class UnitManager:
         
         unit.config.updated_at = datetime.utcnow()
         
-        app_logger.info(f"Updated unit: {unit_id} - {unit.config.unit_name}")
+        app_logger.info(f"Updated unit: {user_id} - {unit.config.username}")
         
         return UnitResponse(
-            unit_id=unit.config.unit_id,
-            unit_name=unit.config.unit_name,
+            user_id=unit.config.user_id,
+            username=unit.config.username,
             address=unit.config.address,
             phone=unit.config.phone,
             is_active=unit.config.is_active,
@@ -155,26 +155,26 @@ class UnitManager:
             updated_at=unit.config.updated_at
         )
     
-    def delete_unit(self, unit_id: str) -> bool:
+    def delete_unit(self, user_id: str) -> bool:
         """Delete a unit (soft delete by marking as inactive)"""
-        unit = self._units.get(unit_id)
+        unit = self._units.get(user_id)
         if not unit:
             return False
         
         unit.config.is_active = False
         unit.config.updated_at = datetime.utcnow()
         
-        app_logger.info(f"Deactivated unit: {unit_id} - {unit.config.unit_name}")
+        app_logger.info(f"Deactivated unit: {user_id} - {unit.config.username}")
         return True
     
-    def get_unit_context(self, unit_id: str) -> Dict[str, str]:
+    def get_unit_context(self, user_id: str) -> Dict[str, str]:
         """Get unit-specific context for AI responses"""
-        unit = self.get_unit(unit_id)
+        unit = self.get_unit(user_id)
         if not unit:
             return {}
         
         return {
-            "unit_name": unit.config.unit_name,
+            "username": unit.config.username,
             "address": unit.config.address,
             "phone": unit.config.phone,
             "email": unit.config.email or "",

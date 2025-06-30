@@ -37,5 +37,4 @@ docs/
 
 # Deployment files
 deployment-guide.md
-scripts/
 tests/ 

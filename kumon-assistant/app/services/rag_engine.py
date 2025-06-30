@@ -81,7 +81,7 @@ class RAGEngine:
             ),
             FewShotExample(
                 question="Quanto custa o Kumon?",
-                answer="Os valores variam de acordo com a disciplina e unidade. Para informações precisas sobre mensalidades e taxas, precisamos agendar uma conversa. Você gostaria de agendar uma consulta gratuita para conhecer melhor nossa proposta? 💰📞",
+                answer="Os valores variam de acordo com as disciplinas selecionadas. Para informações precisas sobre mensalidades e taxas, precisamos agendar uma conversa. Você gostaria de agendar uma consulta gratuita para conhecer melhor nossa proposta? 💰📞",
                 category="pricing",
                 keywords=["preço", "custa", "valor", "mensalidade", "quanto", "custo"]
             )
@@ -189,8 +189,8 @@ class RAGEngine:
         # Add context information if available
         if context:
             prompt += "Informações adicionais da unidade:\n"
-            if context.get("unit_name"):
-                prompt += f"- Unidade: {context['unit_name']}\n"
+            if context.get("username"):
+                prompt += f"- Unidade: {context['username']}\n"
             if context.get("phone"):
                 prompt += f"- Telefone: {context['phone']}\n"
             if context.get("address"):
@@ -211,7 +211,7 @@ class RAGEngine:
         
         context_info = ""
         if context:
-            context_info = f"\nInformações da unidade: {context.get('unit_name', 'Kumon')}"
+            context_info = f"\nInformações da unidade: {context.get('username', 'Kumon')}"
             if context.get('phone'):
                 context_info += f"\nTelefone: {context['phone']}"
         
@@ -290,4 +290,36 @@ class RAGEngine:
         if answer_lengths:
             stats["average_answer_length"] = sum(answer_lengths) / len(answer_lengths)
         
-        return stats 
+        return stats
+
+    def _format_business_context(self, context: Dict[str, Any]) -> str:
+        """Format business context for the prompt"""
+        prompt = "\n=== INFORMAÇÕES DA EMPRESA ===\n"
+        prompt += f"- Nome: {context.get('business_name', 'Kumon')}\n"
+        prompt += f"- Email: {context.get('business_email', '')}\n"
+        prompt += f"- Telefone: {context.get('phone', '')}\n"
+        prompt += f"- Endereço: {context.get('address', '')}\n"
+        prompt += f"- Horário: {context.get('operating_hours', 'Segunda a Sexta: 8h às 18h')}\n"
+        
+        # Add unit-specific info if available
+        if context.get("username"):
+            prompt += f"- Unidade: {context['username']}\n"
+        
+        return prompt
+
+    def _get_unit_specific_context(self, query: str, context: Dict[str, Any]) -> str:
+        """Get unit-specific contextual information"""
+        
+        # Basic unit context
+        context_info = f"\nInformações da unidade: {context.get('username', 'Kumon')}"
+        
+        if context.get("address"):
+            context_info += f"\nEndereço: {context['address']}"
+        
+        if context.get("operating_hours"):
+            context_info += f"\nHorário de funcionamento: {context['operating_hours']}"
+        
+        if context.get("services"):
+            context_info += f"\nServiços: {context['services']}"
+        
+        return context_info 

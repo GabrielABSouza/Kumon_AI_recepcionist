@@ -38,7 +38,7 @@ class MessageProcessor:
                 "message_id": message.message_id,
                 "from_number": message.from_number,
                 "content_length": len(message.content),
-                "unit_id": unit_context.get("unit_id") if unit_context else None
+                "user_id": unit_context.get("user_id") if unit_context else None
             })
             
             # Mark message as read
@@ -89,32 +89,22 @@ class MessageProcessor:
         unit_context = message.metadata.get("unit_context")
         if unit_context:
             return {
-                "unit_id": message.metadata.get("unit_id"),
+                "user_id": message.metadata.get("user_id"),
                 **unit_context
             }
         
         return None
     
-    def _get_business_info(self, unit_context: Optional[Dict[str, Any]]) -> Dict[str, str]:
-        """Get business information, preferring unit-specific info over defaults"""
-        if unit_context:
-            return {
-                "name": unit_context.get("unit_name", settings.BUSINESS_NAME),
-                "phone": unit_context.get("phone", settings.BUSINESS_PHONE),
-                "email": unit_context.get("email", settings.BUSINESS_EMAIL),
-                "address": unit_context.get("address", settings.BUSINESS_ADDRESS),
-                "hours": unit_context.get("operating_hours", settings.BUSINESS_HOURS),
-                "services": unit_context.get("services", "Programas Kumon disponíveis")
-            }
-        else:
-            return {
-                "name": settings.BUSINESS_NAME,
-                "phone": settings.BUSINESS_PHONE,
-                "email": settings.BUSINESS_EMAIL,
-                "address": settings.BUSINESS_ADDRESS,
-                "hours": settings.BUSINESS_HOURS,
-                "services": "Programas Kumon disponíveis"
-            }
+    def _get_business_info(self, unit_context: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
+        """Get business information with optional unit context"""
+        return {
+            "name": unit_context.get("username", settings.BUSINESS_NAME),
+            "email": unit_context.get("email", settings.BUSINESS_EMAIL),
+            "hours": unit_context.get("operating_hours", settings.BUSINESS_HOURS),
+            "phone": unit_context.get("phone", ""),
+            "address": unit_context.get("address", ""),
+            "timezone": unit_context.get("timezone", settings.TIMEZONE)
+        }
     
     async def _generate_response(self, message: WhatsAppMessage, intent, unit_context: Optional[Dict[str, Any]] = None) -> MessageResponse:
         """Generate response based on classified intent with unit context"""
@@ -125,7 +115,7 @@ class MessageProcessor:
             
             # Check for custom responses if unit context exists
             custom_response = None
-            if unit_context and unit_context.get("unit_id"):
+            if unit_context and unit_context.get("user_id"):
                 # Try to get unit-specific custom response
                 # This would be implemented with unit_manager in the future
                 pass
@@ -271,3 +261,13 @@ class MessageProcessor:
                 "to_number": to_number
             })
             raise 
+
+    async def _log_conversation(self, message: WhatsAppMessage, response: MessageResponse):
+        """Log conversation for analytics"""
+        app_logger.info("Conversation logged", extra={
+            "message_id": message.message_id,
+            "from_number": message.from_number,
+            "user_id": message.metadata.get("user_id"),
+            "response_length": len(response.content),
+            "message_type": message.message_type.value
+        }) 

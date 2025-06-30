@@ -8,8 +8,8 @@ from datetime import datetime
 
 class UnitConfig(BaseModel):
     """Configuration for a specific Kumon unit"""
-    unit_id: str = Field(..., description="Unique identifier for the unit")
-    unit_name: str = Field(..., description="Display name of the unit")
+    user_id: str = Field(..., description="Unique identifier for the unit")
+    username: str = Field(..., description="Display name of the unit")
     address: str = Field(..., description="Physical address of the unit")
     phone: str = Field(..., description="Contact phone number")
     email: Optional[str] = Field(None, description="Contact email")
@@ -69,7 +69,7 @@ class Unit(BaseModel):
 
 class CreateUnitRequest(BaseModel):
     """Request model for creating a new unit"""
-    unit_name: str
+    username: str
     address: str
     phone: str
     email: Optional[str] = None
@@ -83,7 +83,7 @@ class CreateUnitRequest(BaseModel):
 
 class UpdateUnitRequest(BaseModel):
     """Request model for updating a unit"""
-    unit_name: Optional[str] = None
+    username: Optional[str] = None
     address: Optional[str] = None
     phone: Optional[str] = None
     email: Optional[str] = None
@@ -96,8 +96,8 @@ class UpdateUnitRequest(BaseModel):
 
 class UnitResponse(BaseModel):
     """Response model for unit operations"""
-    unit_id: str
-    unit_name: str
+    user_id: str
+    username: str
     address: str
     phone: str
     is_active: bool
