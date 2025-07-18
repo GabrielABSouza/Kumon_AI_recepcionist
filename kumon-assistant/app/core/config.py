@@ -24,15 +24,6 @@ class Settings(BaseSettings):
     WEBHOOK_GLOBAL_ENABLED: bool = True
     CONFIG_SESSION_PHONE_CLIENT: str = "Kumon Assistant"
     
-    # WhatsApp Business API (Legacy - kept for backward compatibility)
-    WHATSAPP_TOKEN: str = ""
-    WHATSAPP_PHONE_NUMBER_ID: str = ""
-    WHATSAPP_BUSINESS_ACCOUNT_ID: str = ""
-    WHATSAPP_VERIFY_TOKEN: str = "kumon_verify_token_2024"
-    WHATSAPP_WEBHOOK_URL: str = ""
-    WHATSAPP_APP_ID: str = ""
-    WHATSAPP_APP_SECRET: str = ""
-    
     # OpenAI
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4-turbo-preview"
@@ -43,8 +34,18 @@ class Settings(BaseSettings):
     EMBEDDING_BATCH_SIZE: int = 32
     EMBEDDING_CACHE_DIR: str = "./cache/embeddings"
     
+    # Cache Management Settings (Added for memory optimization)
+    EMBEDDING_CACHE_SIZE_MB: int = 50  # 50MB cache limit for production
+    EMBEDDING_CACHE_FILES: int = 500   # Max 500 cached files
+    CACHE_CLEANUP_INTERVAL: int = 1800  # 30 minutes cleanup interval
+    
+    # Conversation Flow Memory Management
+    MAX_ACTIVE_CONVERSATIONS: int = 500  # Limit active conversations
+    CONVERSATION_TIMEOUT_HOURS: int = 12  # 12 hours timeout for inactive conversations
+    CONVERSATION_CLEANUP_INTERVAL: int = 1800  # 30 minutes cleanup interval
+    
     # Google APIs
-    GOOGLE_CREDENTIALS_PATH: str = ""
+    GOOGLE_CREDENTIALS_PATH: str = "google-service-account.json"
     GOOGLE_CALENDAR_ID: str = ""
     GOOGLE_SHEETS_ID: str = ""
     
@@ -61,14 +62,14 @@ class Settings(BaseSettings):
     SMTP_PORT: int = 587
     SMTP_USERNAME: str = ""
     SMTP_PASSWORD: str = ""
-    FROM_EMAIL: EmailStr = "contato@kumon.com"
+    FROM_EMAIL: EmailStr = "kumonvilaa@gmail.com"
     
     # Business Configuration
-    BUSINESS_NAME: str = "Kumon"
-    BUSINESS_PHONE: str = ""
-    BUSINESS_EMAIL: EmailStr = "contato@kumon.com"
-    BUSINESS_ADDRESS: str = ""
-    BUSINESS_HOURS: str = "Segunda a Sexta: 8h às 18h"
+    BUSINESS_NAME: str = "Kumon Vila A"
+    BUSINESS_PHONE: str = "51996921999"
+    BUSINESS_EMAIL: EmailStr = "kumonvilaa@gmail.com"
+    BUSINESS_ADDRESS: str = "Rua Amoreira, 571. Salas 6 e 7. Jardim das Laranjeiras"
+    BUSINESS_HOURS: str = "Segunda a Sexta: 08:00 às 18:00"
     
     # Business Hours Configuration
     BUSINESS_HOURS_START: int = 8  # 8 AM
@@ -96,6 +97,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
+        extra = "ignore"  # Allow extra environment variables to be ignored
 
 
 # Create settings instance

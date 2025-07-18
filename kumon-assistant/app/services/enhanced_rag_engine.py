@@ -57,20 +57,29 @@ class EnhancedRAGEngine:
                 app_logger.warning(f"Few-shot examples file not found: {json_file}")
                 return
             
+            app_logger.info(f"Loading knowledge base from: {json_file}")
+            
             with open(json_file, 'r', encoding='utf-8') as f:
                 examples_data = json.load(f)
+            
+            examples_count = len(examples_data.get('examples', []))
+            app_logger.info(f"Found {examples_count} examples in JSON file")
             
             # Load examples into vector store
             success = await langchain_rag_service.load_few_shot_examples(examples_data)
             
             if success:
                 self.knowledge_base_loaded = True
-                app_logger.info(f"Loaded {len(examples_data.get('examples', []))} examples into knowledge base")
+                app_logger.info(f"Successfully loaded {examples_count} examples into knowledge base")
+                
+                # Verify the vector store has data
+                collection_info = await vector_store.get_collection_info()
+                app_logger.info(f"Vector store now contains {collection_info.get('points_count', 0)} documents")
             else:
-                app_logger.error("Failed to load knowledge base")
+                app_logger.error("Failed to load knowledge base - langchain_rag_service.load_few_shot_examples returned False")
                 
         except Exception as e:
-            app_logger.error(f"Error loading knowledge base: {str(e)}")
+            app_logger.error(f"Error loading knowledge base: {str(e)}", exc_info=True)
     
     async def answer_question(
         self, 
@@ -101,6 +110,11 @@ class EnhancedRAGEngine:
                 }
             )
             
+            # Check if it's a greeting first
+            greeting_response = self._handle_greeting(question, context)
+            if greeting_response:
+                return greeting_response
+            
             if use_semantic_search:
                 # Use semantic search approach
                 response = await self._semantic_search_answer(
@@ -124,10 +138,42 @@ class EnhancedRAGEngine:
                 return fallback_answer
             else:
                 return self._get_default_response()
-                
+            
         except Exception as e:
-            app_logger.error(f"Error in enhanced question answering: {str(e)}")
+            app_logger.error(f"Error in enhanced RAG answer_question: {str(e)}")
             return self._get_error_response()
+    
+    def _handle_greeting(self, question: str, context: Optional[Dict[str, Any]] = None) -> Optional[str]:
+        """Handle greeting messages before going to semantic search"""
+        
+        # Common greetings in Portuguese
+        greetings = [
+            "oi", "olá", "bom dia", "boa tarde", "boa noite", 
+            "hello", "hi", "hey", "e aí", "opa", "oii"
+        ]
+        
+        question_lower = question.lower().strip()
+        
+        # Check if it's a greeting
+        if any(greeting in question_lower for greeting in greetings):
+            app_logger.info(f"Detected greeting: {question}")
+            
+            # Get business name from context or use default
+            business_name = context.get("username", "Kumon") if context else "Kumon"
+            
+            greeting_response = f"Olá! Bem-vindo ao {business_name}! 👋\n\n"
+            greeting_response += (
+                "Como posso ajudá-lo hoje? Posso:\n"
+                "📅 Agendar uma aula experimental\n"
+                "❓ Responder suas dúvidas sobre o método Kumon\n"
+                "📍 Fornecer informações sobre nossos serviços\n"
+                "💰 Falar sobre valores e condições\n\n"
+                "O que você gostaria de saber? 😊"
+            )
+            
+            return greeting_response
+            
+        return None
     
     async def _semantic_search_answer(
         self, 

@@ -5,12 +5,11 @@ from typing import Dict, Any, Optional
 import asyncio
 
 from ..models.message import WhatsAppMessage, MessageResponse, MessageType
-from ..clients.whatsapp import whatsapp_client, WhatsAppAPIError
 from ..services.intent_classifier import IntentClassifier
 from ..services.availability_service import AvailabilityService
 from ..services.booking_service import BookingService
-from ..services.lead_collector import LeadCollector
 from ..services.rag_engine import RAGEngine
+from ..services.conversation_flow import conversation_flow_manager
 from ..core.logger import app_logger
 from ..core.config import settings
 
@@ -22,8 +21,8 @@ class MessageProcessor:
         self.intent_classifier = IntentClassifier()
         self.availability_service = AvailabilityService()
         self.booking_service = BookingService()
-        self.lead_collector = LeadCollector()
         self.rag_engine = RAGEngine()
+        self.conversation_flow = conversation_flow_manager
         
         app_logger.info("MessageProcessor initialized")
     
@@ -41,25 +40,62 @@ class MessageProcessor:
                 "user_id": unit_context.get("user_id") if unit_context else None
             })
             
-            # Mark message as read
-            await whatsapp_client.mark_message_as_read(message.message_id)
+            # Check if user is in an active conversation flow
+            conversation_state = self.conversation_flow.get_conversation_state(message.from_number)
             
-            # Classify intent
-            intent = await self.intent_classifier.classify_intent(message.content)
-            
-            app_logger.info("Intent classified", extra={
-                "message_id": message.message_id,
-                "intent": intent.intent_type,
-                "confidence": intent.confidence
+            app_logger.info("Conversation state", extra={
+                "phone_number": message.from_number,
+                "stage": conversation_state.stage.value,
+                "step": conversation_state.step.value
             })
             
-            # Generate response based on intent with unit context
-            response = await self._generate_response(message, intent, unit_context)
+            # Process message through conversation flow
+            flow_response = await self.conversation_flow.advance_conversation(
+                message.from_number, 
+                message.content
+            )
             
-            # Send response back to WhatsApp
-            await self._send_response(message.from_number, response)
+            # Check if conversation ended or we should fall back to RAG
+            if flow_response.get("end_conversation", False):
+                # Reset conversation state for future interactions
+                if message.from_number in self.conversation_flow.conversation_states:
+                    del self.conversation_flow.conversation_states[message.from_number]
+                
+                return MessageResponse(
+                    content=flow_response["message"],
+                    message_type=MessageType.TEXT,
+                    metadata={"conversation_ended": True}
+                )
             
-            return response
+            # Check if user asked a specific question that should be handled by RAG
+            elif self._should_use_rag(message.content):
+                # Use RAG for specific questions while preserving conversation state
+                rag_answer = await self.rag_engine.answer_question(
+                    message.content, 
+                    context=unit_context
+                )
+                
+                # Add context about continuing the conversation
+                if rag_answer:
+                    rag_answer += f"\n\n---\n\nPara continuar nossa conversa sobre matricular seu filho(a) no Kumon, responda minha pergunta anterior ou diga 'continuar'. 😊"
+                
+                return MessageResponse(
+                    content=rag_answer or "Desculpe, não encontrei uma resposta específica. Vamos continuar nossa conversa?",
+                    message_type=MessageType.TEXT,
+                    metadata={"rag_answer": True, "conversation_preserved": True}
+                )
+            
+            # Continue with structured conversation flow
+            else:
+                return MessageResponse(
+                    content=flow_response["message"],
+                    message_type=MessageType.TEXT,
+                    metadata={
+                        "conversation_stage": conversation_state.stage.value,
+                        "conversation_step": conversation_state.step.value,
+                        "conversation_advanced": flow_response.get("advance", False)
+                    }
+                )
             
         except Exception as e:
             app_logger.error(f"Error processing message: {str(e)}", extra={
@@ -74,12 +110,30 @@ class MessageProcessor:
                 metadata={"error": True}
             )
             
-            try:
-                await self._send_response(message.from_number, error_response)
-            except Exception as send_error:
-                app_logger.error(f"Failed to send error response: {str(send_error)}")
-            
             return error_response
+    
+    def _should_use_rag(self, message_content: str) -> bool:
+        """Determine if message should be handled by RAG instead of conversation flow"""
+        
+        # Keywords that indicate specific questions
+        rag_keywords = [
+            "como funciona", "o que é", "qual", "quanto custa", "preço", "valor",
+            "horário", "endereço", "onde fica", "telefone", "email",
+            "método kumon", "disciplinas", "matemática", "português", "inglês",
+            "kumon connect", "material", "aula", "professor", "orientador"
+        ]
+        
+        message_lower = message_content.lower()
+        
+        # Check for question words
+        if any(word in message_lower for word in ["?", "como", "o que", "qual", "onde", "quando", "quanto", "por que"]):
+            return True
+        
+        # Check for specific keywords
+        if any(keyword in message_lower for keyword in rag_keywords):
+            return True
+        
+        return False
     
     def _extract_unit_context(self, message: WhatsAppMessage) -> Optional[Dict[str, Any]]:
         """Extract unit context from message metadata"""
@@ -105,169 +159,15 @@ class MessageProcessor:
             "address": unit_context.get("address", ""),
             "timezone": unit_context.get("timezone", settings.TIMEZONE)
         }
-    
-    async def _generate_response(self, message: WhatsAppMessage, intent, unit_context: Optional[Dict[str, Any]] = None) -> MessageResponse:
-        """Generate response based on classified intent with unit context"""
-        
-        try:
-            # Get business info (unit-specific or default)
-            business_info = self._get_business_info(unit_context)
-            
-            # Check for custom responses if unit context exists
-            custom_response = None
-            if unit_context and unit_context.get("user_id"):
-                # Try to get unit-specific custom response
-                # This would be implemented with unit_manager in the future
-                pass
-            
-            # Handle different intent types
-            if intent.intent_type == "greeting":
-                greeting_msg = f"Olá! Bem-vindo ao {business_info['name']}! 👋\n\n"
-                
-                if custom_response:
-                    return MessageResponse(
-                        content=custom_response,
-                        message_type=MessageType.TEXT,
-                        metadata={"intent": intent.intent_type, "unit_specific": True}
-                    )
-                else:
-                    return MessageResponse(
-                        content=greeting_msg +
-                               "Como posso ajudá-lo hoje? Posso:\n"
-                               "📅 Agendar uma consulta\n"
-                               "❓ Responder suas dúvidas\n"
-                               "📍 Fornecer informações sobre nossos serviços\n\n"
-                               "O que você gostaria de fazer?",
-                        message_type=MessageType.TEXT,
-                        metadata={"intent": intent.intent_type}
-                    )
-            
-            elif intent.intent_type == "schedule_appointment":
-                # Start booking process with unit context
-                booking_response = await self.booking_service.start_booking(
-                    message.from_number, 
-                    message.content,
-                    unit_context=unit_context
-                )
-                
-                return MessageResponse(
-                    content=booking_response,
-                    message_type=MessageType.TEXT,
-                    metadata={"intent": intent.intent_type, "booking_started": True}
-                )
-            
-            elif intent.intent_type == "question":
-                # Use RAG engine to answer questions with unit context
-                answer = await self.rag_engine.answer_question(
-                    message.content, 
-                    context=unit_context
-                )
-                
-                if answer:
-                    return MessageResponse(
-                        content=answer,
-                        message_type=MessageType.TEXT,
-                        metadata={"intent": intent.intent_type, "rag_answer": True}
-                    )
-                else:
-                    return MessageResponse(
-                        content="Desculpe, não encontrei uma resposta específica para sua pergunta. "
-                               "Você pode entrar em contato conosco através do telefone "
-                               f"{business_info['phone']} ou email {business_info['email']}.",
-                        message_type=MessageType.TEXT,
-                        metadata={"intent": intent.intent_type, "no_answer": True}
-                    )
-            
-            elif intent.intent_type == "business_info":
-                return MessageResponse(
-                    content=f"📍 **{business_info['name']}**\n\n"
-                           f"📞 Telefone: {business_info['phone']}\n"
-                           f"📧 Email: {business_info['email']}\n"
-                           f"📍 Endereço: {business_info['address']}\n"
-                           f"🕒 Horário de funcionamento:\n{business_info['hours']}\n\n"
-                           f"📚 Nossos programas:\n{business_info['services']}\n\n"
-                           "Estamos aqui para ajudar você! 😊",
-                    message_type=MessageType.TEXT,
-                    metadata={"intent": intent.intent_type}
-                )
-            
-            elif intent.intent_type == "complaint":
-                # Collect lead and escalate with unit context
-                await self.lead_collector.collect_lead(
-                    phone_number=message.from_number,
-                    message_content=message.content,
-                    lead_type="complaint",
-                    unit_context=unit_context
-                )
-                
-                return MessageResponse(
-                    content="Obrigado por entrar em contato. Sua mensagem foi registrada e nossa equipe "
-                           "entrará em contato com você o mais breve possível para resolver sua questão.\n\n"
-                           f"Você também pode nos contatar diretamente pelo telefone {business_info['phone']}.",
-                    message_type=MessageType.TEXT,
-                    metadata={"intent": intent.intent_type, "escalated": True}
-                )
-            
-            else:
-                # Default response for unrecognized intents
-                return MessageResponse(
-                    content=f"Obrigado por sua mensagem! 😊\n\n"
-                           f"Sou o assistente virtual do {business_info['name']}.\n\n"
-                           "Posso ajudá-lo com:\n"
-                           "📅 Agendamento de consultas\n"
-                           "❓ Dúvidas sobre nossos serviços\n"
-                           "📍 Informações sobre o Kumon\n\n"
-                           "Como posso ajudá-lo?",
-                    message_type=MessageType.TEXT,
-                    metadata={"intent": intent.intent_type}
-                )
-        
-        except Exception as e:
-            app_logger.error(f"Error generating response: {str(e)}")
-            return MessageResponse(
-                content="Desculpe, ocorreu um erro ao processar sua solicitação. "
-                       "Tente novamente ou entre em contato conosco diretamente.",
-                message_type=MessageType.TEXT,
-                metadata={"error": True}
-            )
-    
-    async def _send_response(self, to_number: str, response: MessageResponse):
-        """Send response back to WhatsApp"""
-        
-        try:
-            # Send the message
-            result = await whatsapp_client.send_message(
-                to_number=to_number,
-                message=response.content,
-                message_type=response.message_type
-            )
-            
-            app_logger.info("Response sent successfully", extra={
-                "to_number": to_number,
-                "message_length": len(response.content),
-                "whatsapp_message_id": result.get("messages", [{}])[0].get("id")
-            })
-            
-        except WhatsAppAPIError as e:
-            app_logger.error(f"WhatsApp API error: {e.message}", extra={
-                "to_number": to_number,
-                "status_code": e.status_code,
-                "response_data": e.response_data
-            })
-            raise
-        
-        except Exception as e:
-            app_logger.error(f"Unexpected error sending message: {str(e)}", extra={
-                "to_number": to_number
-            })
-            raise 
 
-    async def _log_conversation(self, message: WhatsAppMessage, response: MessageResponse):
-        """Log conversation for analytics"""
-        app_logger.info("Conversation logged", extra={
-            "message_id": message.message_id,
-            "from_number": message.from_number,
-            "user_id": message.metadata.get("user_id"),
-            "response_length": len(response.content),
-            "message_type": message.message_type.value
-        }) 
+    async def get_conversation_status(self, phone_number: str) -> Dict[str, Any]:
+        """Get conversation status for a phone number"""
+        return self.conversation_flow.get_conversation_progress(phone_number)
+    
+    async def reset_conversation(self, phone_number: str) -> bool:
+        """Reset conversation state for a phone number"""
+        if phone_number in self.conversation_flow.conversation_states:
+            del self.conversation_flow.conversation_states[phone_number]
+            app_logger.info(f"Reset conversation for {phone_number}")
+            return True
+        return False 

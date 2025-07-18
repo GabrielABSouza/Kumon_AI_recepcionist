@@ -1,5 +1,18 @@
 runtime: python39
 
+# Memory optimization for production
+automatic_scaling:
+  min_instances: 1
+  max_instances: 10
+  target_cpu_utilization: 0.6
+  target_throughput_utilization: 0.6
+
+# Resource limits for memory management
+resources:
+  cpu: 2
+  memory_gb: 4
+  disk_size_gb: 10
+
 env_variables:
   # General Configuration
   PROJECT_NAME: "Kumon AI Receptionist"
@@ -33,8 +46,27 @@ env_variables:
   INTENT_CONFIDENCE_THRESHOLD: "0.7"
   RAG_SIMILARITY_THRESHOLD: "0.8"
 
+  # Cache Management Settings (Production optimized)
+  EMBEDDING_CACHE_SIZE_MB: "50"
+  EMBEDDING_CACHE_FILES: "500"
+  CACHE_CLEANUP_INTERVAL: "1800"
+
+  # Conversation Flow Memory Management
+  MAX_ACTIVE_CONVERSATIONS: "500"
+  CONVERSATION_TIMEOUT_HOURS: "12"
+  CONVERSATION_CLEANUP_INTERVAL: "1800"
+
+  # Embedding Configuration (Production optimized)
+  EMBEDDING_BATCH_SIZE: "16"
+  EMBEDDING_DIMENSION: "384"
+  EMBEDDING_MODEL_NAME: "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+  EMBEDDING_CACHE_DIR: "/tmp/embeddings"
+
   # API Configuration
   API_V1_PREFIX: "/api/v1"
   ALLOWED_HOSTS: "*"
+
+  # Environment
+  ENVIRONMENT: "production"
 # Sensitive environment variables will be set via Google Cloud Console
 # WHATSAPP_TOKEN, WHATSAPP_PHONE_NUMBER_ID, OPENAI_API_KEY, etc.

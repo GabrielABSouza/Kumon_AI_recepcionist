@@ -48,12 +48,16 @@ class EvolutionAPIClient:
         self.auth_key = settings.AUTHENTICATION_API_KEY
         
         # HTTP client with default headers
+        # For Evolution API v1.7.1, use AUTHENTICATION_API_KEY
+        auth_key_to_use = self.auth_key if self.auth_key else (self.global_api_key if self.global_api_key else self.api_key)
+        
         self.headers = {
             "Content-Type": "application/json",
-            "apikey": self.global_api_key if self.global_api_key else self.api_key
+            "apikey": auth_key_to_use
         }
         
         app_logger.info(f"Evolution API client initialized with base URL: {self.base_url}")
+        app_logger.info(f"Using authentication key: {'AUTHENTICATION_API_KEY' if self.auth_key else 'fallback key'}")
     
     async def _make_request(
         self, 
@@ -66,8 +70,8 @@ class EvolutionAPIClient:
         url = f"{self.base_url}/{endpoint}"
         
         headers = self.headers.copy()
-        if instance_name and self.auth_key:
-            headers["Authorization"] = f"Bearer {self.auth_key}"
+        # Evolution API v2 uses only 'apikey' header for authentication
+        # Remove the conflicting Authorization header
         
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
@@ -331,7 +335,8 @@ class EvolutionAPIClient:
             if event != "messages.upsert":
                 return None
             
-            message_info = data.get("messages", [{}])[0]
+            # For Evolution API v1.7.1, message data is directly in 'data', not in 'data.messages'
+            message_info = data
             
             # Skip messages sent by the bot itself
             if message_info.get("key", {}).get("fromMe", False):

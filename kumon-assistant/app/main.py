@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import logging
 
-from app.api.v1 import whatsapp, health, units
+from app.api.v1 import whatsapp, health, units, conversation
 from app.api import embeddings, evolution
 from app.core.config import settings
 from app.core.logger import app_logger
@@ -55,6 +55,9 @@ app.include_router(units.router, prefix="/api/v1", tags=["units"])
 
 # Health and utility endpoints
 app.include_router(health.router, prefix="/api/v1", tags=["health"])
+
+# Conversation flow management endpoints
+app.include_router(conversation.router, prefix="/api/v1", tags=["conversation"])
 
 # Embeddings and semantic search endpoints
 app.include_router(embeddings.router, tags=["embeddings"])

@@ -1,7 +1,7 @@
 """
 Intent classification service using OpenAI
 """
-import openai
+from openai import AsyncOpenAI
 from typing import Dict, Any
 import json
 
@@ -14,7 +14,7 @@ class IntentClassifier:
     """Classify user intents from WhatsApp messages"""
     
     def __init__(self):
-        openai.api_key = settings.OPENAI_API_KEY
+        self.client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
         
         self.intents = {
             "schedule_appointment": [
@@ -30,7 +30,7 @@ class IntentClassifier:
                 "nome é", "estuda", "escola"
             ],
             "greeting": [
-                "oi", "olá", "bom dia", "boa tarde", "boa noite", "hello"
+                "oi", "olá", "bom dia", "boa tarde", "boa noite", "hello", "buenos dias", "buenas tardes", "buenas noches", "hola"
             ],
             "business_info": [
                 "endereço", "localização", "onde fica", "telefone", "horário de funcionamento"
@@ -92,7 +92,7 @@ class IntentClassifier:
         """
         
         try:
-            response = await openai.ChatCompletion.acreate(
+            response = await self.client.chat.completions.create(
                 model=settings.OPENAI_MODEL,
                 messages=[
                     {"role": "system", "content": "Você é um classificador de intenções para um sistema de atendimento do Kumon."},

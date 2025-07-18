@@ -1,36 +1,250 @@
+# ============================================================================
+# COMPREHENSIVE CLOUD BUILD - KUMON AI RECEPTIONIST
+# Deploys all three services: Qdrant, Evolution API, and Kumon Assistant
+# ============================================================================
+
 steps:
-  # Build the container image
-  - name: "gcr.io/cloud-builders/docker"
-    args: ["build", "-t", "gcr.io/$PROJECT_ID/kumon-assistant:$COMMIT_SHA", "."]
-
-  # Push the container image to Container Registry
-  - name: "gcr.io/cloud-builders/docker"
-    args: ["push", "gcr.io/$PROJECT_ID/kumon-assistant:$COMMIT_SHA"]
-
-  # Deploy container image to Cloud Run
+  # ============================================================================
+  # STEP 1: Create secrets in Google Secret Manager
+  # ============================================================================
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
-    entrypoint: gcloud
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        # Create secrets if they don't exist
+        if ! gcloud secrets describe openai-api-key --quiet; then
+          echo "Creating OpenAI API key secret..."
+          echo "${_OPENAI_API_KEY}" | gcloud secrets create openai-api-key --data-file=-
+        fi
+
+        if ! gcloud secrets describe evolution-api-key --quiet; then
+          echo "Creating Evolution API key secret..."
+          echo "${_EVOLUTION_API_KEY}" | gcloud secrets create evolution-api-key --data-file=-
+        fi
+
+        echo "Secrets created successfully!"
+    id: "create-secrets"
+
+  # ============================================================================
+  # STEP 2: Build Qdrant (Vector Database)
+  # ============================================================================
+  - name: "gcr.io/cloud-builders/docker"
+    args:
+      - "build"
+      - "-t"
+      - "gcr.io/$PROJECT_ID/qdrant:$BUILD_ID"
+      - "-f"
+      - "Dockerfile.qdrant"
+      - "."
+    id: "build-qdrant"
+
+  - name: "gcr.io/cloud-builders/docker"
+    args: ["push", "gcr.io/$PROJECT_ID/qdrant:$BUILD_ID"]
+    id: "push-qdrant"
+    waitFor: ["build-qdrant"]
+
+  # ============================================================================
+  # STEP 3: Build Evolution API (WhatsApp Integration)
+  # ============================================================================
+  - name: "gcr.io/cloud-builders/docker"
+    args:
+      - "build"
+      - "-t"
+      - "gcr.io/$PROJECT_ID/evolution-api:$BUILD_ID"
+      - "-f"
+      - "Dockerfile.evolution"
+      - "."
+    id: "build-evolution"
+
+  - name: "gcr.io/cloud-builders/docker"
+    args: ["push", "gcr.io/$PROJECT_ID/evolution-api:$BUILD_ID"]
+    id: "push-evolution"
+    waitFor: ["build-evolution"]
+
+  # ============================================================================
+  # STEP 4: Build Kumon Assistant (Main Application)
+  # ============================================================================
+  - name: "gcr.io/cloud-builders/docker"
+    args:
+      - "build"
+      - "-t"
+      - "gcr.io/$PROJECT_ID/kumon-assistant:$BUILD_ID"
+      - "-f"
+      - "Dockerfile.kumon"
+      - "."
+    id: "build-kumon"
+
+  - name: "gcr.io/cloud-builders/docker"
+    args: ["push", "gcr.io/$PROJECT_ID/kumon-assistant:$BUILD_ID"]
+    id: "push-kumon"
+    waitFor: ["build-kumon"]
+
+  # ============================================================================
+  # STEP 5: Deploy Qdrant Service
+  # ============================================================================
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "gcloud"
     args:
       - "run"
       - "deploy"
-      - "kumon-assistant"
+      - "kumon-qdrant"
       - "--image"
-      - "gcr.io/$PROJECT_ID/kumon-assistant:$COMMIT_SHA"
+      - "gcr.io/$PROJECT_ID/qdrant:$BUILD_ID"
       - "--region"
       - "us-central1"
       - "--platform"
       - "managed"
       - "--allow-unauthenticated"
       - "--port"
-      - "8000"
+      - "6333"
       - "--memory"
       - "1Gi"
       - "--cpu"
       - "1"
+      - "--timeout"
+      - "300"
       - "--max-instances"
-      - "10"
+      - "3"
+      - "--min-instances"
+      - "1"
       - "--concurrency"
       - "80"
+    id: "deploy-qdrant"
+    waitFor: ["push-qdrant", "create-secrets"]
 
-images:
-  - "gcr.io/$PROJECT_ID/kumon-assistant:$COMMIT_SHA"
+  # ============================================================================
+  # STEP 6: Deploy Evolution API Service
+  # ============================================================================
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "gcloud"
+    args:
+      - "run"
+      - "deploy"
+      - "kumon-evolution-api"
+      - "--image"
+      - "gcr.io/$PROJECT_ID/evolution-api:$BUILD_ID"
+      - "--region"
+      - "us-central1"
+      - "--platform"
+      - "managed"
+      - "--allow-unauthenticated"
+      - "--port"
+      - "8080"
+      - "--set-env-vars"
+      - "SERVER_URL=https://kumon-evolution-api-[HASH]-uc.a.run.app"
+      - "--update-secrets"
+      - "AUTHENTICATION_API_KEY=evolution-api-key:latest"
+      - "--memory"
+      - "1Gi"
+      - "--cpu"
+      - "1"
+      - "--timeout"
+      - "300"
+      - "--max-instances"
+      - "5"
+      - "--min-instances"
+      - "1"
+      - "--concurrency"
+      - "80"
+    id: "deploy-evolution"
+    waitFor: ["push-evolution", "create-secrets"]
+
+  # ============================================================================
+  # STEP 7: Get service URLs for inter-service communication
+  # ============================================================================
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        # Get service URLs
+        QDRANT_URL=$$(gcloud run services describe kumon-qdrant --region=us-central1 --format="value(status.url)")
+        EVOLUTION_URL=$$(gcloud run services describe kumon-evolution-api --region=us-central1 --format="value(status.url)")
+
+        # Store URLs in environment for next step
+        echo "QDRANT_URL=$$QDRANT_URL" > /workspace/service_urls.env
+        echo "EVOLUTION_URL=$$EVOLUTION_URL" >> /workspace/service_urls.env
+
+        echo "Service URLs saved:"
+        cat /workspace/service_urls.env
+    id: "get-service-urls"
+    waitFor: ["deploy-qdrant", "deploy-evolution"]
+
+  # ============================================================================
+  # STEP 8: Deploy Kumon Assistant (Main Application)
+  # ============================================================================
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        # Source the service URLs
+        source /workspace/service_urls.env
+
+        # Deploy Kumon Assistant with proper service URLs and resource limits
+        gcloud run deploy kumon-assistant \
+          --image gcr.io/$PROJECT_ID/kumon-assistant:$BUILD_ID \
+          --region us-central1 \
+          --platform managed \
+          --allow-unauthenticated \
+          --port 8000 \
+          --set-env-vars "QDRANT_URL=$$QDRANT_URL,EVOLUTION_API_URL=$$EVOLUTION_URL,ENVIRONMENT=production,EMBEDDING_CACHE_SIZE_MB=${_EMBEDDING_CACHE_SIZE_MB},EMBEDDING_CACHE_FILES=${_EMBEDDING_CACHE_FILES},MAX_ACTIVE_CONVERSATIONS=${_MAX_ACTIVE_CONVERSATIONS},CONVERSATION_TIMEOUT_HOURS=${_CONVERSATION_TIMEOUT_HOURS},CACHE_CLEANUP_INTERVAL=${_CACHE_CLEANUP_INTERVAL}" \
+          --update-secrets "OPENAI_API_KEY=openai-api-key:latest,EVOLUTION_API_KEY=evolution-api-key:latest" \
+          --memory 4Gi \
+          --cpu 2 \
+          --timeout 300 \
+          --max-instances 10 \
+          --min-instances 1 \
+          --concurrency 80 \
+          --cpu-throttling \
+          --execution-environment gen2
+    id: "deploy-kumon"
+    waitFor: ["push-kumon", "get-service-urls"]
+
+  # ============================================================================
+  # STEP 9: Configure Evolution API webhook
+  # ============================================================================
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        # Get final service URLs
+        KUMON_URL=$$(gcloud run services describe kumon-assistant --region=us-central1 --format="value(status.url)")
+
+        echo "🎉 DEPLOYMENT COMPLETE!"
+        echo "===================="
+        echo "Qdrant URL: $$QDRANT_URL"
+        echo "Evolution API URL: $$EVOLUTION_URL"
+        echo "Kumon Assistant URL: $$KUMON_URL"
+        echo "===================="
+        echo "Next steps:"
+        echo "1. Configure your WhatsApp webhook to point to: $$KUMON_URL/api/v1/evolution/webhook"
+        echo "2. Update Evolution API instance settings if needed"
+        echo "3. Test the system with a WhatsApp message"
+    id: "deployment-complete"
+    waitFor: ["deploy-kumon"]
+
+# ============================================================================
+# SUBSTITUTIONS (Default values - override via trigger or CLI)
+# ============================================================================
+substitutions:
+  _OPENAI_API_KEY: "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"
+  _EVOLUTION_API_KEY: "B6D711FCDE4D4FD5936544120E713976"
+  _EMBEDDING_CACHE_SIZE_MB: "50"
+  _EMBEDDING_CACHE_FILES: "500"
+  _MAX_ACTIVE_CONVERSATIONS: "500"
+  _CONVERSATION_TIMEOUT_HOURS: "12"
+  _CACHE_CLEANUP_INTERVAL: "1800"
+
+# ============================================================================
+# OPTIONS
+# ============================================================================
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+# ============================================================================
+# TIMEOUT
+# ============================================================================
+timeout: "1800s" # 30 minutes

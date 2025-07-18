@@ -17,17 +17,14 @@ class UnitManager:
         self._initialize_default_units()
     
     def _initialize_default_units(self):
-        """Initialize with some default units for testing"""
-        # You can remove this and load from database in production
+        """Initialize with the real Kumon Vila A unit"""
         default_units = [
             {
-                "user_id": "kumon-central",
-                "username": "Kumon Central",
-                "address": "Rua Principal, 123 - Centro",
-                "phone": "(11) 9999-1234",
-                "email": "central@kumon.com.br",
-                "whatsapp_phone_number_id": "691913557337608",  # Your current WhatsApp number
-                "whatsapp_business_account_id": "1794212181478815",  # Your current business account
+                "user_id": "kumon-vila-a",
+                "username": "Kumon Vila A",
+                "address": "Rua Amoreira, 571. Salas 6 e 7. Jardim das Laranjeiras",
+                "phone": "51996921999",
+                "email": "kumonvilaa@gmail.com",
                 "operating_hours": {
                     "Segunda-feira": "08:00 - 18:00",
                     "Terça-feira": "08:00 - 18:00", 
@@ -42,9 +39,10 @@ class UnitManager:
                     "Inglês": {"price": "180.00", "description": "Programa de inglês Kumon"}
                 },
                 "custom_responses": {
-                    "greeting": "Olá! Bem-vindo ao Kumon Central! Como posso ajudá-lo hoje?",
+                    "greeting": "Olá! Bem-vindo ao Kumon Vila A! Como posso ajudá-lo hoje?",
                     "business_hours": "Nosso horário de funcionamento:\n{operating_hours}",
-                    "services": "Nossos programas disponíveis:\n{services}"
+                    "services": "Nossos programas disponíveis:\n{services}",
+                    "contact": "Entre em contato conosco:\n📞 Telefone: (51) 99692-1999\n📧 Email: kumonvilaa@gmail.com\n📍 Endereço: Rua Amoreira, 571. Salas 6 e 7. Jardim das Laranjeiras"
                 }
             }
         ]
@@ -53,7 +51,7 @@ class UnitManager:
             unit_config = UnitConfig(**unit_data)
             unit = Unit(config=unit_config)
             self._units[unit_data["user_id"]] = unit
-            app_logger.info(f"Initialized default unit: {unit_data['username']}")
+            app_logger.info(f"Initialized unit: {unit_data['username']}")
     
     def create_unit(self, request: CreateUnitRequest) -> UnitResponse:
         """Create a new unit"""
@@ -65,8 +63,6 @@ class UnitManager:
             address=request.address,
             phone=request.phone,
             email=request.email,
-            whatsapp_phone_number_id=request.whatsapp_phone_number_id,
-            whatsapp_business_account_id=request.whatsapp_business_account_id,
             operating_hours=request.operating_hours or {},
             services=request.services or {},
             custom_responses=request.custom_responses or {},
@@ -92,10 +88,10 @@ class UnitManager:
         """Get a unit by ID"""
         return self._units.get(user_id)
     
-    def get_unit_by_phone_number_id(self, phone_number_id: str) -> Optional[Unit]:
-        """Get a unit by WhatsApp phone number ID"""
+    def get_unit_by_phone(self, phone: str) -> Optional[Unit]:
+        """Get a unit by phone number"""
         for unit in self._units.values():
-            if unit.config.whatsapp_phone_number_id == phone_number_id:
+            if unit.config.phone == phone:
                 return unit
         return None
     
@@ -171,7 +167,16 @@ class UnitManager:
         """Get unit-specific context for AI responses"""
         unit = self.get_unit(user_id)
         if not unit:
-            return {}
+            # Return default Kumon Vila A context if no specific unit found
+            return {
+                "username": "Kumon Vila A",
+                "address": "Rua Amoreira, 571. Salas 6 e 7. Jardim das Laranjeiras",
+                "phone": "(51) 99692-1999",
+                "email": "kumonvilaa@gmail.com",
+                "operating_hours": "Segunda a Sexta: 08:00 às 18:00, Sábado: 08:00 às 12:00",
+                "services": "Matemática, Português, Inglês",
+                "timezone": "America/Sao_Paulo"
+            }
         
         return {
             "username": unit.config.username,

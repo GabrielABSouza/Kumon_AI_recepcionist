@@ -1,0 +1,108 @@
+# ============================================================================
+# SIMPLIFIED CLOUD BUILD - KUMON ASSISTANT ONLY
+# Focuses on deploying the main application with cache fixes
+# ============================================================================
+
+steps:
+  # ============================================================================
+  # STEP 1: Create secrets in Google Secret Manager
+  # ============================================================================
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        # Create secrets if they don't exist
+        if ! gcloud secrets describe openai-api-key --quiet; then
+          echo "Creating OpenAI API key secret..."
+          echo "${_OPENAI_API_KEY}" | gcloud secrets create openai-api-key --data-file=-
+        fi
+
+        if ! gcloud secrets describe evolution-api-key --quiet; then
+          echo "Creating Evolution API key secret..."
+          echo "${_EVOLUTION_API_KEY}" | gcloud secrets create evolution-api-key --data-file=-
+        fi
+
+        echo "Secrets created successfully!"
+    id: "create-secrets"
+
+  # ============================================================================
+  # STEP 2: Build Kumon Assistant (Main Application)
+  # ============================================================================
+  - name: "gcr.io/cloud-builders/docker"
+    args:
+      - "build"
+      - "-t"
+      - "gcr.io/$PROJECT_ID/kumon-assistant:$BUILD_ID"
+      - "-f"
+      - "Dockerfile"
+      - "."
+    id: "build-kumon"
+
+  - name: "gcr.io/cloud-builders/docker"
+    args: ["push", "gcr.io/$PROJECT_ID/kumon-assistant:$BUILD_ID"]
+    id: "push-kumon"
+    waitFor: ["build-kumon"]
+
+  # ============================================================================
+  # STEP 3: Deploy Kumon Assistant (Main Application)
+  # ============================================================================
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        # Deploy Kumon Assistant with cache management settings
+        gcloud run deploy kumon-assistant \
+          --image gcr.io/$PROJECT_ID/kumon-assistant:$BUILD_ID \
+          --region us-central1 \
+          --platform managed \
+          --allow-unauthenticated \
+          --port 8000 \
+          --set-env-vars "ENVIRONMENT=production,EMBEDDING_CACHE_SIZE_MB=${_EMBEDDING_CACHE_SIZE_MB},EMBEDDING_CACHE_FILES=${_EMBEDDING_CACHE_FILES},MAX_ACTIVE_CONVERSATIONS=${_MAX_ACTIVE_CONVERSATIONS},CONVERSATION_TIMEOUT_HOURS=${_CONVERSATION_TIMEOUT_HOURS},CACHE_CLEANUP_INTERVAL=${_CACHE_CLEANUP_INTERVAL},QDRANT_URL=https://qdrant-cloud-endpoint,EVOLUTION_API_URL=http://localhost:8080" \
+          --update-secrets "OPENAI_API_KEY=openai-api-key:latest,EVOLUTION_API_KEY=evolution-api-key:latest" \
+          --memory 4Gi \
+          --cpu 2 \
+          --timeout 300 \
+          --max-instances 10 \
+          --min-instances 1 \
+          --concurrency 80 \
+          --cpu-throttling \
+          --execution-environment gen2
+
+        # Get the deployed URL
+        SERVICE_URL=$$(gcloud run services describe kumon-assistant --region=us-central1 --format="value(status.url)")
+
+        echo "🎉 DEPLOYMENT COMPLETE!"
+        echo "===================="
+        echo "Kumon Assistant URL: $$SERVICE_URL"
+        echo "===================="
+        echo "Next steps:"
+        echo "1. Configure your WhatsApp webhook to point to: $$SERVICE_URL/api/v1/evolution/webhook"
+        echo "2. Test the system with a WhatsApp message"
+        echo "3. Monitor logs: gcloud logs read --service kumon-assistant"
+    id: "deploy-kumon"
+    waitFor: ["push-kumon", "create-secrets"]
+
+# ============================================================================
+# SUBSTITUTIONS (Default values - override via trigger or CLI)
+# ============================================================================
+substitutions:
+  _OPENAI_API_KEY: "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"
+  _EVOLUTION_API_KEY: "B6D711FCDE4D4FD5936544120E713976"
+  _EMBEDDING_CACHE_SIZE_MB: "50"
+  _EMBEDDING_CACHE_FILES: "500"
+  _MAX_ACTIVE_CONVERSATIONS: "500"
+  _CONVERSATION_TIMEOUT_HOURS: "12"
+  _CACHE_CLEANUP_INTERVAL: "1800"
+
+# ============================================================================
+# OPTIONS
+# ============================================================================
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+# ============================================================================
+# TIMEOUT
+# ============================================================================
+timeout: "1800s" # 30 minutes

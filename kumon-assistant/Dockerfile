@@ -56,8 +56,6 @@ RUN mkdir -p /app/cache/embeddings /app/logs /app/app/data
 # Copy application code
 COPY --chown=kumon:kumon app/ /app/app/
 COPY --chown=kumon:kumon scripts/ /app/scripts/
-COPY --chown=kumon:kumon *.py /app/
-COPY --chown=kumon:kumon *.md /app/
 
 # Set proper permissions
 USER root

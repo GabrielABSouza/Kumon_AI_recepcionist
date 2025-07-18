@@ -1,0 +1,123 @@
+# Exclude cache directories (very large) - CRITICAL FOR DEPLOYMENT
+cache/
+logs/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Exclude virtual environment (very large) - CRITICAL FOR DEPLOYMENT
+venv/
+env/
+.venv/
+.env/
+ENV/
+env.bak/
+venv.bak/
+
+# Exclude development files
+.git/
+.gitignore
+.env
+.env.*
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+
+# Exclude test files
+test_*.py
+*_test.py
+tests/
+pytest.ini
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Exclude Docker files for other services - CRITICAL FOR DEPLOYMENT
+Dockerfile.qdrant
+Dockerfile.evolution
+Dockerfile.kumon
+docker/
+docker-compose*.yml
+.dockerignore
+
+# Exclude documentation
+*.md
+README.md
+docs/
+deployment-guide.md
+CONTAINERIZATION_SUMMARY.md
+COST_ESTIMATION.md
+EVOLUTION_API_SETUP.md
+EMBEDDING_SYSTEM_README.md
+
+# Exclude IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Exclude large model files and embeddings - CRITICAL FOR DEPLOYMENT
+*.bin
+*.safetensors
+models/
+embeddings/
+.huggingface/
+.transformers/
+
+# Exclude additional cache patterns - CRITICAL FOR DEPLOYMENT
+.mypy_cache/
+.pytest_cache/
+.tox/
+.cache/
+*.egg-info/
+build/
+dist/
+pip-wheel-metadata/
+
+# Exclude development databases
+*.db
+*.sqlite3
+
+# Exclude Node.js (if any)
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Exclude backup files
+*.bak
+*.backup
+*.old
+*.orig
+
+# Exclude temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Exclude large data files
+*.csv
+*.json
+*.pickle
+*.pkl
+data/
+datasets/
+
+# Exclude system files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Exclude deployment scripts (not needed in production)
+scripts/build.sh
+scripts/deploy.sh
+deploy.sh
+setup_evolution.sh 

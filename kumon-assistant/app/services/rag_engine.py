@@ -1,7 +1,7 @@
 """
 RAG engine for answering questions using few-shot learning with OpenAI
 """
-import openai
+from openai import AsyncOpenAI
 from typing import Dict, Any, List, Optional
 import json
 import os
@@ -26,7 +26,7 @@ class RAGEngine:
     """RAG engine for question answering using few-shot learning"""
     
     def __init__(self):
-        openai.api_key = settings.OPENAI_API_KEY
+        self.client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
         self.few_shot_examples = self._load_few_shot_examples()
         app_logger.info(f"RAG Engine initialized with {len(self.few_shot_examples)} few-shot examples")
     
@@ -81,9 +81,15 @@ class RAGEngine:
             ),
             FewShotExample(
                 question="Quanto custa o Kumon?",
-                answer="Os valores variam de acordo com as disciplinas selecionadas. Para informações precisas sobre mensalidades e taxas, precisamos agendar uma conversa. Você gostaria de agendar uma consulta gratuita para conhecer melhor nossa proposta? 💰📞",
+                answer="Os valores variam de acordo com as disciplinas selecionadas. Para informações precisas sobre mensalidades e taxas do Kumon Vila A, entre em contato conosco no (51) 99692-1999 ou kumonvilaa@gmail.com. Será um prazer agendar uma consulta gratuita para conhecer melhor nossa proposta! 💰📞",
                 category="pricing",
                 keywords=["preço", "custa", "valor", "mensalidade", "quanto", "custo"]
+            ),
+            FewShotExample(
+                question="Qual o telefone e endereço da unidade?",
+                answer="A unidade Kumon Vila A está localizada na Rua Amoreira, 571. Salas 6 e 7. Jardim das Laranjeiras. Nosso telefone é (51) 99692-1999 e nosso e-mail é kumonvilaa@gmail.com. Funcionamos de segunda a sexta das 08:00 às 18:00 e sábado das 08:00 às 12:00. Esperamos sua visita! 📍📞",
+                category="contact",
+                keywords=["telefone", "endereço", "localização", "contato", "unidade"]
             )
         ]
     
@@ -141,8 +147,8 @@ class RAGEngine:
             # Build few-shot prompt
             few_shot_prompt = self._build_few_shot_prompt(question, similar_examples, context)
             
-            # Get response from OpenAI
-            response = await openai.ChatCompletion.acreate(
+            # Get response from OpenAI using new API
+            response = await self.client.chat.completions.create(
                 model=settings.OPENAI_MODEL,
                 messages=[
                     {
@@ -227,7 +233,7 @@ class RAGEngine:
         """
         
         try:
-            response = await openai.ChatCompletion.acreate(
+            response = await self.client.chat.completions.create(
                 model=settings.OPENAI_MODEL,
                 messages=[
                     {"role": "system", "content": "Você é uma recepcionista virtual do Kumon, sempre educada e prestativa."},

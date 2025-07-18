@@ -5,6 +5,7 @@ import os
 import asyncio
 import hashlib
 import pickle
+import time
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Union
 from concurrent.futures import ThreadPoolExecutor
@@ -27,7 +28,14 @@ class EmbeddingService:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.device = self._get_device()
         
+        # Cache management settings
+        self.max_cache_size_mb = getattr(settings, 'EMBEDDING_CACHE_SIZE_MB', 100)  # 100MB default
+        self.max_cache_files = getattr(settings, 'EMBEDDING_CACHE_FILES', 1000)  # 1000 files default
+        self.cache_cleanup_interval = getattr(settings, 'CACHE_CLEANUP_INTERVAL', 3600)  # 1 hour
+        self.last_cleanup_time = 0
+        
         app_logger.info(f"Embedding service initialized with device: {self.device}")
+        app_logger.info(f"Cache limits: {self.max_cache_size_mb}MB, {self.max_cache_files} files")
     
     def _get_device(self) -> str:
         """Determine the best device to use for embeddings"""
@@ -72,6 +80,31 @@ class EmbeddingService:
         )
         return model
     
+    async def cleanup_model(self) -> None:
+        """Clean up model from memory to free resources"""
+        if self.model is not None:
+            try:
+                # Move model to CPU first to free GPU memory
+                if hasattr(self.model, 'to') and self.device in ['cuda', 'mps']:
+                    self.model.to('cpu')
+                
+                # Delete the model
+                del self.model
+                self.model = None
+                
+                # Force garbage collection
+                import gc
+                gc.collect()
+                
+                # Clear CUDA cache if available
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                
+                app_logger.info("Embedding model cleaned up from memory")
+                
+            except Exception as e:
+                app_logger.error(f"Error cleaning up model: {str(e)}")
+    
     async def embed_text(self, text: str, use_cache: bool = True) -> np.ndarray:
         """Generate embedding for a single text"""
         if not text or not text.strip():
@@ -91,6 +124,9 @@ class EmbeddingService:
         """Generate embeddings for multiple texts"""
         if not texts:
             return []
+        
+        # Check if cache cleanup is needed
+        await self._cleanup_cache_if_needed()
         
         # Ensure model is loaded
         await self.initialize_model()
@@ -157,9 +193,9 @@ class EmbeddingService:
     def _generate_embeddings(self, texts: List[str]) -> List[np.ndarray]:
         """Generate embeddings using the model (runs in thread pool)"""
         try:
-            # Process in batches to manage memory
+            # Process in smaller batches to manage memory better
             all_embeddings = []
-            batch_size = settings.EMBEDDING_BATCH_SIZE
+            batch_size = min(settings.EMBEDDING_BATCH_SIZE, 16)  # Limit batch size for memory
             
             for i in range(0, len(texts), batch_size):
                 batch = texts[i:i + batch_size]
@@ -170,6 +206,10 @@ class EmbeddingService:
                     show_progress_bar=False
                 )
                 all_embeddings.extend(batch_embeddings)
+                
+                # Clear some memory after each batch
+                if hasattr(torch, 'cuda') and torch.cuda.is_available():
+                    torch.cuda.empty_cache()
             
             return all_embeddings
             
@@ -190,6 +230,8 @@ class EmbeddingService:
             cache_file = self.cache_dir / f"{cache_key}.pkl"
             
             if cache_file.exists():
+                # Update access time for LRU cleanup
+                cache_file.touch()
                 with open(cache_file, 'rb') as f:
                     return pickle.load(f)
         except Exception as e:
@@ -205,8 +247,61 @@ class EmbeddingService:
             
             with open(cache_file, 'wb') as f:
                 pickle.dump(embedding, f)
+                
         except Exception as e:
             app_logger.warning(f"Error caching embedding: {str(e)}")
+    
+    async def _cleanup_cache_if_needed(self) -> None:
+        """Clean up cache if it exceeds size or file limits"""
+        current_time = time.time()
+        
+        # Check if cleanup is needed (time-based or size-based)
+        if current_time - self.last_cleanup_time < self.cache_cleanup_interval:
+            return
+        
+        try:
+            cache_files = list(self.cache_dir.glob("*.pkl"))
+            
+            if not cache_files:
+                return
+            
+            # Calculate total cache size
+            total_size = sum(f.stat().st_size for f in cache_files)
+            total_size_mb = total_size / (1024 * 1024)
+            
+            # Check if cleanup is needed
+            files_exceed = len(cache_files) > self.max_cache_files
+            size_exceeds = total_size_mb > self.max_cache_size_mb
+            
+            if files_exceed or size_exceeds:
+                app_logger.info(
+                    f"Cache cleanup needed: {len(cache_files)} files, {total_size_mb:.1f}MB "
+                    f"(limits: {self.max_cache_files} files, {self.max_cache_size_mb}MB)"
+                )
+                
+                # Sort by access time (LRU)
+                cache_files.sort(key=lambda f: f.stat().st_atime)
+                
+                # Remove oldest files
+                files_to_remove = max(
+                    len(cache_files) - self.max_cache_files,
+                    int(len(cache_files) * 0.3)  # Remove 30% if size limit exceeded
+                )
+                
+                removed_count = 0
+                for cache_file in cache_files[:files_to_remove]:
+                    try:
+                        cache_file.unlink()
+                        removed_count += 1
+                    except Exception as e:
+                        app_logger.warning(f"Error removing cache file {cache_file}: {str(e)}")
+                
+                app_logger.info(f"Removed {removed_count} old cache files")
+            
+            self.last_cleanup_time = current_time
+            
+        except Exception as e:
+            app_logger.error(f"Error in cache cleanup: {str(e)}")
     
     def cosine_similarity(self, embedding1: np.ndarray, embedding2: np.ndarray) -> float:
         """Calculate cosine similarity between two embeddings"""
@@ -250,7 +345,11 @@ class EmbeddingService:
             "device": self.device,
             "cached_embeddings": len(cache_files),
             "cache_size_mb": sum(f.stat().st_size for f in cache_files) / (1024 * 1024),
-            "model_loaded": self.model is not None
+            "model_loaded": self.model is not None,
+            "cache_limits": {
+                "max_size_mb": self.max_cache_size_mb,
+                "max_files": self.max_cache_files
+            }
         }
         
         if self.model:

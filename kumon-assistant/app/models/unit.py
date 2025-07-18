@@ -14,10 +14,6 @@ class UnitConfig(BaseModel):
     phone: str = Field(..., description="Contact phone number")
     email: Optional[str] = Field(None, description="Contact email")
     
-    # WhatsApp specific config
-    whatsapp_phone_number_id: str = Field(..., description="WhatsApp Phone Number ID for this unit")
-    whatsapp_business_account_id: str = Field(..., description="WhatsApp Business Account ID")
-    
     # Operating hours
     operating_hours: Dict[str, str] = Field(default_factory=dict, description="Operating hours by day")
     timezone: str = Field(default="America/Sao_Paulo", description="Timezone for the unit")
@@ -73,8 +69,6 @@ class CreateUnitRequest(BaseModel):
     address: str
     phone: str
     email: Optional[str] = None
-    whatsapp_phone_number_id: str
-    whatsapp_business_account_id: str
     operating_hours: Optional[Dict[str, str]] = None
     services: Optional[Dict[str, Any]] = None
     custom_responses: Optional[Dict[str, str]] = None

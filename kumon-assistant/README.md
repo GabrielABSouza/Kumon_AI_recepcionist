@@ -15,12 +15,12 @@ AI-powered WhatsApp receptionist for Kumon centers that can answer questions, su
 
 1. Clone the repository
 2. Install dependencies: `pip install -r requirements.txt`
-3. Copy `.env.example` to `.env` and fill in your credentials
+3. Create a `.env` file with your credentials (see configuration section)
 4. Run the application: `uvicorn app.main:app --reload`
 
 ## Environment Variables
 
-See `.env.example` for all required environment variables.
+See `app/core/config.py` for all required environment variables.
 
 ## Development
 

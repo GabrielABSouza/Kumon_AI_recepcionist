@@ -1,0 +1,56 @@
+# ============================================================================
+# EVOLUTION API - CUSTOM PRODUCTION DOCKERFILE
+# Extends official Evolution API with custom configurations
+# ============================================================================
+
+FROM atendai/evolution-api:latest as base
+
+# Set working directory
+WORKDIR /evolution
+
+# Install additional utilities for health checks and management
+USER root
+RUN apt-get update && apt-get install -y \
+    curl \
+    jq \
+    netcat-openbsd \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Create custom scripts directory
+RUN mkdir -p /evolution/scripts
+
+# Copy custom initialization and health check scripts
+COPY docker/evolution/scripts/ /evolution/scripts/
+COPY docker/evolution/config/ /evolution/config/
+
+# Make scripts executable
+RUN chmod +x /evolution/scripts/*.sh
+
+# Create non-root user for security (if not exists)
+RUN if ! id evolution >/dev/null 2>&1; then \
+        useradd --create-home --shell /bin/bash evolution; \
+    fi
+
+# Set proper ownership
+RUN chown -R evolution:evolution /evolution
+
+# Switch to non-root user
+USER evolution
+
+# Environment variables for Evolution API
+ENV NODE_ENV=production
+ENV SERVER_URL=http://localhost:8080
+ENV CORS_ORIGIN=*
+ENV CORS_METHODS=GET,POST,PUT,DELETE
+ENV CORS_CREDENTIALS=true
+
+# Health check with custom script
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD /evolution/scripts/health-check.sh || exit 1
+
+# Custom entrypoint that handles initialization
+ENTRYPOINT ["/evolution/scripts/entrypoint.sh"]
+
+# Default command
+CMD ["npm", "start"] 
