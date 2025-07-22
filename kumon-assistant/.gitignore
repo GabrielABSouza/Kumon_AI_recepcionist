@@ -1,9 +1,10 @@
-# Virtual Environment
-venv/
-env/
-.env
+# ============================================================================
+# KUMON AI RECEPTIONIST - GITIGNORE (Reorganized Structure)
+# ============================================================================
 
-# Python
+# ============================================================================
+# PYTHON
+# ============================================================================
 __pycache__/
 *.py[cod]
 *$py.class
@@ -24,15 +25,58 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+MANIFEST
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
 
-# OS
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+cover/
+.hypothesis/
+
+# MyPy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# ============================================================================
+# ENVIRONMENT & CREDENTIALS
+# ============================================================================
+.env
+.env.*
+!.env.example
+
+# Credentials (now in temp/credentials/)
+temp/credentials/
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+secrets/
+google-service-account.json
+
+# ============================================================================
+# TEMPORARY FILES & CACHE
+# ============================================================================
+temp/
+cache/
+*.tmp
+*.temp
+*.log
+logs/
+
+# OS Files
 .DS_Store
 .DS_Store?
 ._*
@@ -41,18 +85,52 @@ wheels/
 ehthumbs.db
 Thumbs.db
 
-# Logs
-*.log
-logs/
+# ============================================================================
+# DEVELOPMENT
+# ============================================================================
+# IDE
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+*~
 
-# Database
-*.db
-*.sqlite3
+# Jupyter
+.ipynb_checkpoints
 
-# Google Credentials
-*.json
-credentials/
+# ============================================================================
+# AI/ML CACHE
+# ============================================================================
+# Hugging Face
+.huggingface/
+# Transformers cache
+.cache/transformers/
+# Model cache
+models/cache/
+# Embeddings cache
+temp/cache/embeddings/
 
-# Temporary files
-.tmp/
-temp/ google-service-account.json
+# ============================================================================
+# DOCKER & DEPLOYMENT
+# ============================================================================
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# Cloud Build
+.gcloudignore
+
+# ============================================================================
+# BACKUP & TEMPORARY
+# ============================================================================
+*.bak
+*.backup
+*.orig
+*.rej
+*~
+
+# Temporary debug files (these should be in temp/debug/)
+test_*.py
+debug_*.py

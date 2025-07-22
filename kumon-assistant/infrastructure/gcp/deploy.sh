@@ -64,6 +64,16 @@ check_prerequisites() {
         exit 1
     fi
     
+    # Check environment variables
+    if [[ -z "$OPENAI_API_KEY" || -z "$EVOLUTION_API_KEY" || -z "$DB_ROOT_PASSWORD" || -z "$DB_USER_PASSWORD" ]]; then
+        print_error "Required environment variables not set. Please set:"
+        print_error "  export OPENAI_API_KEY='your-openai-key'"
+        print_error "  export EVOLUTION_API_KEY='your-evolution-key'" 
+        print_error "  export DB_ROOT_PASSWORD='your-db-root-password'"
+        print_error "  export DB_USER_PASSWORD='your-db-user-password'"
+        exit 1
+    fi
+    
     # Set project
     gcloud config set project $PROJECT_ID
     
@@ -79,6 +89,8 @@ enable_apis() {
         run.googleapis.com \
         artifactregistry.googleapis.com \
         secretmanager.googleapis.com \
+        sqladmin.googleapis.com \
+        aiplatform.googleapis.com \
         --quiet
     
     print_success "APIs enabled successfully!"
@@ -89,9 +101,10 @@ start_deployment() {
     print_status "Starting deployment with Cloud Build..."
     
     # Submit build
+    echo "🔐 Using secure substitutions..."
     gcloud builds submit \
         --config=$BUILD_CONFIG \
-        --substitutions=_OPENAI_API_KEY="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",_EVOLUTION_API_KEY="B6D711FCDE4D4FD5936544120E713976",_EMBEDDING_CACHE_SIZE_MB="50",_EMBEDDING_CACHE_FILES="500",_MAX_ACTIVE_CONVERSATIONS="500",_CONVERSATION_TIMEOUT_HOURS="12",_CACHE_CLEANUP_INTERVAL="1800" \
+        --substitutions=_OPENAI_API_KEY="$OPENAI_API_KEY",_EVOLUTION_API_KEY="$EVOLUTION_API_KEY",_DB_ROOT_PASSWORD="$DB_ROOT_PASSWORD",_DB_USER_PASSWORD="$DB_USER_PASSWORD" \
         --region=$REGION \
         --quiet
     

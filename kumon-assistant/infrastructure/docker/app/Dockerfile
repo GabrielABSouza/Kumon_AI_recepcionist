@@ -1,12 +1,12 @@
 # ============================================================================
-# KUMON ASSISTANT - PRODUCTION DOCKERFILE
-# Multi-stage build for optimized ML application container
+# KUMON ASSISTANT - OPTIMIZED PRODUCTION DOCKERFILE
+# Lightweight build using GCP managed services instead of heavy ML libs
 # ============================================================================
 
 # ============================================================================
-# STAGE 1: Build Dependencies (Heavy ML Libraries)
+# STAGE 1: Build Dependencies (Now much lighter!)
 # ============================================================================
-FROM python:3.11-slim as builder
+FROM python:3.11.11-slim AS builder
 
 # Install system dependencies for building
 RUN apt-get update && apt-get install -y \
@@ -15,7 +15,10 @@ RUN apt-get update && apt-get install -y \
     g++ \
     git \
     curl \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get upgrade -y \
+    && apt-get dist-upgrade -y \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
 # Set working directory
 WORKDIR /build
@@ -27,29 +30,24 @@ ENV PATH="/opt/venv/bin:$PATH"
 # Upgrade pip and install wheel for faster builds
 RUN pip install --no-cache-dir --upgrade pip wheel setuptools
 
-# Copy requirements first for better layer caching
-COPY requirements.txt .
+# Copy hybrid requirements (ML optional, with fallbacks)
+COPY infrastructure/config/requirements-hybrid.txt ./requirements.txt
 
 # Install Python dependencies in virtual environment
-# Split heavy ML libs for better caching
-RUN pip install --no-cache-dir \
-    torch==2.1.2 \
-    torchvision==0.16.2 \
-    transformers==4.36.2 \
-    sentence-transformers==2.3.1
-
-# Install remaining dependencies
+# Hybrid approach: ML libs for best performance, fallbacks available
 RUN pip install --no-cache-dir -r requirements.txt
 
 # ============================================================================
-# STAGE 2: Production Runtime
+# STAGE 2: Production Runtime (Much smaller now!)
 # ============================================================================
-FROM python:3.11-slim as runtime
+FROM python:3.11.11-slim AS runtime
 
 # Install runtime system dependencies only
 RUN apt-get update && apt-get install -y \
     curl \
     ca-certificates \
+    && apt-get upgrade -y \
+    && apt-get dist-upgrade -y \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -69,9 +67,11 @@ RUN mkdir -p /app/cache/embeddings \
     /app/logs \
     && chown -R kumon:kumon /app
 
-# Copy application code (app directory contains main.py)
+# Copy application code with proper ownership
 COPY --chown=kumon:kumon ./app ./app
-COPY --chown=kumon:kumon ./.env* ./
+
+# Copy Google service account credentials (temporary for build)
+COPY --chown=kumon:kumon ./temp/credentials/google-service-account.json ./google-service-account.json
 
 # Switch to non-root user
 USER kumon
@@ -81,46 +81,12 @@ ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
-# Cache directories
-ENV HF_HOME=/app/cache/huggingface
-ENV TRANSFORMERS_CACHE=/app/cache/transformers
-ENV EMBEDDING_CACHE_DIR=/app/cache/embeddings
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8000/api/v1/health || exit 1
-
 # Expose port
 EXPOSE 8000
 
-# Default command (main.py is in app directory)
+# Health check
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/api/v1/health || exit 1
+
+# Start the application (production mode - no reload)
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
-
-# ============================================================================
-# STAGE 3: Development (Optional)
-# ============================================================================
-FROM runtime as development
-
-# Switch back to root for development tools
-USER root
-
-# Install development dependencies
-RUN apt-get update && apt-get install -y \
-    vim \
-    htop \
-    git \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install development Python packages
-RUN pip install --no-cache-dir \
-    pytest \
-    pytest-asyncio \
-    black \
-    isort \
-    ipython
-
-# Switch back to kumon user
-USER kumon
-
-# Development command with auto-reload
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--workers", "1"] 

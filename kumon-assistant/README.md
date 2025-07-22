@@ -1,357 +1,445 @@
-# 🤖 Kumon AI Receptionist - Enterprise WhatsApp Integration
+# 🤖 Kumon AI Receptionist
 
-[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
+> **Recepcionista Virtual Inteligente para Kumon com WhatsApp Integration**
+
+[![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green.svg)](https://fastapi.tiangolo.com)
-[![Google Cloud](https://img.shields.io/badge/Google%20Cloud-Deployed-blue.svg)](https://cloud.google.com)
-[![WhatsApp](https://img.shields.io/badge/WhatsApp-Business%20API-25D366.svg)](https://developers.facebook.com/docs/whatsapp)
-[![AI/ML](https://img.shields.io/badge/AI%2FML-Semantic%20Search-orange.svg)](https://www.python.org)
+[![Docker](https://img.shields.io/badge/Docker-Ready-blue.svg)](https://docker.com)
+[![Google Cloud](https://img.shields.io/badge/Google_Cloud-Deployed-orange.svg)](https://cloud.google.com)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> **Enterprise-grade AI-powered WhatsApp receptionist with advanced semantic search, automated appointment booking, and intelligent conversation management.**
+## 🎯 Visão Geral
 
-## 🚀 **Technical Overview**
+Sistema de recepcionista virtual inteligente que automatiza o atendimento ao cliente via WhatsApp para unidades Kumon. Utiliza IA avançada para responder perguntas, agendar consultas e coletar leads de forma natural e eficiente.
 
-This project demonstrates advanced **full-stack development** capabilities, combining **AI/ML technologies**, **cloud architecture**, **API integrations**, and **real-time messaging systems** to create a production-ready conversational AI platform.
+## ✨ Principais Funcionalidades
 
-### **Core Achievements**
+- 🤖 **IA Conversacional**: Respostas naturais usando OpenAI GPT
+- 📱 **WhatsApp Integration**: Suporte completo via Evolution API
+- 📅 **Agendamento Inteligente**: Integração com Google Calendar
+- 🔍 **Busca Semântica**: Sistema RAG com Qdrant Vector Database
+- 🏢 **Multi-unidades**: Gerenciamento de múltiplas unidades Kumon
+- 📊 **Analytics**: Métricas de conversação e performance
+- ☁️ **Cloud Native**: Deploy automatizado no Google Cloud Platform
 
-- ✅ **Zero-cost WhatsApp integration** using Evolution API (saving $0.005-$0.009 per message)
-- ✅ **Advanced semantic search** with multilingual Sentence Transformers and vector databases
-- ✅ **Intelligent conversation flows** with state management and memory optimization
-- ✅ **Real-time Google Calendar integration** with automated appointment booking
-- ✅ **Production-ready cloud deployment** on Google Cloud Platform
-- ✅ **High-performance caching system** with LRU cleanup and memory management
-
----
-
-## 🏗️ **Architecture & Technology Stack**
-
-### **Backend & API**
-
-- **FastAPI** - High-performance async web framework
-- **Pydantic** - Data validation and settings management
-- **AsyncIO** - Concurrent processing and non-blocking operations
-- **OAuth2 + JWT** - Secure authentication and authorization
-
-### **AI/ML & Semantic Search**
-
-- **Sentence Transformers** - Multilingual semantic embeddings (384-dimensional)
-- **Qdrant Vector Database** - High-performance similarity search
-- **LangChain** - Advanced RAG (Retrieval-Augmented Generation) pipeline
-- **OpenAI GPT-4** - Natural language understanding and generation
-
-### **Integrations & APIs**
-
-- **Evolution API** - Cost-free WhatsApp Business integration
-- **Google Calendar API** - Automated scheduling with conflict detection
-- **Google Service Account** - Secure cloud service authentication
-- **Webhook Processing** - Real-time message handling
-
-### **Cloud Infrastructure & DevOps**
-
-- **Google Cloud Run** - Serverless containerized deployment
-- **Docker** - Multi-stage builds and production optimization
-- **Cloud Build** - CI/CD pipeline with automated deployments
-- **Secret Manager** - Secure credential management
-
-### **Performance & Optimization**
-
-- **Redis-like Caching** - LRU cache with automatic cleanup
-- **Batch Processing** - Optimized ML inference and database operations
-- **Memory Management** - Conversation state cleanup and resource monitoring
-- **Async Operations** - Non-blocking I/O for high concurrency
-
----
-
-## 🎯 **Key Technical Features**
-
-### **1. Advanced Conversational AI**
-
-```python
-# Intelligent conversation state management
-@dataclass
-class ConversationState:
-    stage: ConversationStage
-    step: ConversationStep
-    data: Dict[str, Any]
-    last_activity: float
-
-# Multi-stage conversation flow with automated transitions
-async def advance_conversation(phone: str, message: str) -> str:
-    state = self.get_conversation_state(phone)
-    return await self._process_stage(state, message)
-```
-
-### **2. Semantic Search Engine**
-
-```python
-# Multilingual semantic embeddings with caching
-async def embed_text(self, text: str) -> np.ndarray:
-    embedding = await self.model.encode([text], batch_size=1)
-    await self._cache_embedding(text, embedding)
-    return embedding[0]
-
-# Vector similarity search with filtering
-async def search(self, query: str, limit: int = 5,
-                score_threshold: float = 0.7) -> List[SearchResult]:
-    embedding = await self.embedding_service.embed_text(query)
-    return await self.vector_store.search(embedding, limit, score_threshold)
-```
-
-### **3. Google Calendar Integration**
-
-```python
-# Automated appointment booking with conflict detection
-async def find_available_slots(self, preferences: dict) -> List[dict]:
-    business_hours = self._get_business_hours(preferences)
-    conflicts = await self.calendar_client.check_conflicts(business_hours)
-    return self._filter_available_slots(business_hours, conflicts)
-
-# Dynamic event creation with conversation summaries
-async def create_calendar_event(self, slot: dict, user_data: dict) -> dict:
-    event_details = self._build_event_details(slot, user_data)
-    summary = self._create_conversation_summary(user_data)
-    return await self.calendar_client.create_event(event_details, summary)
-```
-
-### **4. High-Performance Caching System**
-
-```python
-# LRU cache with memory management and automatic cleanup
-async def _cleanup_cache_if_needed(self) -> None:
-    if self._should_cleanup():
-        files_to_remove = self._get_lru_files()
-        await self._remove_cache_files(files_to_remove)
-
-# Memory-optimized batch processing
-async def embed_texts(self, texts: List[str]) -> List[np.ndarray]:
-    batches = self._create_batches(texts, self.batch_size)
-    results = await asyncio.gather(*[
-        self._process_batch(batch) for batch in batches
-    ])
-    return self._flatten_results(results)
-```
-
----
-
-## 📊 **Performance Metrics & Optimizations**
-
-### **Memory Management**
-
-- **Cache Optimization**: 50MB limit with LRU cleanup (was unlimited)
-- **Conversation Limits**: 500 active conversations with 12h timeout
-- **Batch Processing**: Optimized 16-item batches for ML inference
-- **Model Cleanup**: Automatic GPU/CPU memory release
-
-### **Response Times**
-
-- **Webhook Processing**: < 200ms average response time
-- **Semantic Search**: < 500ms for similarity queries
-- **Calendar Operations**: < 1s for availability checking
-- **AI Response Generation**: < 3s for complex queries
-
-### **Scalability Features**
-
-- **Async Architecture**: Handles 1000+ concurrent connections
-- **Horizontal Scaling**: Google Cloud Run auto-scaling (1-10 instances)
-- **Resource Limits**: 4GB memory, 2 CPU cores per instance
-- **Database Optimization**: Connection pooling and query optimization
-
----
-
-## 🔧 **Development Practices & Code Quality**
-
-### **Clean Architecture**
+## 📁 Estrutura do Projeto
 
 ```
-app/
-├── api/           # REST API endpoints and routing
-├── services/      # Business logic and core services
-├── clients/       # External API integrations
-├── models/        # Data models and validation
-├── core/          # Configuration and utilities
-└── utils/         # Helper functions and tools
+kumon-assistant/
+├── 📁 src/app/                    # 🔥 Código da Aplicação
+│   ├── api/                      # Endpoints FastAPI
+│   ├── clients/                  # Clientes externos (Google, Evolution)
+│   ├── core/                     # Configurações centrais
+│   ├── models/                   # Modelos de dados
+│   ├── services/                 # Lógica de negócio
+│   └── utils/                    # Utilitários
+│
+├── 📁 infrastructure/             # 🚀 Infraestrutura & Deploy
+│   ├── docker/                   # Dockerfiles organizados
+│   ├── gcp/                      # Configurações Google Cloud
+│   └── config/                   # Configurações de infraestrutura
+│
+├── 📁 docs/                      # 📚 Documentação
+│   ├── deployment/               # Guias de deploy
+│   ├── development/              # Documentação técnica
+│   ├── security/                 # Segurança
+│   └── business/                 # Documentação de negócio
+│
+├── 📁 scripts/                   # 🔧 Scripts Utilitários
+│   ├── deployment/               # Scripts de deploy
+│   ├── maintenance/              # Scripts de manutenção
+│   └── development/              # Scripts de desenvolvimento
+│
+└── 📁 tests/                     # 🧪 Testes
+    ├── unit/                     # Testes unitários
+    ├── integration/              # Testes de integração
+    └── e2e/                      # Testes end-to-end
 ```
 
-### **Professional Standards**
+## 🏗️ Arquitetura do Sistema
 
-- ✅ **Type Hints** - Full Python typing for better IDE support
-- ✅ **Async/Await** - Modern Python async patterns throughout
-- ✅ **Error Handling** - Comprehensive exception management
-- ✅ **Logging** - Structured JSON logging with correlation IDs
-- ✅ **Testing** - Unit tests and integration test suites
-- ✅ **Documentation** - Comprehensive API docs with OpenAPI/Swagger
+### 📊 Arquitetura do Sistema
 
-### **Security Implementation**
+```mermaid
+graph LR
+    %% Frontend Layer
+    subgraph "📱 Frontend"
+        WA[WhatsApp<br/>Business<br/><small>Port 443</small>]
+    end
 
-- 🔒 **API Key Management** - Secure credential rotation
-- 🔒 **Input Validation** - Pydantic models prevent injection attacks
-- 🔒 **CORS Configuration** - Proper cross-origin resource sharing
-- 🔒 **Service Account Auth** - Google Cloud IAM integration
+    %% Backend Layer
+    subgraph "🚀 Backend"
+        API[Kumon AI<br/>Assistant<br/><small>Port 8000</small>]
+    end
 
----
+    %% Data Layer
+    subgraph "🗄️ Data"
+        QDRANT[Qdrant<br/>Vector DB<br/><small>Port 6333</small>]
+        POSTGRES[PostgreSQL<br/>Cloud SQL<br/><small>Port 5432</small>]
+    end
 
-## 🚀 **Deployment & Infrastructure**
+    %% Connections
+    WA <--> API
+    API <--> QDRANT
+    API <--> POSTGRES
 
-### **Production Deployment**
+    %% External Services
+    API -.-> OPENAI[🤖 OpenAI<br/>GPT-4]
+    API -.-> GCAL[📅 Google<br/>Calendar]
+    API -.-> VERTEX[🧠 Vertex AI<br/>Embeddings]
 
-```bash
-# Automated deployment with optimized builds
-./deploy.sh
+    %% Styling
+    classDef frontend fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    classDef backend fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef data fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
+    classDef external fill:#fff3e0,stroke:#f57c00,stroke-width:2px
 
-# Multi-service architecture with health checks
-docker-compose up -d
+    class WA frontend
+    class API backend
+    class QDRANT,POSTGRES data
+    class OPENAI,GCAL,VERTEX external
 ```
 
-### **Cloud Architecture**
+### 🔧 Componentes Internos
 
-- **Google Cloud Run**: Serverless container deployment
-- **Cloud Build**: Automated CI/CD pipeline
-- **Secret Manager**: Secure environment variables
-- **Cloud Logging**: Centralized log aggregation
+```mermaid
+graph TB
+    subgraph "🤖 Kumon AI Assistant"
+        subgraph "📥 Input Layer"
+            WEBHOOK[Webhook<br/>Handler]
+            MSG[Message<br/>Processor]
+        end
 
-### **Environment Optimization**
+        subgraph "🧠 Intelligence Layer"
+            INTENT[Intent<br/>Classifier]
+            CONV[Conversation<br/>Flow]
+            RAG[RAG<br/>Engine]
+        end
 
-```dockerfile
-# Multi-stage Docker build for production
-FROM python:3.10-slim as builder
-COPY requirements.txt .
-RUN pip install --user --no-cache-dir -r requirements.txt
+        subgraph "🔍 Knowledge Layer"
+            EMBED[Hybrid<br/>Embeddings]
+            VECTOR[Vector<br/>Store]
+            CACHE[Cache<br/>Manager]
+        end
 
-FROM python:3.10-slim
-COPY --from=builder /root/.local /root/.local
-# ... optimized production configuration
+        subgraph "📋 Business Layer"
+            BOOKING[Booking<br/>Service]
+            LEAD[Lead<br/>Collector]
+            UNIT[Unit<br/>Manager]
+        end
+
+        subgraph "📤 Output Layer"
+            RESPONSE[Response<br/>Generator]
+            FORMAT[Message<br/>Formatter]
+        end
+    end
+
+    %% Internal Flow
+    WEBHOOK --> MSG
+    MSG --> INTENT
+    INTENT --> CONV
+    CONV --> RAG
+    RAG --> EMBED
+    EMBED --> VECTOR
+    VECTOR --> CACHE
+
+    CONV --> BOOKING
+    CONV --> LEAD
+    CONV --> UNIT
+
+    CONV --> RESPONSE
+    RESPONSE --> FORMAT
+
+    %% Styling
+    classDef input fill:#e8eaf6,stroke:#3f51b5,stroke-width:2px
+    classDef intelligence fill:#f3e5f5,stroke:#9c27b0,stroke-width:2px
+    classDef knowledge fill:#e0f2f1,stroke:#4caf50,stroke-width:2px
+    classDef business fill:#fff3e0,stroke:#ff9800,stroke-width:2px
+    classDef output fill:#fce4ec,stroke:#e91e63,stroke-width:2px
+
+    class WEBHOOK,MSG input
+    class INTENT,CONV,RAG intelligence
+    class EMBED,VECTOR,CACHE knowledge
+    class BOOKING,LEAD,UNIT business
+    class RESPONSE,FORMAT output
 ```
 
----
+### 🔄 Fluxo de Processamento de Mensagens
 
-## 📈 **Business Impact & Results**
+```mermaid
+sequenceDiagram
+    participant U as 👤 Cliente
+    participant W as 📱 WhatsApp
+    participant E as 🔗 Evolution API
+    participant A as 🤖 Kumon Assistant
+    participant AI as 🧠 OpenAI GPT-4
+    participant V as 🗄️ Vector DB
+    participant G as 📅 Google Calendar
 
-### **Cost Optimization**
+    U->>W: Envia mensagem
+    W->>E: Webhook message
+    E->>A: POST /webhook
 
-- **WhatsApp Costs**: Reduced from $0.005-$0.009/message to $0 (Evolution API)
-- **Infrastructure**: Serverless scaling reduces idle costs by 80%
-- **Automation**: Eliminates 95% of manual appointment booking tasks
+    A->>A: 🔍 Classifica intenção
+    A->>V: 🔎 Busca semântica
+    V-->>A: Contexto relevante
 
-### **Performance Improvements**
+    A->>AI: 💬 Gera resposta
+    AI-->>A: Resposta personalizada
 
-- **Response Time**: 70% faster than traditional chatbot solutions
-- **Accuracy**: 85% intent classification accuracy with semantic search
-- **Availability**: 99.9% uptime with automatic health monitoring
+    alt Agendamento
+        A->>G: 📅 Cria evento
+        G-->>A: Confirmação
+    end
 
-### **Scalability Achievements**
+    A->>E: Resposta formatada
+    E->>W: Envia resposta
+    W->>U: Recebe resposta
+```
 
-- **Multi-tenant**: Supports multiple Kumon units with isolated data
-- **Language Support**: Portuguese + multilingual capability
-- **Integration Ready**: Extensible architecture for additional services
+### 🧬 Arquitetura de Embeddings Híbrida
 
----
+```mermaid
+graph LR
+    TEXT[📝 Texto Input] --> HYBRID[🔄 Hybrid Service]
 
-## 🛠️ **Getting Started**
+    HYBRID --> PRIMARY[🥇 PRIMARY]
+    HYBRID --> FALLBACK[🥈 FALLBACK]
+    HYBRID --> LASTRESORT[🥉 LAST RESORT]
 
-### **Prerequisites**
+    PRIMARY --> ST[🆓 Sentence Transformers<br/>• Melhor qualidade<br/>• Gratuito<br/>• Local]
 
-- Python 3.10+
+    FALLBACK --> GCP[💰 GCP Vertex AI<br/>• Boa qualidade<br/>• $0.025/1k chars<br/>• Cloud]
+
+    LASTRESORT --> TFIDF[⚡ TF-IDF<br/>• Qualidade básica<br/>• Gratuito<br/>• Sempre disponível]
+
+    ST --> EMBED[🧬 Embedding 384D]
+    GCP --> EMBED
+    TFIDF --> EMBED
+
+    EMBED --> CACHE[💾 Cache Local]
+    EMBED --> QDRANT[🗄️ Vector Search]
+```
+
+### ☁️ Infraestrutura Cloud
+
+```mermaid
+graph LR
+    subgraph "🌐 Client"
+        USER[WhatsApp<br/>Users]
+    end
+
+    subgraph "🚀 Cloud Run Services"
+        KUMON[Kumon AI<br/>Assistant<br/><small>1 CPU, 1GB</small>]
+        QDRANT[Qdrant<br/>Vector DB<br/><small>1 CPU, 2GB</small>]
+        EVO[Evolution<br/>API<br/><small>2 CPU, 2GB</small>]
+    end
+
+    subgraph "🗄️ Managed Services"
+        SQL[Cloud SQL<br/>PostgreSQL<br/><small>Shared Core</small>]
+        SECRET[Secret<br/>Manager<br/><small>API Keys</small>]
+    end
+
+    subgraph "🤖 AI Services"
+        OPENAI[OpenAI<br/>GPT-4<br/><small>External</small>]
+        VERTEX[Vertex AI<br/>Embeddings<br/><small>Fallback</small>]
+    end
+
+    %% Connections
+    USER <--> EVO
+    EVO <--> KUMON
+    KUMON <--> QDRANT
+    KUMON <--> SQL
+    KUMON <--> SECRET
+    KUMON -.-> OPENAI
+    KUMON -.-> VERTEX
+
+    %% Styling
+    classDef client fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    classDef cloudrun fill:#4285f4,color:white,stroke:#1a73e8,stroke-width:2px
+    classDef managed fill:#34a853,color:white,stroke:#137333,stroke-width:2px
+    classDef ai fill:#ff9800,color:white,stroke:#f57c00,stroke-width:2px
+
+    class USER client
+    class KUMON,QDRANT,EVO cloudrun
+    class SQL,SECRET managed
+    class OPENAI,VERTEX ai
+```
+
+## 🚀 Quick Start
+
+### Pré-requisitos
+
+- Python 3.11+
 - Docker & Docker Compose
 - Google Cloud SDK
-- Node.js (for Evolution API)
+- Conta Google Cloud com APIs habilitadas
 
-### **Quick Setup**
+### 1. Clone e Configure
 
 ```bash
-# Clone and install dependencies
 git clone <repository-url>
 cd kumon-assistant
-pip install -r requirements.txt
 
-# Configure environment
+# Copie as configurações
 cp .env.example .env
-# Edit .env with your credentials
-
-# Start development environment
-docker-compose up -d
-uvicorn app.main:app --reload
+# Edite .env com suas credenciais
 ```
 
-### **Production Deployment**
+### 2. Deploy Local (Desenvolvimento)
 
 ```bash
-# Deploy to Google Cloud
+# Usando Docker Compose
+docker-compose -f infrastructure/docker/compose/docker-compose.yml up
+
+# Ou usando Python
+cd src/
+python -m uvicorn app.main:app --reload
+```
+
+### 3. Deploy em Produção (Google Cloud)
+
+```bash
+# Configure suas credenciais
 gcloud auth login
-./deploy.sh
+gcloud config set project YOUR_PROJECT_ID
 
-# Or use simplified deployment
-gcloud builds submit --config cloudbuild-simple.yaml
+# Execute o deploy
+./infrastructure/gcp/deploy.sh
 ```
 
----
+## 🏗️ Arquitetura
 
-## 📚 **API Documentation**
+```mermaid
+graph TB
+    A[WhatsApp User] --> B[Evolution API]
+    B --> C[Kumon Assistant API]
+    C --> D[OpenAI GPT]
+    C --> E[Qdrant Vector DB]
+    C --> F[Google Calendar]
+    C --> G[PostgreSQL]
 
-### **Interactive Documentation**
-
-- **Swagger UI**: `/docs` - Interactive API testing
-- **ReDoc**: `/redoc` - Beautiful API documentation
-- **OpenAPI Schema**: `/openapi.json` - Machine-readable specs
-
-### **Key Endpoints**
-
-```http
-POST /api/v1/evolution/webhook          # WhatsApp message processing
-GET  /api/v1/evolution/instances        # Instance management
-POST /api/v1/embeddings/search          # Semantic search
-GET  /api/v1/conversation/{phone}       # Conversation state
+    subgraph "Google Cloud Platform"
+        C
+        E
+        G
+    end
 ```
 
+## 📖 Documentação
+
+### 📋 Guias Principais
+
+- [🚀 Guia de Deploy](docs/deployment/deployment-guide.md)
+- [🐳 Containerização](docs/deployment/CONTAINERIZATION_SUMMARY.md)
+- [📱 Evolution API Setup](docs/deployment/EVOLUTION_API_SETUP.md)
+
+### 🔧 Documentação Técnica
+
+- [🧠 Sistema de Embeddings](docs/development/EMBEDDING_SYSTEM_README.md)
+- [⚡ Cache Fixes](docs/development/CACHE_FIXES_SUMMARY.md)
+
+### 🔒 Segurança
+
+- [🛡️ Melhorias de Segurança](docs/security/SECURITY_IMPROVEMENTS.md)
+
+### 💰 Negócio
+
+- [💵 Estimativa de Custos](docs/business/COST_ESTIMATION.md)
+
+## 🛠️ Desenvolvimento
+
+### Estrutura do Código
+
+```python
+# Exemplo de uso da API
+from src.app.services.conversation_flow import ConversationFlow
+from src.app.clients.evolution_api import EvolutionAPIClient
+
+# Processar mensagem
+flow = ConversationFlow()
+response = await flow.process_message(message)
+```
+
+### Scripts Utilitários
+
+```bash
+# Configurar embeddings
+python scripts/maintenance/setup_embeddings.py
+
+# Ingerir documentos
+python scripts/maintenance/ingest_docs.py
+
+# Testar fluxo de conversação
+python scripts/development/test_flow.py
+```
+
+## 🧪 Testes
+
+```bash
+# Testes unitários
+pytest tests/unit/
+
+# Testes de integração
+pytest tests/integration/
+
+# Testes end-to-end
+pytest tests/e2e/
+```
+
+## 📊 Monitoramento
+
+- **Logs**: Google Cloud Logging
+- **Métricas**: Google Cloud Monitoring
+- **Health Checks**: `/api/v1/health`
+- **Docs API**: `/docs` (Swagger UI)
+
+## 🤝 Contribuição
+
+1. Fork o projeto
+2. Crie uma branch (`git checkout -b feature/nova-funcionalidade`)
+3. Commit suas mudanças (`git commit -am 'Adiciona nova funcionalidade'`)
+4. Push para a branch (`git push origin feature/nova-funcionalidade`)
+5. Abra um Pull Request
+
+## 📄 Licença
+
+Este projeto está licenciado sob a Licença MIT - veja o arquivo [LICENSE](LICENSE) para detalhes.
+
+## 🆘 Suporte
+
+- **Documentação**: Consulte a pasta `docs/`
+- **Issues**: Abra uma issue no GitHub
+- **Contato**: [Seu contato aqui]
+
 ---
 
-## 🏆 **Technical Achievements Highlights**
+**Desenvolvido com ❤️ para automatizar o atendimento Kumon**
 
-### **Complex Problem Solving**
+## 🎉 **DEPLOY COMPLETO E SERVIÇOS ATIVOS!**
 
-- ✅ **Multi-modal AI Integration** - Text, voice, and image processing
-- ✅ **Real-time State Management** - Conversation context across sessions
-- ✅ **Intelligent Scheduling** - Business rules + calendar conflicts
-- ✅ **Performance Optimization** - Memory management for ML models
+### ✅ **SERVIÇOS DEPLOYADOS COM SUCESSO:**
 
-### **System Integration**
+| Serviço                 | URL                                                   | Status   |
+| ----------------------- | ----------------------------------------------------- | -------- |
+| 🤖 **Kumon Assistant**  | `https://kumon-assistant-bfaxfjccta-uc.a.run.app`     | ✅ Ready |
+| 📱 **Evolution API**    | `https://kumon-evolution-api-bfaxfjccta-uc.a.run.app` | ✅ Ready |
+| 🗄️ **Qdrant Vector DB** | `https://kumon-qdrant-bfaxfjccta-uc.a.run.app`        | ✅ Ready |
 
-- ✅ **WhatsApp Business API** - Complete webhook implementation
-- ✅ **Google Workspace APIs** - Calendar, Sheets, Drive integration
-- ✅ **Vector Database** - High-performance similarity search
-- ✅ **Cloud Services** - Full serverless architecture
+### 🏗️ **ARQUITETURA IMPLEMENTADA:**
 
-### **Production Excellence**
+```
+📱 WhatsApp → 🚀 Evolution API → 🤖 Kumon Assistant → 🗄️ Qdrant + PostgreSQL
+                                        ↓
+                               🧬 Hybrid Embeddings
+                            (Sentence Transformers + Gemini)
+```
 
-- ✅ **Zero-downtime Deployments** - Blue-green deployment strategy
-- ✅ **Monitoring & Alerting** - Comprehensive observability stack
-- ✅ **Security Best Practices** - OWASP compliance and audit-ready
-- ✅ **Documentation** - Enterprise-grade technical documentation
+### 🎯 **PRÓXIMOS PASSOS:**
 
----
+1. **✅ Testar o webhook** do WhatsApp
+2. **✅ Verificar logs** dos serviços
+3. **✅ Configurar Evolution API** para WhatsApp
+4. **✅ Testar conversas** end-to-end
 
-## 🤝 **Skills Demonstrated**
-
-| **Category**            | **Technologies & Concepts**                             |
-| ----------------------- | ------------------------------------------------------- |
-| **Backend Development** | FastAPI, AsyncIO, REST APIs, Microservices, WebSockets  |
-| **AI/ML Engineering**   | LangChain, Sentence Transformers, Vector Databases, RAG |
-| **Cloud Architecture**  | Google Cloud Platform, Docker, Kubernetes, Serverless   |
-| **Database Systems**    | PostgreSQL, Redis, Qdrant, Query Optimization           |
-| **API Integrations**    | WhatsApp Business API, Google APIs, OAuth2, Webhooks    |
-| **DevOps & CI/CD**      | Cloud Build, Infrastructure as Code, Monitoring         |
-| **Performance**         | Caching, Memory Management, Async Programming           |
-| **Security**            | Service Accounts, Secret Management, Input Validation   |
-
----
-
-## 📞 **Contact & Portfolio**
-
-This project showcases advanced **full-stack development**, **AI/ML engineering**, and **cloud architecture** capabilities. For technical discussions or collaboration opportunities, please reach out!
-
-**🔗 [Live Demo](https://your-deployed-url.cloud.google.com/docs)**  
-**📊 [Performance Dashboard](https://console.cloud.google.com/monitoring)**  
-**🏗️ [Architecture Diagrams](./docs/architecture.md)**
-
----
-
-_Built with ❤️ using modern Python, AI/ML technologies, and cloud-native architecture. Demonstrating enterprise-level software engineering practices and production-ready system design._
+**🎉 PARABÉNS! O sistema está totalmente deployado com a arquitetura híbrida implementada - melhor qualidade gratuita com backup pago confiável!**

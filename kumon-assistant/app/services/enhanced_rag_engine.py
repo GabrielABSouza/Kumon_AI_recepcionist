@@ -11,7 +11,7 @@ from ..core.config import settings
 from ..core.logger import app_logger
 from .langchain_rag import langchain_rag_service, RAGResponse
 from .vector_store import vector_store, SearchResult
-from .embedding_service import embedding_service
+from .hybrid_embedding_service import hybrid_embedding_service
 
 
 class EnhancedRAGEngine:
@@ -33,6 +33,7 @@ class EnhancedRAGEngine:
             app_logger.info("Initializing Enhanced RAG Engine...")
             
             # Initialize all components
+            await hybrid_embedding_service.initialize_model()
             await langchain_rag_service.initialize()
             
             # Load knowledge base if not already loaded

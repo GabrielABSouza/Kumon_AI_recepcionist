@@ -36,7 +36,13 @@ wait_for_database() {
     log_info "Waiting for database connection..."
     
     if [ -n "$DATABASE_CONNECTION_URI" ]; then
-        # Extract database details from URI
+        # Check if this is a Cloud SQL connection
+        if echo "$DATABASE_CONNECTION_URI" | grep -q "/cloudsql/"; then
+            log_info "Detected Cloud SQL connection, skipping connection check"
+            log_info "Cloud SQL connection will be handled by the application"
+            return 0
+        else
+            # Extract database details from standard URI
         DB_HOST=$(echo $DATABASE_CONNECTION_URI | sed -E 's|postgresql://[^@]*@([^:]+):.*|\1|')
         DB_PORT=$(echo $DATABASE_CONNECTION_URI | sed -E 's|postgresql://[^@]*@[^:]+:([0-9]+)/.*|\1|')
         
@@ -54,6 +60,7 @@ wait_for_database() {
         
         log_error "Failed to connect to database after 60 seconds"
         exit 1
+        fi
     else
         log_warning "No DATABASE_CONNECTION_URI found, skipping database check"
     fi

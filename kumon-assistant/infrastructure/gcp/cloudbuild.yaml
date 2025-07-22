@@ -5,7 +5,7 @@
 
 steps:
   # ============================================================================
-  # STEP 1: Create secrets in Google Secret Manager
+  # STEP 1: Create PostgreSQL Database and Secrets
   # ============================================================================
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
     entrypoint: "bash"
@@ -23,8 +23,39 @@ steps:
           echo "${_EVOLUTION_API_KEY}" | gcloud secrets create evolution-api-key --data-file=-
         fi
 
-        echo "Secrets created successfully!"
-    id: "create-secrets"
+        # Create PostgreSQL instance if it doesn't exist
+        if ! gcloud sql instances describe evolution-postgres --quiet; then
+          echo "Creating PostgreSQL instance..."
+          gcloud sql instances create evolution-postgres \
+            --database-version=POSTGRES_15 \
+            --tier=db-f1-micro \
+            --region=us-central1 \
+            --root-password="${_DB_ROOT_PASSWORD}" \
+            --storage-type=SSD \
+            --storage-size=10GB \
+            --backup-start-time=02:00 \
+            --maintenance-window-day=SUN \
+            --maintenance-window-hour=03
+        fi
+
+        # Create database if it doesn't exist
+        if ! gcloud sql databases describe evolution_db --instance=evolution-postgres --quiet; then
+          echo "Creating evolution_db database..."
+          gcloud sql databases create evolution_db --instance=evolution-postgres
+        fi
+
+        # Create user if it doesn't exist
+        if ! gcloud sql users describe evolution_user --instance=evolution-postgres --quiet; then
+          echo "Creating evolution_user..."
+          gcloud sql users create evolution_user \
+            --instance=evolution-postgres \
+            --password="${_DB_USER_PASSWORD}"
+        fi
+
+        # Store the connection string for later use
+        echo "postgresql://evolution_user:${_DB_USER_PASSWORD}@/evolution-postgres?host=/cloudsql/${PROJECT_ID}:us-central1:evolution-postgres" > /workspace/db_connection.txt
+        echo "Database setup completed!"
+    id: "create-database-and-secrets"
 
   # ============================================================================
   # STEP 2: Build Qdrant (Vector Database)
@@ -35,7 +66,7 @@ steps:
       - "-t"
       - "gcr.io/$PROJECT_ID/qdrant:$BUILD_ID"
       - "-f"
-      - "Dockerfile.qdrant"
+      - "infrastructure/docker/qdrant/Dockerfile"
       - "."
     id: "build-qdrant"
 
@@ -53,7 +84,7 @@ steps:
       - "-t"
       - "gcr.io/$PROJECT_ID/evolution-api:$BUILD_ID"
       - "-f"
-      - "Dockerfile.evolution"
+      - "infrastructure/docker/evolution-api/Dockerfile"
       - "."
     id: "build-evolution"
 
@@ -71,7 +102,7 @@ steps:
       - "-t"
       - "gcr.io/$PROJECT_ID/kumon-assistant:$BUILD_ID"
       - "-f"
-      - "Dockerfile.kumon"
+      - "infrastructure/docker/app/Dockerfile"
       - "."
     id: "build-kumon"
 
@@ -111,7 +142,7 @@ steps:
       - "--concurrency"
       - "80"
     id: "deploy-qdrant"
-    waitFor: ["push-qdrant", "create-secrets"]
+    waitFor: ["push-qdrant", "create-database-and-secrets"]
 
   # ============================================================================
   # STEP 6: Deploy Evolution API Service
@@ -132,23 +163,26 @@ steps:
       - "--port"
       - "8080"
       - "--set-env-vars"
-      - "SERVER_URL=https://kumon-evolution-api-[HASH]-uc.a.run.app"
+      - "SERVER_URL=https://kumon-evolution-api-[HASH]-uc.a.run.app,DATABASE_PROVIDER=postgresql,DATABASE_CONNECTION_URI=postgresql://evolution_user:evolution123@localhost:5432/evolution_db,AUTHENTICATION_TYPE=jwt,CORS_ORIGIN=*,CORS_CREDENTIALS=true,DATABASE_ENABLED=true,DATABASE_SAVE_DATA_INSTANCE=true,DATABASE_SAVE_DATA_NEW_MESSAGE=true,DATABASE_SAVE_MESSAGE_UPDATE=true,DATABASE_SAVE_DATA_CONTACTS=true,DATABASE_SAVE_DATA_CHATS=true,DATABASE_SAVE_DATA_LABELS=true,DATABASE_SAVE_DATA_HISTORIC=true,DATABASE_CONNECTION_CLIENT_NAME=evolution_api,LOG_LEVEL=INFO,NODE_ENV=production"
       - "--update-secrets"
       - "AUTHENTICATION_API_KEY=evolution-api-key:latest"
+      - "--add-cloudsql-instances"
+      - "${PROJECT_ID}:us-central1:evolution-postgres"
       - "--memory"
-      - "1Gi"
+      - "2Gi"
       - "--cpu"
-      - "1"
+      - "2"
       - "--timeout"
-      - "300"
+      - "900"
       - "--max-instances"
       - "5"
       - "--min-instances"
       - "1"
+      - "--cpu-boost"
       - "--concurrency"
       - "80"
     id: "deploy-evolution"
-    waitFor: ["push-evolution", "create-secrets"]
+    waitFor: ["push-evolution", "create-database-and-secrets"]
 
   # ============================================================================
   # STEP 7: Get service URLs for inter-service communication
@@ -182,23 +216,21 @@ steps:
         # Source the service URLs
         source /workspace/service_urls.env
 
-        # Deploy Kumon Assistant with proper service URLs and resource limits
+        # Deploy Kumon Assistant with GCP optimized configuration (much lighter!)
         gcloud run deploy kumon-assistant \
           --image gcr.io/$PROJECT_ID/kumon-assistant:$BUILD_ID \
           --region us-central1 \
           --platform managed \
           --allow-unauthenticated \
           --port 8000 \
-          --set-env-vars "QDRANT_URL=$$QDRANT_URL,EVOLUTION_API_URL=$$EVOLUTION_URL,ENVIRONMENT=production,EMBEDDING_CACHE_SIZE_MB=${_EMBEDDING_CACHE_SIZE_MB},EMBEDDING_CACHE_FILES=${_EMBEDDING_CACHE_FILES},MAX_ACTIVE_CONVERSATIONS=${_MAX_ACTIVE_CONVERSATIONS},CONVERSATION_TIMEOUT_HOURS=${_CONVERSATION_TIMEOUT_HOURS},CACHE_CLEANUP_INTERVAL=${_CACHE_CLEANUP_INTERVAL}" \
+          --set-env-vars "QDRANT_URL=$$QDRANT_URL,EVOLUTION_API_URL=$$EVOLUTION_URL,ENVIRONMENT=production,USE_GCP_EMBEDDINGS=true,GOOGLE_PROJECT_ID=$PROJECT_ID,GOOGLE_LOCATION=us-central1" \
           --update-secrets "OPENAI_API_KEY=openai-api-key:latest,EVOLUTION_API_KEY=evolution-api-key:latest" \
-          --memory 4Gi \
-          --cpu 2 \
+          --memory 1Gi \
+          --cpu 1 \
           --timeout 300 \
-          --max-instances 10 \
-          --min-instances 1 \
-          --concurrency 80 \
-          --cpu-throttling \
-          --execution-environment gen2
+          --max-instances 5 \
+          --min-instances 0 \
+          --concurrency 80
     id: "deploy-kumon"
     waitFor: ["push-kumon", "get-service-urls"]
 
@@ -230,13 +262,10 @@ steps:
 # SUBSTITUTIONS (Default values - override via trigger or CLI)
 # ============================================================================
 substitutions:
-  _OPENAI_API_KEY: "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"
-  _EVOLUTION_API_KEY: "B6D711FCDE4D4FD5936544120E713976"
-  _EMBEDDING_CACHE_SIZE_MB: "50"
-  _EMBEDDING_CACHE_FILES: "500"
-  _MAX_ACTIVE_CONVERSATIONS: "500"
-  _CONVERSATION_TIMEOUT_HOURS: "12"
-  _CACHE_CLEANUP_INTERVAL: "1800"
+  _OPENAI_API_KEY: "REPLACE_WITH_YOUR_OPENAI_API_KEY"
+  _EVOLUTION_API_KEY: "REPLACE_WITH_YOUR_EVOLUTION_API_KEY"
+  _DB_ROOT_PASSWORD: "REPLACE_WITH_DB_ROOT_PASSWORD"
+  _DB_USER_PASSWORD: "REPLACE_WITH_DB_USER_PASSWORD"
 
 # ============================================================================
 # OPTIONS

@@ -18,11 +18,20 @@ check_http_endpoint() {
     local expected_status="$2"
     
     local response_code
+    # Try curl first, fallback to wget if available, otherwise skip
+    if command -v curl >/dev/null 2>&1; then
     response_code=$(curl -s -o /dev/null -w "%{http_code}" \
         --max-time $TIMEOUT \
         --connect-timeout 5 \
         -H "apikey: $API_KEY" \
         "$API_URL$endpoint" 2>/dev/null || echo "000")
+    elif command -v wget >/dev/null 2>&1; then
+        response_code=$(wget --spider --server-response "$API_URL$endpoint" 2>&1 | \
+            grep "HTTP/" | tail -1 | cut -d' ' -f4 || echo "000")
+    else
+        echo "Warning: No HTTP client available (curl/wget), skipping HTTP checks"
+        return 0
+    fi
     
     if [ "$response_code" = "$expected_status" ]; then
         return 0
@@ -73,10 +82,18 @@ check_evolution_api() {
     if ! check_http_endpoint "/manager" "200"; then
         # Manager might return different status codes, so we'll be more lenient
         local response_code
+        if command -v curl >/dev/null 2>&1; then
         response_code=$(curl -s -o /dev/null -w "%{http_code}" \
             --max-time $TIMEOUT \
             --connect-timeout 5 \
             "$API_URL/manager" 2>/dev/null || echo "000")
+        elif command -v wget >/dev/null 2>&1; then
+            response_code=$(wget --spider --server-response "$API_URL/manager" 2>&1 | \
+                grep "HTTP/" | tail -1 | cut -d' ' -f4 || echo "000")
+        else
+            echo "Warning: No HTTP client available, skipping manager check"
+            return 0
+        fi
         
         # Accept 200, 401, or 403 as valid responses (API is running)
         if [[ ! "$response_code" =~ ^(200|401|403)$ ]]; then

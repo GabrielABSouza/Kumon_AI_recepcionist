@@ -1,0 +1,20 @@
+{
+  "name": "kumon-assistant-setup",
+  "version": "1.0.0",
+  "description": "Setup and migration container for Kumon Assistant",
+  "main": "scripts/setup.js",
+  "scripts": {
+    "setup": "node scripts/setup.js",
+    "health-check": "node scripts/health-check.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "uuid": "^9.0.0",
+    "pg": "^8.11.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "author": "Kumon Assistant Team",
+  "license": "MIT"
+}

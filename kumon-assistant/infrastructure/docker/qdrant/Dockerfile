@@ -13,12 +13,14 @@ USER root
 RUN apt-get update && apt-get install -y \
     curl \
     jq \
+    && apt-get upgrade -y \
+    && apt-get dist-upgrade -y \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
 # Create data directory with proper permissions
 RUN mkdir -p /qdrant/data /qdrant/config /qdrant/logs
-RUN chown -R qdrant:qdrant /qdrant
+RUN chown -R 1000:1000 /qdrant
 
 # Copy configuration files
 COPY docker/qdrant/config/production.yaml /qdrant/config/production.yaml
@@ -28,7 +30,7 @@ COPY docker/qdrant/scripts/health-check.sh /qdrant/health-check.sh
 RUN chmod +x /qdrant/health-check.sh
 
 # Switch to qdrant user
-USER qdrant
+USER 1000
 
 # Environment variables
 ENV QDRANT__SERVICE__HOST=0.0.0.0

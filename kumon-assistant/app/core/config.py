@@ -28,11 +28,16 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4-turbo-preview"
     
-    # Embeddings Configuration
-    EMBEDDING_MODEL_NAME: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    # Embeddings Configuration - Hybrid Approach
+    USE_GCP_EMBEDDINGS: bool = True  # Enable Gemini fallback (PAID - $0.025/1k chars)
+    EMBEDDING_MODEL_NAME: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"  # Primary model
     EMBEDDING_DIMENSION: int = 384
     EMBEDDING_BATCH_SIZE: int = 32
     EMBEDDING_CACHE_DIR: str = "./cache/embeddings"
+    
+    # GCP Configuration (for Gemini fallback)
+    GOOGLE_PROJECT_ID: str = ""
+    GOOGLE_LOCATION: str = "us-central1"
     
     # Cache Management Settings (Added for memory optimization)
     EMBEDDING_CACHE_SIZE_MB: int = 50  # 50MB cache limit for production

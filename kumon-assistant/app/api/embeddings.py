@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Optional
 import asyncio
 
 from ..services.enhanced_rag_engine import enhanced_rag_engine
-from ..services.embedding_service import embedding_service
+from ..services.hybrid_embedding_service import hybrid_embedding_service
 from ..services.vector_store import vector_store, SearchResult
 from ..core.logger import app_logger
 
@@ -171,13 +171,12 @@ async def generate_embeddings(request: EmbeddingRequest):
     Generate embeddings for texts
     """
     try:
-        embeddings = await embedding_service.embed_texts(
-            texts=request.texts,
-            use_cache=request.use_cache
+        embeddings = await hybrid_embedding_service.embed_texts(
+            texts=request.texts
         )
         
-        # Convert numpy arrays to lists for JSON serialization
-        embeddings_list = [embedding.tolist() for embedding in embeddings]
+        # Embeddings are already lists from hybrid service
+        embeddings_list = embeddings
         
         return {
             "embeddings": embeddings_list,

@@ -16,7 +16,7 @@ from langchain.schema import BaseMessage
 from ..core.config import settings
 from ..core.logger import app_logger
 from .vector_store import vector_store, SearchResult, DocumentChunk
-from .embedding_service import embedding_service
+from .hybrid_embedding_service import hybrid_embedding_service
 
 
 class LoggingCallbackHandler(BaseCallbackHandler):
@@ -83,7 +83,7 @@ Resposta:"""
         try:
             # Initialize dependencies
             await vector_store.initialize()
-            await embedding_service.initialize_model()
+            await hybrid_embedding_service.initialize_model()
             
             # Initialize OpenAI LLM
             self.llm = ChatOpenAI(
