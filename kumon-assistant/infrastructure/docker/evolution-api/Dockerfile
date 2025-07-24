@@ -24,8 +24,8 @@ RUN if command -v apt-get >/dev/null 2>&1; then \
 RUN mkdir -p /evolution/scripts
 
 # Copy custom initialization and health check scripts
-COPY docker/evolution/scripts/ /evolution/scripts/
-COPY docker/evolution/config/ /evolution/config/
+COPY infrastructure/docker/evolution-api/scripts/ /evolution/scripts/
+COPY infrastructure/docker/evolution-api/config/ /evolution/config/
 
 # Make scripts executable
 RUN chmod +x /evolution/scripts/*.sh
@@ -63,4 +63,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
 ENTRYPOINT ["/evolution/scripts/entrypoint.sh"]
 
 # Default command - use the correct start command for Evolution API
-CMD ["npm", "run", "start:prod"]
+CMD ["npm", "run", "start:prod"] 

@@ -17,7 +17,7 @@ NC='\033[0m' # No Color
 # Configuration
 PROJECT_ID="kumon-ai-receptionist"
 REGION="us-central1"
-BUILD_CONFIG="cloudbuild.yaml"
+BUILD_CONFIG="infrastructure/gcp/cloudbuild.yaml"
 
 # Function to print colored output
 print_status() {

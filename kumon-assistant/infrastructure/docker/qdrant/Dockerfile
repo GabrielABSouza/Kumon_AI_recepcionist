@@ -23,8 +23,8 @@ RUN mkdir -p /qdrant/data /qdrant/config /qdrant/logs
 RUN chown -R 1000:1000 /qdrant
 
 # Copy configuration files
-COPY docker/qdrant/config/production.yaml /qdrant/config/production.yaml
-COPY docker/qdrant/scripts/health-check.sh /qdrant/health-check.sh
+COPY infrastructure/docker/qdrant/config/production.yaml /qdrant/config/production.yaml
+COPY infrastructure/docker/qdrant/scripts/health-check.sh /qdrant/health-check.sh
 
 # Make scripts executable
 RUN chmod +x /qdrant/health-check.sh

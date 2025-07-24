@@ -63,7 +63,7 @@ class ConversationStep(Enum):
     # Follow-up stage
     REMINDER_SENT = "reminder_sent"
     FEEDBACK_COLLECTED = "feedback_collected"
-    
+
     # Completed
     CONVERSATION_ENDED = "conversation_ended"
 
@@ -495,18 +495,18 @@ class ConversationFlowManager:
             if similarity > 0.7:  # 70% similarity threshold
                 state.same_question_count += 1
                 app_logger.info(f"Similar message detected for {state.phone_number}: similarity={similarity:.2f}")
-            else:
+                    else:
                 # Reset counter for different messages
                 state.same_question_count = 0
                 app_logger.info(f"Counter reset for {state.phone_number}: different message detected")
-        else:
+                        else:
             # First message, no repetition possible
             state.same_question_count = 0
         
         # Check for confusion indicators
         if self._detect_confusion(user_message):
             state.consecutive_confusion += 1
-        else:
+                    else:
             state.consecutive_confusion = 0
         
         # Track very short messages as potential confusion
@@ -604,7 +604,7 @@ class ConversationFlowManager:
                 "• Horário: Segunda a Sexta, 8h às 18h\n\n"
                 "Será muito mais rápido e eficiente! 🚀"
             )
-        else:
+                    else:
             response = (
                 "Para garantir que você receba o melhor atendimento possível, "
                 "vou direcioná-lo para nossa equipe especializada! 🎯\n\n"
@@ -621,8 +621,8 @@ class ConversationFlowManager:
             step=ConversationStep.CONVERSATION_ENDED,
             data={"handoff_reason": reason, "handoff_timestamp": datetime.now().isoformat()}
         )
-        
-        return {
+                        
+                        return {
             "message": response,
             "stage": state.stage.value,
             "step": state.step.value,
@@ -645,7 +645,7 @@ class ConversationFlowManager:
             return "conversation_stuck"
         elif state.low_quality_responses >= 3:
             return "poor_response_quality"
-        else:
+            else:
             return "general_failure"
     
     def _detect_booking_intent(self, user_message: str) -> bool:
@@ -728,7 +728,7 @@ class ConversationFlowManager:
             "Para que dia você gostaria de agendar? Qual período você prefere: **manhã** ou **tarde**? 🕐"
         )
         
-        return {
+                    return {
             "message": response, 
             "stage": ConversationStage.SCHEDULING.value, 
             "step": ConversationStep.DATE_PREFERENCE.value
@@ -753,8 +753,8 @@ class ConversationFlowManager:
             "• Conhecer nossa equipe 👨‍🏫\n\n"
             "Qual período é melhor para você: **manhã** ou **tarde**? 🕐"
         )
-        
-        return {
+                    
+                    return {
             "message": response, 
             "stage": ConversationStage.SCHEDULING.value, 
             "step": ConversationStep.DATE_PREFERENCE.value
@@ -825,7 +825,7 @@ class ConversationFlowManager:
             # Check if we need to collect child name or move to qualification
             is_for_self = state.data.get("is_for_self", False)
             
-            if is_for_self:
+                if is_for_self:
                 # Skip child name collection for self-students
                 response = (
                     f"Prazer em conhecê-lo, {parent_name}! 😊\n\n"
@@ -1000,8 +1000,8 @@ class ConversationFlowManager:
                     stage=ConversationStage.SCHEDULING,
                     step=ConversationStep.DATE_PREFERENCE
                 )
-                
-                return {
+            
+            return {
                     "message": response, 
                     "stage": ConversationStage.SCHEDULING.value, 
                     "step": ConversationStep.DATE_PREFERENCE.value
@@ -1013,7 +1013,7 @@ class ConversationFlowManager:
                 
                 return {"message": response, "stage": state.stage.value, "step": state.step.value}
                 
-        else:
+            else:
             # If we can't categorize the question, try RAG as fallback
             try:
                 context = {
@@ -1206,7 +1206,7 @@ class ConversationFlowManager:
             return "Quer saber mais sobre nosso material didático exclusivo? 📚"
             
         # Generic follow-ups
-        else:
+                else:
             return "Tem mais alguma dúvida específica? Ou gostaria de agendar uma visita para ver tudo na prática? 😊"
     
     async def _handle_scheduling_stage(self, state: ConversationState, user_message: str) -> Dict[str, Any]:
@@ -1633,12 +1633,12 @@ class ConversationFlowManager:
             child_name = state.data.get('child_name', 'Não informado')
             
             # Create event title based on naming convention
-            if is_for_self:
+                    if is_for_self:
                 # When person is the student
                 event_title = f"Apresentação Kumon - {parent_name}"
                 responsible_name = parent_name
                 student_name = parent_name
-            else:
+                    else:
                 # When person is parent/guardian
                 event_title = f"Apresentação Kumon - {parent_name} e {child_name}"
                 responsible_name = parent_name
@@ -1695,7 +1695,7 @@ class ConversationFlowManager:
             if event_id and not event_id.startswith('error_'):
                 app_logger.info(f"Calendar event created successfully: {event_id}")
                 return {"success": True, "event_id": event_id}
-            else:
+                else:
                 app_logger.error(f"Failed to create calendar event: {event_id}")
                 return {"success": False, "message": f"Calendar API error: {event_id}"}
                 
@@ -1710,7 +1710,7 @@ class ConversationFlowManager:
         # Basic information
         if state.data.get('is_for_self'):
             summary_parts.append("• Interesse próprio no método Kumon")
-        else:
+            else:
             summary_parts.append("• Interesse para filho(a)")
         
         if state.data.get('student_age'):

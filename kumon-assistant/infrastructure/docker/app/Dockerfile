@@ -54,7 +54,7 @@ RUN apt-get update && apt-get install -y \
 # Create non-root user for security
 RUN useradd --create-home --shell /bin/bash kumon
 
-# Copy virtual environment from builder stage
+# Copy virtual environment from builder
 COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
@@ -69,9 +69,6 @@ RUN mkdir -p /app/cache/embeddings \
 
 # Copy application code with proper ownership
 COPY --chown=kumon:kumon ./app ./app
-
-# Copy Google service account credentials (temporary for build)
-COPY --chown=kumon:kumon ./temp/credentials/google-service-account.json ./google-service-account.json
 
 # Switch to non-root user
 USER kumon

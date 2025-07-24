@@ -134,3 +134,25 @@ docker-compose.override.yml
 # Temporary debug files (these should be in temp/debug/)
 test_*.py
 debug_*.py
+
+# Temporary files and directories
+temp/
+*.tmp
+*.temp
+
+# Binary files
+cloud-sql-proxy
+*.bin
+
+# Analysis files (generated)
+*_ANALYSIS.md
+*_SUMMARY.md
+
+# System files
+.DS_Store
+.qodo/
+
+# Build artifacts
+*.pyc
+__pycache__/
+.coverage
