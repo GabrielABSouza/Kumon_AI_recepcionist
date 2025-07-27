@@ -775,7 +775,7 @@ class ConversationFlowManager:
                 step=ConversationStep.INITIAL_RESPONSE
             )
             
-            return {"message": response, "stage": state.stage.value, "step": state.step.value}
+            return {"message": response, "stage": state.stage.value, "step": ConversationStep.INITIAL_RESPONSE.value}
         
         elif state.step == ConversationStep.INITIAL_RESPONSE:
             # Determine if for self or someone else
@@ -838,6 +838,8 @@ class ConversationFlowManager:
                     step=ConversationStep.CHILD_AGE_INQUIRY,
                     data={"child_name": parent_name}  # For self-students, use parent name as student name
                 )
+                
+                return {"message": response, "stage": ConversationStage.QUALIFICATION.value, "step": ConversationStep.CHILD_AGE_INQUIRY.value}
             else:
                 # Ask for child name
                 response = (
@@ -849,8 +851,8 @@ class ConversationFlowManager:
                     state.phone_number,
                     step=ConversationStep.CHILD_NAME_COLLECTION
                 )
-            
-            return {"message": response, "stage": state.stage.value, "step": state.step.value}
+                
+                return {"message": response, "stage": state.stage.value, "step": ConversationStep.CHILD_NAME_COLLECTION.value}
         
         elif state.step == ConversationStep.CHILD_NAME_COLLECTION:
             # Collect child name
@@ -870,7 +872,7 @@ class ConversationFlowManager:
                 data={"child_name": child_name}
             )
             
-            return {"message": response, "stage": state.stage.value, "step": state.step.value}
+            return {"message": response, "stage": ConversationStage.QUALIFICATION.value, "step": ConversationStep.CHILD_AGE_INQUIRY.value}
         
         return {"message": "Como posso ajudá-lo hoje?", "stage": state.stage.value, "step": state.step.value}
     
@@ -1248,7 +1250,7 @@ class ConversationFlowManager:
                 "E qual período prefere: manhã ou tarde?"
             )
             
-            return {"message": response, "stage": state.stage.value, "step": state.step.value}
+            return {"message": response, "stage": state.stage.value, "step": ConversationStep.DATE_PREFERENCE.value}
             
         elif state.step == ConversationStep.DATE_PREFERENCE:
             # Extract date and time preferences
@@ -1281,8 +1283,8 @@ class ConversationFlowManager:
                     "Não consegui entender sua preferência de horário. 😅\n\n"
                     "Poderia me dizer de forma mais clara? Por exemplo:\n"
                     "• 'Prefiro segunda-feira de manhã'\n"
-                    "• 'Sábado à tarde'\n"
-                    "• 'Qualquer dia da semana no período da tarde'"
+                    "• 'Terça-feira à tarde'\n"
+                    "• 'Qualquer dia útil no período da tarde'"
                 )
                 
                 return {"message": response, "stage": state.stage.value, "step": state.step.value}
@@ -1319,7 +1321,7 @@ class ConversationFlowManager:
                     step=ConversationStep.TIME_SELECTION
                 )
                 
-                return {"message": response, "stage": state.stage.value, "step": state.step.value}
+                return {"message": response, "stage": state.stage.value, "step": ConversationStep.TIME_SELECTION.value}
                 
             except Exception as e:
                 app_logger.error(f"Error finding available slots: {str(e)}")
@@ -1361,7 +1363,7 @@ class ConversationFlowManager:
                 step=ConversationStep.EMAIL_COLLECTION
             )
             
-            return {"message": response, "stage": state.stage.value, "step": state.step.value}
+            return {"message": response, "stage": state.stage.value, "step": ConversationStep.EMAIL_COLLECTION.value}
         
         elif state.step == ConversationStep.EMAIL_COLLECTION:
             # Validate and collect email

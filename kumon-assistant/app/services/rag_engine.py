@@ -153,7 +153,7 @@ class RAGEngine:
                 messages=[
                     {
                         "role": "system", 
-                        "content": "Você é uma recepcionista virtual do Kumon, sempre educada, prestativa e entusiasta da educação. Use emojis de forma moderada e mantenha um tom profissional mas amigável. Responda baseado nos exemplos fornecidos."
+                        "content": "Você é uma recepcionista virtual do Kumon, sempre educada, prestativa e entusiasta da educação. Use emojis de forma moderada e mantenha um tom profissional mas amigável. Responda baseado nos exemplos fornecidos. IMPORTANTE: A unidade Kumon Vila A funciona APENAS de segunda a sexta-feira, das 8h às 18h. NÃO funcionamos aos sábados nem domingos. Nunca mencione disponibilidade aos fins de semana."
                     },
                     {
                         "role": "user", 
@@ -236,7 +236,7 @@ class RAGEngine:
             response = await self.client.chat.completions.create(
                 model=settings.OPENAI_MODEL,
                 messages=[
-                    {"role": "system", "content": "Você é uma recepcionista virtual do Kumon, sempre educada e prestativa."},
+                    {"role": "system", "content": "Você é uma recepcionista virtual do Kumon, sempre educada e prestativa. IMPORTANTE: A unidade Kumon Vila A funciona APENAS de segunda a sexta-feira, das 8h às 18h. NÃO funcionamos aos sábados nem domingos. Nunca mencione disponibilidade aos fins de semana."},
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=300,

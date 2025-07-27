@@ -95,7 +95,7 @@ class IntentClassifier:
             response = await self.client.chat.completions.create(
                 model=settings.OPENAI_MODEL,
                 messages=[
-                    {"role": "system", "content": "Você é um classificador de intenções para um sistema de atendimento do Kumon."},
+                    {"role": "system", "content": "Você é um classificador de intenções para um sistema de atendimento do Kumon. IMPORTANTE: A unidade Kumon Vila A funciona APENAS de segunda a sexta-feira, das 8h às 18h. NÃO funcionamos aos sábados nem domingos."},
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=50,
