@@ -82,8 +82,10 @@ class Settings(BaseSettings):
     CONVERSATION_CLEANUP_INTERVAL: int = 1800  # 30 minutes cleanup interval
     
     # Google APIs
-    GOOGLE_CREDENTIALS_PATH: str = "google-service-account.json"
+    GOOGLE_SERVICE_ACCOUNT_JSON: str = ""  # Base64 encoded service account JSON
+    GOOGLE_CREDENTIALS_PATH: str = "google-service-account.json"  # Fallback file path
     GOOGLE_CALENDAR_ID: str = ""
+    GOOGLE_PROJECT_ID: str = ""
     GOOGLE_SHEETS_ID: str = ""
     
     # Database

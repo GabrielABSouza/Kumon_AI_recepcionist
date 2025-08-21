@@ -2,6 +2,8 @@
 Google Calendar API client
 """
 import os
+import json
+import base64
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 from google.oauth2 import service_account
@@ -22,24 +24,75 @@ class GoogleCalendarClient:
     def _initialize_service(self):
         """Initialize Google Calendar service with service account credentials"""
         try:
-            # Load service account credentials
-            credentials_path = settings.GOOGLE_CREDENTIALS_PATH
-            if not os.path.exists(credentials_path):
-                app_logger.error(f"Google credentials file not found: {credentials_path}")
-                return
+            credentials = None
             
-            # Set up service account credentials
-            credentials = service_account.Credentials.from_service_account_file(
-                credentials_path,
-                scopes=['https://www.googleapis.com/auth/calendar']
-            )
+            # Method 1: Try environment variable with Base64 encoded JSON
+            if hasattr(settings, 'GOOGLE_SERVICE_ACCOUNT_JSON') and settings.GOOGLE_SERVICE_ACCOUNT_JSON:
+                try:
+                    app_logger.info("Loading Google credentials from environment variable")
+                    
+                    # Decode Base64 encoded JSON
+                    json_str = base64.b64decode(settings.GOOGLE_SERVICE_ACCOUNT_JSON).decode('utf-8')
+                    credentials_info = json.loads(json_str)
+                    
+                    # Create credentials from JSON info
+                    credentials = service_account.Credentials.from_service_account_info(
+                        credentials_info,
+                        scopes=['https://www.googleapis.com/auth/calendar']
+                    )
+                    app_logger.info("Google credentials loaded from environment variable successfully")
+                    
+                except Exception as env_error:
+                    app_logger.warning(f"Failed to load credentials from environment variable: {env_error}")
             
-            # Build the Calendar API service
-            self.service = build('calendar', 'v3', credentials=credentials)
-            app_logger.info("Google Calendar service initialized successfully")
+            # Method 2: Fallback to file-based credentials
+            if not credentials:
+                credentials_path = getattr(settings, 'GOOGLE_CREDENTIALS_PATH', '/app/google-service-account.json')
+                if os.path.exists(credentials_path):
+                    try:
+                        app_logger.info(f"Loading Google credentials from file: {credentials_path}")
+                        credentials = service_account.Credentials.from_service_account_file(
+                            credentials_path,
+                            scopes=['https://www.googleapis.com/auth/calendar']
+                        )
+                        app_logger.info("Google credentials loaded from file successfully")
+                    except Exception as file_error:
+                        app_logger.warning(f"Failed to load credentials from file: {file_error}")
+            
+            # Method 3: Try environment variable with direct JSON (fallback)
+            if not credentials and os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON'):
+                try:
+                    app_logger.info("Trying direct JSON from environment variable")
+                    json_str = os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON')
+                    
+                    # Try direct JSON first, then Base64 decode if needed
+                    try:
+                        credentials_info = json.loads(json_str)
+                    except json.JSONDecodeError:
+                        # If direct JSON fails, try Base64 decoding
+                        json_str = base64.b64decode(json_str).decode('utf-8')
+                        credentials_info = json.loads(json_str)
+                    
+                    credentials = service_account.Credentials.from_service_account_info(
+                        credentials_info,
+                        scopes=['https://www.googleapis.com/auth/calendar']
+                    )
+                    app_logger.info("Google credentials loaded from direct environment JSON")
+                    
+                except Exception as direct_error:
+                    app_logger.warning(f"Failed to load credentials from direct JSON: {direct_error}")
+            
+            if credentials:
+                # Build the Calendar API service
+                self.service = build('calendar', 'v3', credentials=credentials)
+                app_logger.info("✅ Google Calendar service initialized successfully")
+            else:
+                app_logger.warning("⚠️ Google Calendar service not available - no valid credentials found")
+                app_logger.info("Scheduling features will be limited without Google Calendar integration")
+                self.service = None
             
         except Exception as e:
-            app_logger.error(f"Failed to initialize Google Calendar service: {str(e)}")
+            app_logger.error(f"❌ Failed to initialize Google Calendar service: {str(e)}")
             self.service = None
     
     async def check_conflicts(self, start_time: datetime, end_time: datetime, calendar_id: Optional[str] = None) -> List[Dict[str, Any]]:

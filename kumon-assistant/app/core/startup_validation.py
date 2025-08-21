@@ -204,8 +204,38 @@ class StartupValidator:
         
         # Check Google Calendar configuration (optional)
         google_calendar_id = getattr(settings, 'GOOGLE_CALENDAR_ID', None)
+        google_service_account_json = getattr(settings, 'GOOGLE_SERVICE_ACCOUNT_JSON', None)
+        google_credentials_path = getattr(settings, 'GOOGLE_CREDENTIALS_PATH', None)
+        
+        google_config_available = bool(
+            google_service_account_json or 
+            (google_credentials_path and google_credentials_path != "google-service-account.json") or
+            os.path.exists("/app/google-service-account.json")
+        )
+        
         if not google_calendar_id:
-            self.warnings.append("Google Calendar ID not configured")
+            self.warnings.append("Google Calendar ID not configured - scheduling features limited")
+        
+        if not google_config_available:
+            self.warnings.append("Google service account credentials not configured - calendar integration disabled")
+        else:
+            # Validate JSON format if provided via environment
+            if google_service_account_json:
+                try:
+                    import base64, json
+                    if google_service_account_json.startswith('{'):
+                        # Direct JSON
+                        json.loads(google_service_account_json)
+                    else:
+                        # Base64 encoded JSON
+                        decoded = base64.b64decode(google_service_account_json).decode('utf-8')
+                        json.loads(decoded)
+                    app_logger.info("✅ Google service account JSON validated successfully")
+                except Exception as e:
+                    self.warnings.append(f"Invalid Google service account JSON format: {str(e)}")
+        
+        if not getattr(settings, 'GOOGLE_PROJECT_ID', None):
+            self.warnings.append("Google Project ID not configured - some Google features may be limited")
         
         if issues:
             return ValidationResult(False, f"External service issues: {', '.join(issues)}")
