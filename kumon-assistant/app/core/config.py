@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     ENABLE_HEALTH_CHECKS: bool = True
     
     # Evolution API Configuration
-    EVOLUTION_API_URL: str = "http://localhost:8080"
+    EVOLUTION_API_URL: str = "https://evolution-api.railway.app"
     EVOLUTION_API_KEY: str = ""
     EVOLUTION_GLOBAL_API_KEY: str = ""
     AUTHENTICATION_API_KEY: str = ""
@@ -87,7 +87,7 @@ class Settings(BaseSettings):
     GOOGLE_SHEETS_ID: str = ""
     
     # Database
-    DATABASE_URL: str = "postgresql://user:password@localhost/kumon_db"
+    DATABASE_URL: str = "postgresql://postgres:password@postgres.railway.internal:5432/railway"
     
     # Database Connection Pooling (Production Optimization)
     DB_POOL_SIZE: int = 20  # Number of persistent connections
@@ -98,8 +98,8 @@ class Settings(BaseSettings):
     DB_POOL_PRE_PING: bool = True  # Verify connections before use
     
     # Memory System Configuration (Redis + PostgreSQL)
-    MEMORY_REDIS_URL: str = "redis://localhost:6379/0"
-    MEMORY_POSTGRES_URL: str = "postgresql://kumon_user:kumon_dev_password@localhost:5432/kumon_analytics"
+    MEMORY_REDIS_URL: str = "redis://redis.railway.internal:6379/0"
+    MEMORY_POSTGRES_URL: str = "postgresql://postgres:password@postgres.railway.internal:5432/railway"
     MEMORY_ENABLE_SYSTEM: bool = True
     
     # Redis Configuration
@@ -119,7 +119,7 @@ class Settings(BaseSettings):
     MEMORY_ENABLE_CLIENT_SIDE_CACHE: bool = True
     
     # Qdrant (Vector Database)
-    QDRANT_URL: str = "http://localhost:6333"
+    QDRANT_URL: str = "https://qdrant.railway.app"
     QDRANT_API_KEY: Optional[str] = None
     QDRANT_COLLECTION_NAME: str = "kumon_knowledge"
     

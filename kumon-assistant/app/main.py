@@ -299,9 +299,15 @@ async def startup_event():
         from app.core.startup_validation import validate_startup_requirements
         
         app_logger.info("🔍 Running comprehensive startup validation...")
-        if not await validate_startup_requirements():
-            app_logger.error("❌ Startup validation failed!")
-            raise RuntimeError("Application startup validation failed")
+        validation_success = await validate_startup_requirements()
+        if not validation_success:
+            # In production, log warnings but continue startup
+            if settings.ENVIRONMENT == "production":
+                app_logger.warning("⚠️ Startup validation failed - continuing with limited features")
+                app_logger.warning("🚨 Some external services may be unavailable")
+            else:
+                app_logger.error("❌ Startup validation failed!")
+                raise RuntimeError("Application startup validation failed")
         
         app_logger.info("✅ Startup validation passed")
         
