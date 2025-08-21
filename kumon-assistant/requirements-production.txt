@@ -53,6 +53,11 @@ google-auth-oauthlib==1.2.1
 google-auth-httplib2==0.2.0
 google-api-python-client==2.148.0
 
+# SECURITY & JWT
+PyJWT==2.9.0
+passlib[bcrypt]==1.7.4
+python-jose[cryptography]==3.3.0
+
 # UTILITIES
 pandas==2.2.3
 pillow==11.0.0
