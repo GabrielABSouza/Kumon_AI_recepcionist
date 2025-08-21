@@ -1,5 +1,5 @@
 """
-Message processing service
+Enhanced Message Processing Service with Security Integration
 """
 from typing import Dict, Any, Optional
 import asyncio
@@ -8,108 +8,102 @@ from ..models.message import WhatsAppMessage, MessageResponse, MessageType
 from ..services.intent_classifier import IntentClassifier
 from ..services.availability_service import AvailabilityService
 from ..services.booking_service import BookingService
-from ..services.rag_engine import RAGEngine
-from ..services.conversation_flow import conversation_flow_manager
+from ..services.langchain_rag import langchain_rag_service
+# Legacy conversation flow removed - now using CeciliaWorkflow only
+from ..services.secure_message_processor import secure_message_processor
 from ..core.logger import app_logger
 from ..core.config import settings
 
 
 class MessageProcessor:
-    """Main message processing orchestrator"""
+    """
+    Enhanced message processing orchestrator with security integration
+    
+    Supports both legacy mode and secure mode (Fase 5) with feature flags.
+    """
     
     def __init__(self):
+        # Legacy components (for backward compatibility)
         self.intent_classifier = IntentClassifier()
         self.availability_service = AvailabilityService()
         self.booking_service = BookingService()
-        self.rag_engine = RAGEngine()
-        self.conversation_flow = conversation_flow_manager
+        # Legacy conversation flow removed - using CeciliaWorkflow instead
         
-        app_logger.info("MessageProcessor initialized")
+        # Security components (Fase 5)
+        self.secure_processor = secure_message_processor
+        
+        # Feature flags for gradual rollout
+        self.use_secure_processing = getattr(settings, 'USE_SECURE_PROCESSING', True)
+        self.secure_rollout_percentage = getattr(settings, 'SECURE_ROLLOUT_PERCENTAGE', 100.0)
+        
+        app_logger.info(f"MessageProcessor initialized - Secure mode: {self.use_secure_processing}")
     
     async def process_message(self, message: WhatsAppMessage) -> MessageResponse:
         """Process incoming WhatsApp message and generate response"""
         
         try:
-            # Extract unit context if available
-            unit_context = self._extract_unit_context(message)
-            
             app_logger.info("Processing message", extra={
                 "message_id": message.message_id,
                 "from_number": message.from_number,
                 "content_length": len(message.content),
-                "user_id": unit_context.get("user_id") if unit_context else None
+                "secure_mode": self.use_secure_processing
             })
             
-            # Check if user is in an active conversation flow
-            conversation_state = self.conversation_flow.get_conversation_state(message.from_number)
-            
-            app_logger.info("Conversation state", extra={
-                "phone_number": message.from_number,
-                "stage": conversation_state.stage.value,
-                "step": conversation_state.step.value
-            })
-            
-            # Process message through conversation flow
-            flow_response = await self.conversation_flow.advance_conversation(
-                message.from_number, 
-                message.content
-            )
-            
-            # Check if human handoff was triggered
-            if flow_response.get("human_handoff", False):
-                app_logger.info(f"Human handoff triggered for {message.from_number}, reason: {flow_response.get('handoff_reason')}")
-                
-                return MessageResponse(
-                    content=flow_response["message"],
-                    message_type=MessageType.TEXT,
-                    metadata={
-                        "human_handoff": True,
-                        "handoff_reason": flow_response.get("handoff_reason"),
-                        "conversation_ended": True
-                    }
-            )
-            
-            # Check if conversation ended or we should fall back to RAG
-            elif flow_response.get("end_conversation", False):
-                # Reset conversation state for future interactions
-                if message.from_number in self.conversation_flow.conversation_states:
-                    del self.conversation_flow.conversation_states[message.from_number]
-                
-                return MessageResponse(
-                    content=flow_response["message"],
-                    message_type=MessageType.TEXT,
-                    metadata={"conversation_ended": True}
-                )
-            
-            # Check if user asked a specific question that should be handled by RAG
-            elif self._should_use_rag(message.content):
-                # Use RAG for specific questions while preserving conversation state
-                rag_answer = await self.rag_engine.answer_question(
-                    message.content, 
-                    context=unit_context
-                )
-                
-                # Add context about continuing the conversation
-                if rag_answer:
-                    rag_answer += f"\n\n---\n\nPara continuar nossa conversa sobre matricular seu filho(a) no Kumon, responda minha pergunta anterior ou diga 'continuar'. 😊"
-                
-                return MessageResponse(
-                    content=rag_answer or "Desculpe, não encontrei uma resposta específica. Vamos continuar nossa conversa?",
-                    message_type=MessageType.TEXT,
-                    metadata={"rag_answer": True, "conversation_preserved": True}
-                )
-            
-            # Continue with structured conversation flow
+            # Route to appropriate processor based on feature flags
+            if self.use_secure_processing and self._should_use_secure_mode(message):
+                # Use Fase 5 secure processing
+                app_logger.info(f"Routing to secure processor: {message.from_number}")
+                return await self.secure_processor.process_message(message)
             else:
-                return MessageResponse(
-                    content=flow_response["message"],
-                    message_type=MessageType.TEXT,
-                    metadata={
-                        "conversation_stage": conversation_state.stage.value,
-                        "conversation_step": conversation_state.step.value,
-                        "conversation_advanced": flow_response.get("advance", False)
-                    }
-                )
+                # Use legacy processing (backward compatibility)
+                app_logger.info(f"Routing to legacy processor: {message.from_number}")
+                return await self._process_message_legacy(message)
+                
+        except Exception as e:
+            app_logger.error(f"Message processing failed: {e}", extra={
+                "message_id": message.message_id,
+                "from_number": message.from_number
+            })
+            
+            # Fallback response
+            return MessageResponse(
+                content="Desculpe, ocorreu um problema técnico. Entre em contato conosco pelo telefone (51) 99692-1999.",
+                message_type=MessageType.TEXT,
+                metadata={"error": True, "fallback": True}
+            )
+    
+    def _should_use_secure_mode(self, message: WhatsAppMessage) -> bool:
+        """Determine if message should use secure processing"""
+        
+        # Always use secure mode if enabled and rollout is 100%
+        if self.secure_rollout_percentage >= 100.0:
+            return True
+        
+        # Gradual rollout based on phone number hash
+        if self.secure_rollout_percentage > 0:
+            import hashlib
+            phone_hash = hashlib.md5(message.from_number.encode()).hexdigest()
+            hash_value = int(phone_hash[:8], 16) % 100
+            return hash_value < self.secure_rollout_percentage
+        
+        return False
+    
+    async def _process_message_legacy(self, message: WhatsAppMessage) -> MessageResponse:
+        """Legacy message processing (backward compatibility)"""
+        
+        try:
+            # Extract unit context if available
+            unit_context = self._extract_unit_context(message)
+            
+            # Legacy conversation flow has been removed - this processor should not be used
+            app_logger.warning("MessageProcessor.process_message_legacy called - this should use CeciliaWorkflow instead")
+            
+            # Return a message directing to the new system
+            return MessageResponse(
+                content="Sistema atualizado! Agora estou usando o novo CeciliaWorkflow. 😊",
+                message_type=MessageType.TEXT,
+                metadata={"system": "legacy_deprecated", "recommendation": "use_cecilia_workflow"}
+            )
             
         except Exception as e:
             app_logger.error(f"Error processing message: {str(e)}", extra={
@@ -175,13 +169,11 @@ class MessageProcessor:
         }
 
     async def get_conversation_status(self, phone_number: str) -> Dict[str, Any]:
-        """Get conversation status for a phone number"""
-        return self.conversation_flow.get_conversation_progress(phone_number)
+        """Get conversation status - deprecated, use CeciliaWorkflow instead"""
+        app_logger.warning("MessageProcessor.get_conversation_status called - use CeciliaWorkflow instead")
+        return {"status": "deprecated", "use": "cecilia_workflow"}
     
     async def reset_conversation(self, phone_number: str) -> bool:
-        """Reset conversation state for a phone number"""
-        if phone_number in self.conversation_flow.conversation_states:
-            del self.conversation_flow.conversation_states[phone_number]
-            app_logger.info(f"Reset conversation for {phone_number}")
-            return True
+        """Reset conversation state - deprecated, use CeciliaWorkflow instead"""
+        app_logger.warning("MessageProcessor.reset_conversation called - use CeciliaWorkflow instead")
         return False 

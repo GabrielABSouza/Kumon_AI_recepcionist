@@ -22,7 +22,7 @@ from .embedding_service import embedding_service
 @dataclass
 class DocumentChunk:
     """Represents a document chunk for vector storage"""
-    id: str
+    id: int
     content: str
     category: str
     keywords: List[str]
@@ -131,8 +131,10 @@ class VectorStore:
             points = []
             for doc in documents:
                 if doc.embedding is not None:
+                    app_logger.info(f"Creating PointStruct with ID: {doc.id} (type: {type(doc.id)})")
+                    
                     point = PointStruct(
-                        id=doc.id,
+                        id=doc.id,  # DocumentChunk.id is now guaranteed to be int
                         vector=doc.embedding.tolist(),
                         payload={
                             "content": doc.content,
@@ -141,6 +143,8 @@ class VectorStore:
                             "metadata": doc.metadata
                         }
                     )
+                    
+                    app_logger.info(f"PointStruct created successfully with ID: {point.id}")
                     points.append(point)
             
             # Upload points to Qdrant

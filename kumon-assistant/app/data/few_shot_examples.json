@@ -113,14 +113,17 @@
     {
       "category": "scheduling",
       "question": "Como posso reagendar uma aula ou agendar uma reunião com a orientadora?",
-      "answer": "Para reagendar aulas ou agendar reuniões, entre em contato diretamente com nossa unidade Kumon Vila A. Você pode nos ligar no (51) 99692-1999, enviar um e-mail para kumonvilaa@gmail.com ou vir pessoalmente em nosso endereço na Rua Amoreira, 571. Salas 6 e 7. Jardim das Laranjeiras. Teremos o prazer em ajudá-lo! 📞📧",
+      "answer": "📅 **Política de Reagendamento Kumon Vila A:**\n\n• **Sem aviso prévio necessário** - Você pode reagendar a qualquer momento\n• **Uma remarcação gratuita** disponível com nossa assistente Cecilia\n• **Prioridade total** para encontros com leads interessados\n\n**Para reagendar:**\n• Entre em contato diretamente pelo WhatsApp (51) 99692-1999\n• E-mail: kumonvilaa@gmail.com\n• Presencialmente: Rua Amoreira, 571. Salas 6 e 7. Jardim das Laranjeiras\n\n⚠️ **Importante:** Após 2 faltas sem aviso, você será direcionado a um de nossos consultores humanos para melhor atendimento.\n\nTeremos o prazer em ajudá-lo! 📞📧",
       "keywords": [
         "reagendamento",
         "aula",
         "reunião",
         "orientadora",
         "unidade Kumon",
-        "contato"
+        "contato",
+        "remarcar",
+        "política",
+        "aviso prévio"
       ]
     },
     {
@@ -175,19 +178,6 @@
     },
     {
       "category": "pricing",
-      "question": "Qual é o valor do curso e há taxa de matrícula?",
-      "answer": "Os valores de mensalidade e taxa de matrícula variam de acordo com as disciplinas selecionadas. Para informações precisas sobre valores, entre em contato conosco no (51) 99692-1999 ou kumonvilaa@gmail.com. Será um prazer agendar uma conversa para discutir as opções e esclarecer todas as suas dúvidas! 💰",
-      "keywords": [
-        "mensalidade",
-        "taxa de matrícula",
-        "valores",
-        "unidade Kumon",
-        "informações financeiras",
-        "contato"
-      ]
-    },
-    {
-      "category": "pricing",
       "question": "Qual o valor do material?",
       "answer": "O material didático do Kumon está incluso no valor mensal pago pelo curso. O material é cuidadosamente elaborado para acompanhar o desenvolvimento do aluno e está alinhado aos objetivos do método, garantindo qualidade e eficiência no aprendizado.",
       "keywords": [
@@ -199,16 +189,34 @@
       ]
     },
     {
+      "category": "pricing",
+      "question": "Quanto custa o Kumon? Quais são os valores das mensalidades?",
+      "answer": "💰 **Investimento Kumon Vila A:**\n\n• **Matemática ou Português**: R$ 375,00/mês por disciplina\n• **Inglês**: R$ 375,00/mês\n• **Taxa de matrícula**: R$ 100,00 (única vez)\n\n**Incluso:**\n• Material didático completo\n• Acompanhamento pedagógico individualizado\n• Relatórios de progresso regulares\n• 2 aulas por semana na unidade\n\nÉ um investimento no futuro educacional! Para mais informações sobre descontos ou condições especiais, entre em contato conosco. 🎓",
+      "keywords": [
+        "preço kumon",
+        "valor mensalidade",
+        "quanto custa",
+        "investimento",
+        "matemática",
+        "português", 
+        "inglês",
+        "taxa matrícula",
+        "valores"
+      ]
+    },
+    {
       "category": "contact",
       "question": "Qual o telefone e endereço da unidade?",
-      "answer": "A unidade Kumon Vila A está localizada na Rua Amoreira, 571. Salas 6 e 7. Jardim das Laranjeiras. Nosso telefone é (51) 99692-1999 e nosso e-mail é kumonvilaa@gmail.com. Funcionamos de segunda a sexta das 08:00 às 18:00. Esperamos sua visita! 📍📞",
+      "answer": "📍 **Kumon Vila A - Localização e Contato:**\n\n**Endereço:** Rua Amoreira, 571. Salas 6 e 7. Jardim das Laranjeiras\n**Telefone:** (51) 99692-1999\n**E-mail:** kumonvilaa@gmail.com\n**Horário:** Segunda a sexta das 08:00 às 18:00\n\n🚗 **Estacionamento disponível no local** - Venha sem preocupação!\n\nEsperamos sua visita! 📞✨",
       "keywords": [
         "telefone",
         "endereço",
         "localização",
         "contato",
         "unidade",
-        "horário funcionamento"
+        "horário funcionamento",
+        "estacionamento",
+        "parking"
       ]
     }
   ],

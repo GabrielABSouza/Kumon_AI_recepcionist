@@ -1,3 +1,0 @@
-"""
-FastAPI routes and endpoints
-""" 

@@ -9,7 +9,7 @@ from langchain.schema import Document
 from langchain.prompts import ChatPromptTemplate, PromptTemplate
 from langchain.schema.runnable import RunnablePassthrough
 from langchain.schema.output_parser import StrOutputParser
-from langchain_openai import ChatOpenAI
+# Removed ChatOpenAI import - using new LLM service abstraction
 from langchain.callbacks.base import BaseCallbackHandler
 from langchain.schema import BaseMessage
 
@@ -17,6 +17,8 @@ from ..core.config import settings
 from ..core.logger import app_logger
 from .vector_store import vector_store, SearchResult, DocumentChunk
 from .hybrid_embedding_service import hybrid_embedding_service
+from .enhanced_cache_service import enhanced_cache_service, CacheLayer
+from .langgraph_llm_adapter import kumon_llm_service
 
 
 class LoggingCallbackHandler(BaseCallbackHandler):
@@ -87,14 +89,9 @@ Resposta:"""
             await vector_store.initialize()
             await hybrid_embedding_service.initialize_model()
             
-            # Initialize OpenAI LLM
-            self.llm = ChatOpenAI(
-                model=settings.OPENAI_MODEL,
-                api_key=settings.OPENAI_API_KEY,
-                temperature=0.3,
-                max_tokens=500,
-                callbacks=[self.callback_handler]
-            )
+            # Initialize LLM using new service abstraction
+            # Note: kumon_llm_service handles provider selection, cost monitoring, and fallback
+            self.llm = kumon_llm_service  # Direct usage of the adapter
             
             # Create retrieval chain
             self._create_retrieval_chain()
@@ -126,13 +123,14 @@ Resposta:"""
             app_logger.error(f"Error creating retrieval chain: {str(e)}")
             raise
     
-    async def _format_context(self, input_data: Dict[str, Any]) -> str:
+    async def _format_context(self, input_data: Any) -> str:
         """Format context from search results"""
         if isinstance(input_data, dict) and "context" in input_data:
             search_results = input_data["context"]
         else:
-            # If it's just the question, we need to search first
-            question = input_data.get("question", "") if isinstance(input_data, dict) else str(input_data)
+            # If it's just the question string, we need to search first
+            question = str(input_data)
+            app_logger.info(f"Searching for context with question: {question[:50]}...")
             search_results = await vector_store.search(
                 query=question,
                 limit=3,
@@ -169,9 +167,16 @@ Resposta:"""
             # Set default search parameters
             search_params = {
                 "limit": 3,
-                "score_threshold": 0.7,
-                **( search_kwargs or {})
+                "score_threshold": 0.7
             }
+            
+            # Process search_kwargs and convert 'k' to 'limit' if present
+            if search_kwargs:
+                for key, value in search_kwargs.items():
+                    if key == 'k':
+                        search_params['limit'] = value
+                    else:
+                        search_params[key] = value
             
             # Retrieve relevant documents
             app_logger.info(f"Searching for relevant documents for query: {question[:50]}...")
@@ -192,16 +197,27 @@ Resposta:"""
                     processing_time=time.time() - start_time
                 )
             
-            # Format context
-            context = await self._format_context({"context": search_results})
-            
             # Generate answer using the chain
             app_logger.info(f"Generating answer using {len(search_results)} relevant documents")
             
-            answer = await self.retrieval_chain.ainvoke({
-                "question": question,
-                "context": context
-            })
+            # Use the new LLM service for generation
+            context = await self._format_context({"context": search_results})
+            
+            # Create the full prompt with context
+            full_prompt = self.system_template.format(
+                context=context,
+                question=question
+            )
+            
+            # Generate response using kumon_llm_service
+            answer = await kumon_llm_service.generate_business_response(
+                user_input=question,
+                conversation_context={"messages": []},
+                workflow_stage="rag_query",
+                context=context
+            )
+            
+            # Context already formatted above
             
             # Calculate confidence score based on search results
             confidence_score = self._calculate_confidence_score(search_results)
@@ -261,8 +277,24 @@ Resposta:"""
             doc_chunks = []
             
             for i, doc in enumerate(documents):
+                # Ensure ID is always an integer
+                original_id = doc.get("id", i)
+                doc_id = original_id
+                
+                app_logger.info(f"Processing document {i}: original_id={original_id} (type: {type(original_id)})")
+                
+                if isinstance(doc_id, str):
+                    # Convert string ID to integer using hash
+                    doc_id = abs(hash(doc_id)) % (2**31)
+                    app_logger.info(f"Converted string ID '{original_id}' to integer: {doc_id}")
+                elif not isinstance(doc_id, int):
+                    doc_id = i
+                    app_logger.info(f"Used fallback ID {i} for non-int/str ID: {original_id}")
+                
+                app_logger.info(f"Final DocumentChunk ID: {doc_id} (type: {type(doc_id)})")
+                
                 chunk = DocumentChunk(
-                    id=doc.get("id", f"doc_{i}"),
+                    id=doc_id,
                     content=doc.get("content", ""),
                     category=doc.get("category", "general"),
                     keywords=doc.get("keywords", []),
@@ -290,21 +322,26 @@ Resposta:"""
                 await self.initialize()
             
             documents = []
-            for example in examples_data.get("examples", []):
+            for i, example in enumerate(examples_data.get("examples", [])):
                 # Create document from question-answer pair
                 content = f"Pergunta: {example.get('question', '')}\nResposta: {example.get('answer', '')}"
                 
+                doc_id = i + 1000  # Use unique integer IDs starting from 1000
+                app_logger.info(f"Creating few-shot document {i} with ID: {doc_id} (type: {type(doc_id)})")
+                
                 doc = {
-                    "id": f"example_{len(documents)}",
+                    "id": doc_id,  # Use integer ID instead of string
                     "content": content,
                     "category": example.get("category", "general"),
                     "keywords": example.get("keywords", []),
                     "metadata": {
                         "type": "few_shot_example",
                         "question": example.get("question", ""),
-                        "answer": example.get("answer", "")
+                        "answer": example.get("answer", ""),
+                        "example_index": i
                     }
                 }
+                app_logger.info(f"Document created: ID={doc['id']}, category={doc['category']}")
                 documents.append(doc)
             
             success = await self.add_knowledge_base_documents(documents)
@@ -322,7 +359,7 @@ Resposta:"""
         """Get system statistics"""
         stats = {
             "initialized": self._initialized,
-            "embedding_stats": await embedding_service.get_embedding_stats(),
+            "hybrid_embedding_ready": hybrid_embedding_service.primary_service is not None,
             "vector_store_info": await vector_store.get_collection_info()
         }
         

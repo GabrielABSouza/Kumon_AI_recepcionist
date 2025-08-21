@@ -1,0 +1,74 @@
+# Development files
+.env
+.env.local
+.env.development
+.env.example
+.env.production.example
+
+# Git and CI
+.git/
+.github/
+.gitignore
+
+# Documentation
+*.md
+docs/
+README*
+CHANGELOG*
+LICENSE*
+
+# Testing
+tests/
+test/
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Local data
+data/
+logs/
+cache/
+temp/
+tmp/
+
+# Jupyter
+.ipynb_checkpoints
+
+# Development scripts
+scripts/development/
+scripts/test/

@@ -315,7 +315,7 @@ class EnhancedRAGEngine:
                 await self.initialize()
             
             document = {
-                "id": f"doc_{int(time.time() * 1000)}",  # Timestamp-based ID
+                "id": int(time.time() * 1000),  # Timestamp-based integer ID
                 "content": content,
                 "category": category,
                 "keywords": keywords,

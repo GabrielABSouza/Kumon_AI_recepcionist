@@ -210,9 +210,27 @@ class EvolutionAPIClient:
         }
         
         app_logger.info(f"Sending text message to {clean_phone} via instance {instance_name}")
-        result = await self._make_request("POST", f"message/sendText/{instance_name}", data, instance_name)
-        app_logger.info(f"Message sent successfully to {clean_phone}")
-        return result
+        
+        # Try the correct Evolution API v1.7.1 endpoint format
+        endpoint = f"message/sendText/{instance_name}"
+        
+        try:
+            result = await self._make_request("POST", endpoint, data, instance_name)
+            app_logger.info(f"Message sent successfully to {clean_phone}")
+            return result
+        except Exception as e:
+            # If the endpoint fails, try alternative formats
+            app_logger.warning(f"Primary endpoint failed, trying alternatives: {str(e)}")
+            
+            # Try without instance in path, with instance in data
+            try:
+                data_with_instance = {**data, "instance": instance_name}
+                result = await self._make_request("POST", "message/sendText", data_with_instance, instance_name)
+                app_logger.info(f"Message sent successfully using alternative endpoint")
+                return result
+            except Exception as e2:
+                app_logger.error(f"All sendText endpoints failed: {str(e2)}")
+                raise e
     
     async def send_media_message(
         self, 
@@ -332,7 +350,16 @@ class EvolutionAPIClient:
             event = webhook_data.get("event", "")
             data = webhook_data.get("data", {})
             
-            if event != "messages.upsert":
+            app_logger.info(f"DEBUG: Parsing webhook - event='{event}', has_data_key={bool(data.get('key'))}, has_data_message={bool(data.get('message'))}")
+            
+            # Check if this is a message webhook - either has 'event' field or direct message data
+            is_message_webhook = (
+                event == "messages.upsert" or 
+                (data.get("key") and data.get("message"))
+            )
+            
+            if not is_message_webhook:
+                app_logger.info(f"DEBUG: Not a message webhook - returning None")
                 return None
             
             # For Evolution API v1.7.1, message data is directly in 'data', not in 'data.messages'
@@ -340,12 +367,23 @@ class EvolutionAPIClient:
             
             # Skip messages sent by the bot itself
             if message_info.get("key", {}).get("fromMe", False):
+                app_logger.info(f"DEBUG: Skipping message from self (fromMe=True)")
                 return None
             
             message_id = message_info.get("key", {}).get("id", "")
             phone = message_info.get("key", {}).get("remoteJid", "").replace("@s.whatsapp.net", "")
             timestamp = message_info.get("messageTimestamp", 0)
-            instance = webhook_data.get("instance", "")
+            
+            # Extract instance name from webhook - try multiple fields
+            instance = (
+                webhook_data.get("instance") or 
+                webhook_data.get("instanceName") or
+                webhook_data.get("instance_name") or
+                data.get("instance") or
+                "kumonvilaa"  # Fallback to known instance
+            )
+            
+            app_logger.info(f"DEBUG: Extracted - message_id={message_id}, phone={phone}, instance={instance}")
             
             # Extract message content
             message_content = message_info.get("message", {})
@@ -377,6 +415,8 @@ class EvolutionAPIClient:
             # Get sender name
             sender_name = message_info.get("pushName", "")
             
+            app_logger.info(f"DEBUG: Creating WhatsAppMessage - text='{message_text}', type={message_type}")
+            
             return WhatsAppMessage(
                 message_id=message_id,
                 phone=phone,
@@ -390,7 +430,8 @@ class EvolutionAPIClient:
             )
             
         except Exception as e:
-            app_logger.error(f"Error parsing webhook message: {str(e)}")
+            app_logger.error(f"Error parsing webhook message: {str(e)}", exc_info=True)
+            app_logger.error(f"DEBUG: Webhook data causing error: {webhook_data}")
             return None
     
     async def get_instance_status(self, instance_name: str) -> str:

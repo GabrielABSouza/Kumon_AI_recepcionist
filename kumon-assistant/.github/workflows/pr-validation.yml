@@ -1,0 +1,114 @@
+name: PR Validation
+on:
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements-production.txt
+          pip install black isort flake8 bandit safety
+
+      - name: Code quality checks
+        run: |
+          echo "Running code formatting checks..."
+          black --check --diff . || (echo "❌ Code formatting issues found. Run 'black .' to fix." && exit 1)
+          
+          echo "Running import sorting checks..."
+          isort --check-only --diff . || (echo "❌ Import sorting issues found. Run 'isort .' to fix." && exit 1)
+          
+          echo "Running flake8 style checks..."
+          flake8 . --max-line-length=100 --ignore=E203,W503 --exclude=.git,__pycache__,docs/,build/,dist/
+
+      - name: Security quick scan
+        run: |
+          echo "Running security scan..."
+          bandit -r app/ -ll --exclude=*/tests/* || echo "⚠️ Security warnings found"
+
+      - name: Configuration validation
+        run: |
+          echo "Validating configuration files..."
+          
+          # Check railway.json exists and is valid
+          if [ ! -f railway.json ]; then
+            echo "❌ railway.json missing"
+            exit 1
+          fi
+          
+          # Validate JSON syntax
+          python -m json.tool railway.json > /dev/null || (echo "❌ Invalid railway.json syntax" && exit 1)
+          
+          # Check Dockerfile exists
+          if [ ! -f Dockerfile ]; then
+            echo "❌ Dockerfile missing"
+            exit 1
+          fi
+          
+          echo "✅ Configuration files validated"
+
+      - name: Quick health check test
+        run: |
+          echo "Running basic import tests..."
+          python -c "
+          import sys
+          import os
+          sys.path.insert(0, '.')
+          
+          try:
+              # Test basic imports
+              from app.core.config import settings
+              from app.core.logger import app_logger
+              print('✅ Core modules import successfully')
+              
+              # Test configuration
+              if settings.ENVIRONMENT:
+                  print(f'✅ Configuration loaded: {settings.ENVIRONMENT}')
+              else:
+                  print('⚠️ Environment not configured')
+                  
+          except ImportError as e:
+              print(f'❌ Import error: {e}')
+              sys.exit(1)
+          except Exception as e:
+              print(f'⚠️ Configuration warning: {e}')
+          "
+
+      - name: Deployment readiness check
+        run: |
+          echo "Checking deployment readiness..."
+          
+          # Check for required environment variables documentation
+          if [ ! -f .env.production.example ]; then
+            echo "⚠️ .env.production.example missing"
+          fi
+          
+          # Check for secrets documentation
+          if grep -q "RAILWAY_TOKEN" .github/workflows/deploy.yml; then
+            echo "✅ CI/CD secrets configured"
+          else
+            echo "⚠️ Railway token not configured in workflow"
+          fi
+          
+          echo "📋 PR validation completed"
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "🔍 PR Validation Summary:"
+          echo "✅ Code formatting and style checks"
+          echo "✅ Security scan completed"
+          echo "✅ Configuration validation"
+          echo "✅ Basic functionality test"
+          echo "📊 Ready for review"

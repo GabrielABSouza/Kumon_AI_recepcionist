@@ -8,14 +8,13 @@ import asyncio
 import json
 
 from ..clients.evolution_api import evolution_api_client, WhatsAppMessage, InstanceInfo
-from ..services.enhanced_rag_engine import enhanced_rag_engine
-from ..services.rag_engine import RAGEngine
+# Enhanced RAG engine removed - using langchain_rag_service directly
+from ..services.langchain_rag import langchain_rag_service
 from ..services.message_processor import MessageProcessor
 from ..core.logger import app_logger
 from ..core.config import settings
 
-# Import conversation flow manager
-from app.services.conversation_flow import conversation_flow_manager
+# Conversation flow is now handled by message processor
 
 router = APIRouter(prefix="/api/v1/evolution", tags=["evolution"])
 
@@ -50,9 +49,18 @@ class SendButtonRequest(BaseModel):
     buttons: List[Dict[str, str]] = Field(..., description="List of buttons with text")
 
 
-# Initialize message processor and simple RAG engine
-message_processor = MessageProcessor()
-simple_rag_engine = RAGEngine()
+# Initialize message processor - Use SECURE version if enabled
+from ..services.secure_message_processor import SecureMessageProcessor
+
+# Check if secure processing is enabled
+if getattr(settings, 'USE_SECURE_PROCESSING', True):
+    # Use secure message processor with all security features
+    message_processor = SecureMessageProcessor()
+    app_logger.info("🛡️ Evolution route using SECURE Message Processor (Fase 5)")
+else:
+    # Fallback to legacy processor
+    message_processor = MessageProcessor()
+    app_logger.warning("⚠️ Evolution route using legacy Message Processor")
 
 
 @router.post("/instances")
@@ -428,8 +436,8 @@ async def handle_messages_upsert_direct(request: Request):
         
         app_logger.info(f"📱 Processing message from instance: {instance}")
         
-        # Process message in background
-        asyncio.create_task(process_message_from_webhook(webhook_data))
+        # Process message immediately for debugging
+        await process_message_from_webhook(webhook_data)
         
         return {"status": "ok", "message": "Message received and queued for processing"}
         
@@ -719,9 +727,14 @@ async def handle_new_jwt_token(request: Request):
 
 async def process_message_from_webhook(webhook_data: Dict[str, Any]):
     """Process message from webhook data"""
+    app_logger.info(f"DEBUG: STARTING process_message_from_webhook function")
     try:
+        app_logger.info(f"DEBUG: About to parse webhook data: {webhook_data}")
+        
         # Parse message from the webhook
         parsed_message = evolution_api_client.parse_webhook_message(webhook_data)
+        
+        app_logger.info(f"DEBUG: Parsed message result: {parsed_message}")
         
         if parsed_message:
             app_logger.info(f"✅ Message parsed successfully: {parsed_message.phone} | '{parsed_message.message}'")
@@ -754,21 +767,21 @@ async def process_message_background(message: WhatsAppMessage):
         
         app_logger.info(f"🔄 Processing message: '{message.message}' from {message.phone}")
         
-        # Log conversation state before processing
-        conversation_state = conversation_flow_manager.get_conversation_state(message.phone)
-        app_logger.info(f"📊 Conversation state BEFORE: Stage={conversation_state.stage.value}, Step={conversation_state.step.value}, Data={list(conversation_state.data.keys())}")
+        # Use the message processor (secure or legacy based on config)
+        if isinstance(message_processor, SecureMessageProcessor):
+            # Process through secure workflow (now accepts Evolution format)
+            response = await message_processor.process_message(message)
+            ai_response = response.content if response else None
+        else:
+            # Legacy processor expects separate arguments
+            ai_response = await message_processor.process_message(
+                message=message.message,
+                phone_number=message.phone,
+                context=context
+            )
         
-        # ALWAYS use conversation flow manager as primary system
-        flow_response = await conversation_flow_manager.advance_conversation(message.phone, message.message)
-        
-        # Log conversation state after processing
-        conversation_state_after = conversation_flow_manager.get_conversation_state(message.phone)
-        app_logger.info(f"📊 Conversation state AFTER: Stage={conversation_state_after.stage.value}, Step={conversation_state_after.step.value}, Data={list(conversation_state_after.data.keys())}")
-        
-        # Get the AI response from conversation flow
-        if flow_response and flow_response.get("message"):
-            ai_response = flow_response["message"]
-            app_logger.info(f"✅ Using conversation flow response: '{ai_response[:100]}...'")
+        if ai_response:
+            app_logger.info(f"✅ Message processor returned response: '{ai_response[:100]}...'")
         else:
             # Fallback to a generic welcome message if conversation flow fails
             app_logger.warning(f"⚠️ Conversation flow returned empty response, using fallback")
@@ -818,7 +831,7 @@ async def evolution_health_check():
             "status": "healthy",
             "evolution_api_url": settings.EVOLUTION_API_URL,
             "instances_count": len(instances),
-            "rag_engine_initialized": True  # Simple RAG engine is always initialized
+            "langchain_rag_initialized": langchain_rag_service._initialized
         }
         
     except Exception as e:
@@ -844,11 +857,12 @@ async def test_message(
             "instance": instance_name
         }
         
-        # Get AI response
-        ai_response = await simple_rag_engine.answer_question(
+        # Get AI response using LangChain RAG service
+        rag_response = await langchain_rag_service.query(
             question=message,
-            context=context
+            include_sources=False
         )
+        ai_response = rag_response.answer
         
         return {
             "success": True,

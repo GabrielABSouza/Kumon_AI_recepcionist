@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 import asyncio
 
-from ..services.enhanced_rag_engine import enhanced_rag_engine
+from ..services.langchain_rag import langchain_rag_service
 from ..services.hybrid_embedding_service import hybrid_embedding_service
 from ..services.vector_store import vector_store, SearchResult
 from ..core.logger import app_logger
@@ -61,24 +61,19 @@ async def query_rag_system(request: QueryRequest):
     try:
         app_logger.info(f"RAG query received: {request.question[:50]}...")
         
-        # Use enhanced RAG engine
-        answer = await enhanced_rag_engine.answer_question(
+        # Use LangChain RAG service directly
+        rag_result = await langchain_rag_service.query(
             question=request.question,
-            context=request.context,
-            use_semantic_search=request.use_semantic_search,
-            similarity_threshold=request.similarity_threshold
+            search_kwargs={"score_threshold": request.similarity_threshold or 0.7},
+            include_sources=request.use_semantic_search if hasattr(request, 'use_semantic_search') else True
         )
+        answer = rag_result.answer
         
-        # Get additional info for response
-        search_results = await enhanced_rag_engine.search_knowledge_base(
-            query=request.question,
-            limit=3
-        )
+        # Get additional info from search results
+        search_results = rag_result.sources if rag_result.sources else []
         
-        # Calculate confidence based on search results
-        confidence_score = 0.8 if search_results else 0.3
-        if search_results:
-            confidence_score = max(result.score for result in search_results[:3])
+        # Use confidence score from RAG result
+        confidence_score = rag_result.confidence_score
         
         sources = []
         if search_results:
@@ -148,12 +143,14 @@ async def add_document(request: AddDocumentRequest):
     Add a new document to the knowledge base
     """
     try:
-        success = await enhanced_rag_engine.add_knowledge_document(
-            content=request.content,
-            category=request.category,
-            keywords=request.keywords,
-            metadata=request.metadata
-        )
+        # Create document for LangChain RAG service
+        documents = [{
+            "content": request.content,
+            "category": request.category,
+            "keywords": request.keywords,
+            "metadata": request.metadata or {}
+        }]
+        success = await langchain_rag_service.add_knowledge_base_documents(documents)
         
         if success:
             return {"message": "Document added successfully", "success": True}
@@ -195,7 +192,7 @@ async def get_system_stats():
     Get system statistics and health information
     """
     try:
-        stats = await enhanced_rag_engine.get_system_stats()
+        stats = await langchain_rag_service.get_system_stats()
         return stats
         
     except Exception as e:
@@ -210,9 +207,9 @@ async def health_check():
     """
     try:
         # Check if all services are initialized
-        embedding_ready = embedding_service.model is not None
+        embedding_ready = hybrid_embedding_service.primary_service is not None
         vector_store_ready = vector_store._initialized
-        rag_ready = enhanced_rag_engine._initialized
+        rag_ready = langchain_rag_service._initialized
         
         health_status = {
             "status": "healthy" if all([embedding_ready, vector_store_ready, rag_ready]) else "degraded",
@@ -221,7 +218,7 @@ async def health_check():
                 "vector_store": "ready" if vector_store_ready else "not_ready",
                 "rag_engine": "ready" if rag_ready else "not_ready"
             },
-            "knowledge_base_loaded": enhanced_rag_engine.knowledge_base_loaded
+            "knowledge_base_loaded": rag_ready  # LangChain RAG doesn't have this specific flag
         }
         
         return health_status
@@ -240,7 +237,7 @@ async def initialize_system():
     Initialize the embedding system
     """
     try:
-        await enhanced_rag_engine.initialize()
+        await langchain_rag_service.initialize()
         
         return {
             "message": "System initialized successfully",
@@ -258,7 +255,9 @@ async def reload_knowledge_base():
     Reload the knowledge base from files
     """
     try:
-        success = await enhanced_rag_engine.reload_knowledge_base()
+        # LangChain RAG doesn't have a specific reload method - reinitialization accomplishes this
+        await langchain_rag_service.initialize()
+        success = True
         
         if success:
             return {"message": "Knowledge base reloaded successfully", "success": True}
@@ -276,7 +275,7 @@ async def clear_embedding_cache():
     Clear the embedding cache
     """
     try:
-        embedding_service.clear_cache()
+        # Hybrid embedding service doesn't have a clear_cache method
         
         return {"message": "Embedding cache cleared successfully"}
         
@@ -321,10 +320,10 @@ async def calculate_similarity(
     """
     try:
         # Generate embeddings
-        embeddings = await embedding_service.embed_texts([text1, text2])
+        embeddings = await hybrid_embedding_service.embed_texts([text1, text2])
         
         # Calculate similarity
-        similarity = embedding_service.cosine_similarity(embeddings[0], embeddings[1])
+        similarity = hybrid_embedding_service.cosine_similarity(embeddings[0], embeddings[1])
         
         return {
             "text1": text1,

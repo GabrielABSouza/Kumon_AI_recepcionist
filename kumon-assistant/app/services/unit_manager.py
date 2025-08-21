@@ -33,9 +33,9 @@ class UnitManager:
                     "Sexta-feira": "08:00 - 18:00"
                 },
                 "services": {
-                    "Matemática": {"price": "150.00", "description": "Programa de matemática Kumon"},
-                    "Português": {"price": "150.00", "description": "Programa de português Kumon"},
-                    "Inglês": {"price": "180.00", "description": "Programa de inglês Kumon"}
+                    "Matemática": {"price": "375.00", "description": "Programa de matemática Kumon"},
+                    "Português": {"price": "375.00", "description": "Programa de português Kumon"},
+                    "Inglês": {"price": "375.00", "description": "Programa de inglês Kumon"}
                 },
                 "custom_responses": {
                     "greeting": "Olá! Bem-vindo ao Kumon Vila A! Como posso ajudá-lo hoje?",

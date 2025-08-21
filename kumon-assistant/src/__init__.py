@@ -1,3 +1,0 @@
-"""
-Kumon AI Receptionist Application
-""" 
