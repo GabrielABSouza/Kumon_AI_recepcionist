@@ -223,6 +223,23 @@ class Settings(BaseSettings):
     ENABLE_INFORMATION_PROTECTION: bool = True
     ENABLE_ADVANCED_THREAT_DETECTION: bool = True
     
+    # Calendar Service Resilience Configuration
+    CIRCUIT_BREAKER_FAILURE_THRESHOLD: int = 5
+    CIRCUIT_BREAKER_RECOVERY_TIMEOUT: int = 30
+    CIRCUIT_BREAKER_SUCCESS_THRESHOLD: int = 2
+    CIRCUIT_BREAKER_TIMEOUT: int = 10
+    
+    # Calendar Cache Configuration
+    AVAILABILITY_CACHE_TTL: int = 1800  # 30 minutes
+    CONFLICT_CHECK_TTL: int = 600       # 10 minutes
+    EVENT_CACHE_TTL: int = 3600         # 1 hour
+    MEMORY_CACHE_SIZE: int = 100        # Max entries
+    
+    # Calendar Rate Limiting Configuration
+    GOOGLE_API_RATE_LIMIT: int = 90           # requests per 100 seconds
+    GOOGLE_API_DAILY_QUOTA: int = 1000000     # daily request quota
+    API_QUOTA_ALERT_THRESHOLD: float = 0.8    # 80% quota usage alert
+    
     # Configuration Validation Methods
     @validator('ENVIRONMENT', pre=True)
     def validate_environment(cls, v):

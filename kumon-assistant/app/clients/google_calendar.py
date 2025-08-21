@@ -12,6 +12,9 @@ from googleapiclient.errors import HttpError
 
 from ..core.config import settings
 from ..core.logger import app_logger
+from ..services.calendar_circuit_breaker import circuit_breaker, CircuitBreakerOpenError
+from ..services.calendar_cache_service import calendar_cache_service
+from ..services.calendar_rate_limiter import calendar_rate_limiter
 
 
 class GoogleCalendarClient:

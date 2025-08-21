@@ -182,6 +182,10 @@ app.include_router(evolution.router, tags=["evolution"])
 from app.api.v1 import security
 app.include_router(security.router, prefix="/api/v1/security", tags=["security"])
 
+# Calendar monitoring endpoints (Architecture Hardening)
+from app.api.v1 import calendar_monitoring
+app.include_router(calendar_monitoring.router, prefix="/api/v1/calendar", tags=["calendar-monitoring"])
+
 # Workflow management endpoints (Wave 4)
 # Temporarily disable workflows router until dependencies are resolved
 # app.include_router(workflows.router, prefix="/api/v1/workflows", tags=["workflows"])
