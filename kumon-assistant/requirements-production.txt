@@ -46,7 +46,7 @@ langgraph==0.2.45
 sentence-transformers==3.3.0
 transformers==4.46.0
 --index-url https://download.pytorch.org/whl/cpu
-torch==2.8.0+cpu
+torch==2.8.0
 numpy==1.26.4
 
 # GOOGLE APIS
