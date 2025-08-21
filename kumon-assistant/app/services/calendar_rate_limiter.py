@@ -5,7 +5,7 @@ Implements intelligent rate limiting to prevent quota exhaustion
 import asyncio
 import time
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from collections import deque
 import logging
 
