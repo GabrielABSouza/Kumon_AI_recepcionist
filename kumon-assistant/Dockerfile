@@ -17,7 +17,11 @@ WORKDIR /app
 
 # Copy requirements and install Python dependencies
 COPY requirements-production.txt .
-RUN pip install --no-cache-dir -r requirements-production.txt
+
+# Install PyTorch CPU first for better caching and Railway compatibility
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch==2.8.0+cpu && \
+    pip install --no-cache-dir -r requirements-production.txt
 
 # Copy application code
 COPY app/ ./app/

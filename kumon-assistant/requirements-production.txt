@@ -42,10 +42,11 @@ langchain-text-splitters==0.3.2
 langsmith==0.1.143
 langgraph==0.2.45
 
-# ML LIBRARIES
+# ML LIBRARIES - PyTorch CPU-only for Railway deployment
 sentence-transformers==3.3.0
 transformers==4.46.0
-torch==2.5.0
+--index-url https://download.pytorch.org/whl/cpu
+torch==2.8.0+cpu
 numpy==1.26.4
 
 # GOOGLE APIS
