@@ -12,6 +12,45 @@
     "restartPolicyMaxRetries": 3,
     "startCommand": "uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 2 --loop uvloop --access-log --log-level warning"
   },
+  "services": {
+    "postgres": {
+      "type": "postgresql",
+      "config": {
+        "version": "15",
+        "extensions": ["uuid-ossp", "pg_trgm"],
+        "maxConnections": 100,
+        "sharedBuffers": "256MB",
+        "effectiveCacheSize": "1GB",
+        "maintenanceWorkMem": "64MB",
+        "checkpointCompletionTarget": 0.9,
+        "walBuffers": "16MB",
+        "defaultStatisticsTarget": 100,
+        "randomPageCost": 1.1,
+        "effectiveIOConcurrency": 200
+      },
+      "resources": {
+        "memory": "512MB",
+        "cpu": "0.5"
+      }
+    },
+    "redis": {
+      "type": "redis",
+      "config": {
+        "version": "7",
+        "maxMemoryPolicy": "allkeys-lru",
+        "persistence": "aof",
+        "aofFsync": "everysec",
+        "savePoints": ["900 1", "300 10", "60 10000"],
+        "maxClients": 1000,
+        "timeout": 300,
+        "databases": 16
+      },
+      "resources": {
+        "memory": "256MB",
+        "cpu": "0.25"
+      }
+    }
+  },
   "environments": {
     "production": {
       "variables": {
@@ -20,7 +59,61 @@
         "WORKERS": "2",
         "REQUIRE_HTTPS": "true",
         "VALIDATE_API_KEYS": "true",
-        "ENABLE_HEALTH_CHECKS": "true"
+        "ENABLE_HEALTH_CHECKS": "true",
+        "DB_POOL_SIZE": "20",
+        "DB_MAX_OVERFLOW": "10",
+        "DB_POOL_TIMEOUT": "30",
+        "DB_POOL_RECYCLE": "1800",
+        "DB_ECHO": "false",
+        "DB_POOL_PRE_PING": "true",
+        "MEMORY_REDIS_MAX_CONNECTIONS": "20",
+        "MEMORY_ACTIVE_SESSION_TTL": "604800",
+        "MEMORY_USER_PROFILE_TTL": "2592000",
+        "MEMORY_ANALYTICS_CACHE_TTL": "3600",
+        "LLM_DAILY_BUDGET_BRL": "5.0",
+        "LLM_COST_ALERT_THRESHOLD_BRL": "4.0",
+        "LLM_CIRCUIT_BREAKER_THRESHOLD": "5",
+        "LLM_REQUEST_TIMEOUT_SECONDS": "30",
+        "RESPONSE_TIME_TARGET": "5.0",
+        "RESPONSE_TIME_WARNING": "4.0"
+      },
+      "healthChecks": {
+        "basic": {
+          "path": "/api/v1/health",
+          "timeout": 30,
+          "interval": 60,
+          "retries": 3
+        },
+        "detailed": {
+          "path": "/api/v1/health/detailed",
+          "timeout": 60,
+          "interval": 300,
+          "retries": 2
+        },
+        "readiness": {
+          "path": "/api/v1/health/ready",
+          "timeout": 10,
+          "interval": 30,
+          "retries": 5
+        },
+        "liveness": {
+          "path": "/api/v1/health/live",
+          "timeout": 5,
+          "interval": 15,
+          "retries": 3
+        },
+        "railway": {
+          "path": "/api/v1/health/railway",
+          "timeout": 45,
+          "interval": 120,
+          "retries": 2
+        }
+      },
+      "scaling": {
+        "minReplicas": 1,
+        "maxReplicas": 4,
+        "targetCPU": 70,
+        "targetMemory": 80
       }
     }
   }

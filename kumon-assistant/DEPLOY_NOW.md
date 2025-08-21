@@ -17,14 +17,15 @@ railway login
 
 **Opção A - Novo Projeto:**
 ```bash
-railway new kumon-assistant-production
+railway init
 ```
+(Será solicitado o nome do projeto)
 
 **Opção B - Projeto Existente:**
 ```bash
 railway link
 ```
-(Selecione o projeto Kumon Assistant)
+(Selecione o projeto Kumon Assistant existente)
 
 ### 3. Configurar as variáveis de ambiente
 
@@ -48,8 +49,11 @@ railway variables set MEMORY_ENABLE_SYSTEM="true"
 # Copiar Dockerfile de produção
 cp Dockerfile.production Dockerfile
 
-# Deploy
-railway up --service kumon-assistant
+# Deploy (sem especificar serviço - Railway criará automaticamente)
+railway up
+
+# Ou se quiser dar um nome ao serviço durante a criação:
+railway up --service web
 ```
 
 ### 5. Configurar domínio público
