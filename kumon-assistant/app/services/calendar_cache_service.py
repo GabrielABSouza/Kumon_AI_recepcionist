@@ -46,29 +46,32 @@ class CalendarCacheService:
         self.cache_writes = 0
         self.cache_invalidations = 0
         
-        # Initialize Redis connection
-        asyncio.create_task(self._initialize_redis())
+        # Initialize Redis connection - defer to avoid event loop issues
+        self._redis_initialized = False
     
-    async def _initialize_redis(self):
-        """Initialize Redis connection with retry logic"""
-        try:
-            # Use existing Redis URL from settings or default
-            redis_url = getattr(settings, 'MEMORY_REDIS_URL', 'redis://localhost:6379/0')
-            
-            self.redis_client = redis.from_url(
-                redis_url,
-                decode_responses=True,
-                retry_on_timeout=True,
-                health_check_interval=30
-            )
-            
-            # Test connection
-            await self.redis_client.ping()
-            app_logger.info("✅ Calendar cache service: Redis connection established")
-            
-        except Exception as e:
-            app_logger.warning(f"⚠️ Calendar cache service: Redis unavailable, using memory-only cache: {e}")
-            self.redis_client = None
+    async def _ensure_redis_initialized(self):
+        """Ensure Redis is initialized, initialize if not"""
+        if not self._redis_initialized:
+            try:
+                # Use existing Redis URL from settings or default
+                redis_url = getattr(settings, 'MEMORY_REDIS_URL', 'redis://localhost:6379/0')
+                
+                self.redis_client = redis.from_url(
+                    redis_url,
+                    decode_responses=True,
+                    retry_on_timeout=True,
+                    health_check_interval=30
+                )
+                
+                # Test connection
+                await self.redis_client.ping()
+                app_logger.info("✅ Calendar cache service: Redis connection established")
+                self._redis_initialized = True
+                
+            except Exception as e:
+                app_logger.warning(f"⚠️ Calendar cache service: Redis unavailable, using memory-only cache: {e}")
+                self.redis_client = None
+                self._redis_initialized = True
     
     def _generate_cache_key(self, operation: str, **params) -> str:
         """Generate consistent cache key for operation and parameters"""
@@ -99,6 +102,7 @@ class CalendarCacheService:
             return memory_result
         
         # L2: Check Redis cache
+        await self._ensure_redis_initialized()
         if self.redis_client:
             try:
                 redis_data = await self.redis_client.get(cache_key)

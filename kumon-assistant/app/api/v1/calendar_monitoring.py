@@ -3,7 +3,7 @@ Calendar Service Monitoring and Analytics API
 Enterprise monitoring for Google Calendar integration
 """
 from fastapi import APIRouter, HTTPException, Depends, status
-from typing import Dict, Any
+from typing import Dict, Any, List
 from datetime import datetime
 
 from ...core.logger import app_logger
