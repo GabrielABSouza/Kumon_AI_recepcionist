@@ -454,13 +454,17 @@ async def startup_event():
     if settings.MEMORY_ENABLE_SYSTEM:
         try:
             from app.services.conversation_memory_service import conversation_memory_service
-            await conversation_memory_service.initialize()
+            # Add timeout for memory service initialization
+            await asyncio.wait_for(conversation_memory_service.initialize(), timeout=60.0)
             app_logger.info("✅ Conversation memory system initialized successfully")
             
             # Perform health check
             health_status = await conversation_memory_service.health_check()
             app_logger.info(f"Memory system health: {health_status}")
             
+        except asyncio.TimeoutError:
+            app_logger.error("❌ Memory service initialization timed out after 60 seconds")
+            app_logger.warning("Continuing with in-memory conversation storage")
         except Exception as e:
             app_logger.error(f"❌ Failed to initialize conversation memory system: {e}")
             app_logger.warning("Continuing with in-memory conversation storage")

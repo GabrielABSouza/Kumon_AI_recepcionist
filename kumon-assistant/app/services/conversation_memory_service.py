@@ -197,19 +197,31 @@ class ConversationMemoryService:
                 await r.ping()
                 app_logger.info("Redis connection established")
             
-            # Initialize PostgreSQL connection pool
-            self.postgres_pool = await asyncpg.create_pool(
-                self.config.postgres_url,
-                min_size=self.config.postgres_min_pool_size,
-                max_size=self.config.postgres_max_pool_size,
-                command_timeout=self.config.postgres_command_timeout,
-                server_settings=self.config.postgres_server_settings
-            )
+            # Initialize PostgreSQL connection pool with timeout
+            try:
+                self.postgres_pool = await asyncio.wait_for(
+                    asyncpg.create_pool(
+                        self.config.postgres_url,
+                        min_size=self.config.postgres_min_pool_size,
+                        max_size=self.config.postgres_max_pool_size,
+                        command_timeout=self.config.postgres_command_timeout,
+                        server_settings=self.config.postgres_server_settings
+                    ),
+                    timeout=30.0  # 30 second timeout for pool creation
+                )
+            except asyncio.TimeoutError:
+                app_logger.error("PostgreSQL connection pool creation timed out after 30 seconds")
+                raise
             
             app_logger.info("PostgreSQL connection pool established")
             
-            # Initialize database schema
-            await self._initialize_database_schema()
+            # Initialize database schema with timeout
+            try:
+                await asyncio.wait_for(self._initialize_database_schema(), timeout=30.0)
+                app_logger.info("Database schema initialized successfully")
+            except asyncio.TimeoutError:
+                app_logger.error("Database schema initialization timed out after 30 seconds")
+                raise
             
             # Start background tasks
             if self.config.batch_write_size > 1:
