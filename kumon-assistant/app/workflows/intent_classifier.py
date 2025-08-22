@@ -322,8 +322,12 @@ class AdvancedIntentClassifier:
         if programs:
             context.mentioned_programs.update(programs)
         
-        context.current_topic = state["current_stage"].value
-        context.last_agent_action = state.get("current_step", ConversationStep.WELCOME).value
+        # Get stage safely from state
+        current_stage = state.get("stage") or state.get("current_stage")
+        current_step = state.get("step") or state.get("current_step", ConversationStep.WELCOME)
+        
+        context.current_topic = current_stage.value if hasattr(current_stage, 'value') else str(current_stage) if current_stage else "unknown"
+        context.last_agent_action = current_step.value if hasattr(current_step, 'value') else str(current_step)
         
         return context
     
@@ -542,8 +546,8 @@ class AdvancedIntentClassifier:
         if context.current_topic:
             context_parts.append(f"Tópico atual: {context.current_topic}")
         
-        context_parts.append(f"Estágio: {state['stage'].value}")
-        context_parts.append(f"Passo: {state['step'].value}")
+        context_parts.append(f"Estágio: {state.get('stage', state.get('current_stage', 'unknown')).value if hasattr(state.get('stage', state.get('current_stage', 'unknown')), 'value') else state.get('stage', state.get('current_stage', 'unknown'))}")
+        context_parts.append(f"Passo: {state.get('step', state.get('current_step', 'unknown')).value if hasattr(state.get('step', state.get('current_step', 'unknown')), 'value') else state.get('step', state.get('current_step', 'unknown'))}")
         
         # Add recent message history
         if state["message_history"]:
@@ -574,11 +578,13 @@ class AdvancedIntentClassifier:
             result.routing_decision = "scheduling"
         
         elif result.category == IntentCategory.GREETING:
-            if state["stage"] == WorkflowStage.GREETING:
+            current_stage = state.get("stage") or state.get("current_stage")
+            if current_stage == WorkflowStage.GREETING:
                 result.routing_decision = "greeting"
             else:
                 # User greeting in middle of conversation - acknowledge and continue
-                result.routing_decision = state["stage"].value
+                stage_value = current_stage.value if hasattr(current_stage, 'value') else str(current_stage)
+                result.routing_decision = stage_value
         
         elif result.category == IntentCategory.CLARIFICATION:
             result.routing_decision = "fallback"
@@ -586,7 +592,9 @@ class AdvancedIntentClassifier:
         
         else:
             # Default to current stage
-            result.routing_decision = state["stage"].value
+            current_stage = state.get("stage") or state.get("current_stage", "unknown")
+            stage_value = current_stage.value if hasattr(current_stage, 'value') else str(current_stage)
+            result.routing_decision = stage_value
         
         return result
     

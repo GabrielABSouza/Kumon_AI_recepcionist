@@ -166,6 +166,9 @@ class ConversationMemoryService:
         self._client_cache: Dict[str, Any] = {}
         self._cache_invalidation_task: Optional[asyncio.Task] = None
         self._initialized = False
+        self._fallback_mode = False
+        self._fallback_store = None
+        self.logger = app_logger
         
         app_logger.info("ConversationMemoryService initialized", extra={
             "config": {
@@ -252,8 +255,19 @@ class ConversationMemoryService:
             
         except Exception as e:
             app_logger.error(f"Failed to initialize ConversationMemoryService: {e}")
+            
+            # Activate fallback mode
+            app_logger.warning("🚨 Activating fallback mode - using in-memory storage")
+            from ..core.robust_fallbacks import robust_fallback_manager
+            robust_fallback_manager.activate_fallback("memory", f"PostgreSQL initialization failed: {e}")
+            
+            # Set fallback mode
+            self._fallback_mode = True
+            self._fallback_store = robust_fallback_manager.memory_store
+            
             await self.cleanup()
-            raise StorageError(f"Initialization failed: {e}")
+            # Don't raise error - continue with fallback
+            app_logger.info("✅ Fallback mode activated successfully")
     
     async def cleanup(self) -> None:
         """Cleanup connections and background tasks"""

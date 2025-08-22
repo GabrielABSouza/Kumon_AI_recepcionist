@@ -19,6 +19,9 @@ from app.api.v1 import whatsapp, health, units, conversation
 from app.api import embeddings, evolution
 from app.core.config import settings
 from app.core.logger import app_logger
+# CRITICAL: Apply Railway environment fixes before any other imports
+from app.core.railway_environment_fix import apply_railway_environment_fixes
+apply_railway_environment_fixes()
 # Temporarily disable monitoring imports until dependencies are installed
 # from app.monitoring.performance_middleware import PerformanceMiddleware
 # from app.monitoring.performance_monitor import performance_monitor
