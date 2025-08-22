@@ -291,7 +291,7 @@ class SecureConversationWorkflow:
                 "content": user_message,
                 "timestamp": datetime.now().isoformat()
             }],
-            user_context=UserContext(phone_number=phone_number),
+            user_context=UserContext(state={"phone_number": phone_number}),
             metrics=ConversationMetrics(),
             ai_response=None,
             prompt_used=None,
@@ -701,7 +701,7 @@ Estou à disposição para esclarecer todas as suas dúvidas!"""
             step=ConversationStep.WELCOME,
             user_message="",
             message_history=[],
-            user_context=UserContext(phone_number=phone_number),
+            user_context=UserContext(state={"phone_number": phone_number}),
             metrics=ConversationMetrics(),
             ai_response=None,
             prompt_used=None,
