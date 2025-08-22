@@ -1,10 +1,25 @@
 """
 FastAPI application entry point
 """
+# CRITICAL: Apply Railway environment fixes FIRST
+import os
+import logging
+
+# Force Railway environment detection and fixes before any other imports
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Apply Railway fixes immediately
+try:
+    from app.core.railway_environment_fix import apply_railway_environment_fixes
+    apply_railway_environment_fixes()
+    logger.info("✅ Railway environment fixes applied successfully")
+except Exception as e:
+    logger.error(f"❌ Failed to apply Railway fixes: {e}")
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-import logging
 import asyncio
 
 from app.api.v1 import whatsapp, health, units, conversation
@@ -19,9 +34,6 @@ from app.api.v1 import whatsapp, health, units, conversation
 from app.api import embeddings, evolution
 from app.core.config import settings
 from app.core.logger import app_logger
-# CRITICAL: Apply Railway environment fixes before any other imports
-from app.core.railway_environment_fix import apply_railway_environment_fixes
-apply_railway_environment_fixes()
 # Temporarily disable monitoring imports until dependencies are installed
 # from app.monitoring.performance_middleware import PerformanceMiddleware
 # from app.monitoring.performance_monitor import performance_monitor

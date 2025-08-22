@@ -250,8 +250,8 @@ class AdvancedIntentClassifier:
             app_logger.info(f"Classifying intent for message: {message[:50]}...")
             start_time = datetime.now()
             
-            # Get or create conversation context
-            phone_number = conversation_state["phone_number"]
+            # Get or create conversation context with safe access
+            phone_number = conversation_state.get("phone_number", "unknown")
             context = self._get_conversation_context(phone_number, conversation_state)
             
             # Step 1: Rule-based classification

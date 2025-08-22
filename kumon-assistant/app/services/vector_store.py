@@ -49,6 +49,8 @@ class VectorStore:
         self.collection_name = settings.QDRANT_COLLECTION_NAME
         self.embedding_dim = settings.EMBEDDING_DIMENSION
         self._initialized = False
+        self._fallback_mode = False
+        self._fallback_store = None
     
     async def initialize(self) -> None:
         """Initialize the vector store connection and collection"""
@@ -77,7 +79,17 @@ class VectorStore:
             
         except Exception as e:
             app_logger.error(f"Failed to initialize vector store: {str(e)}")
-            raise
+            
+            # Activate fallback mode
+            app_logger.warning("🚨 Activating vector store fallback mode - using local knowledge base")
+            from ..core.robust_fallbacks import robust_fallback_manager
+            robust_fallback_manager.activate_fallback("vector", f"Qdrant initialization failed: {e}")
+            
+            # Set fallback mode
+            self._fallback_mode = True
+            self._fallback_store = robust_fallback_manager.vector_store
+            
+            app_logger.info("✅ Vector store fallback mode activated successfully")
     
     async def _ensure_collection_exists(self) -> None:
         """Ensure the collection exists, create if it doesn't"""
@@ -251,6 +263,27 @@ class VectorStore:
             
         except Exception as e:
             app_logger.error(f"Error searching vector store: {str(e)}")
+            
+            # If in fallback mode or if search fails, use fallback
+            if getattr(self, '_fallback_mode', False) and hasattr(self, '_fallback_store'):
+                app_logger.warning(f"Using fallback vector search for query: {query[:50]}")
+                fallback_results = await self._fallback_store.search(query, limit)
+                
+                # Convert fallback results to SearchResult format
+                results = []
+                for result in fallback_results:
+                    search_result = SearchResult(
+                        id=result.get("id", "fallback"),
+                        content=result.get("text", ""),
+                        category=result.get("metadata", {}).get("category", "fallback"),
+                        keywords=result.get("metadata", {}).get("keywords", []),
+                        metadata=result.get("metadata", {}),
+                        score=result.get("score", 0.5)
+                    )
+                    results.append(search_result)
+                
+                return results
+            
             return []
     
     async def delete_documents(self, document_ids: List[str]) -> bool:

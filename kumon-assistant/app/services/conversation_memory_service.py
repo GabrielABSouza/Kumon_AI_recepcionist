@@ -556,6 +556,12 @@ class ConversationMemoryService:
             
         except Exception as e:
             app_logger.error(f"Failed to create session for {phone_number}: {e}")
+            
+            # If in fallback mode, use fallback store
+            if getattr(self, '_fallback_mode', False) and hasattr(self, '_fallback_store'):
+                app_logger.warning(f"Using fallback storage for session creation: {phone_number}")
+                return await self._fallback_store.create_session(phone_number, metadata or {})
+            
             raise StorageError(f"Session creation failed: {e}")
     
     @circuit_breaker(failure_threshold=2, recovery_timeout=15, name="memory_get_session")
