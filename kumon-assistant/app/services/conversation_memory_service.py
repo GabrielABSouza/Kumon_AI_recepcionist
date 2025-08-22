@@ -263,6 +263,42 @@ class ConversationMemoryService:
         self._initialized = False
         app_logger.info("ConversationMemoryService cleanup completed")
     
+    async def health_check(self) -> Dict[str, Any]:
+        """Perform health check on the conversation memory service"""
+        try:
+            if not self._initialized:
+                return {"status": "unhealthy", "reason": "service not initialized"}
+            
+            # Test Redis connection
+            if hasattr(self, 'redis_pool') and self.redis_pool:
+                async with redis.Redis(connection_pool=self.redis_pool) as r:
+                    await r.ping()
+                    redis_status = "healthy"
+            else:
+                redis_status = "unavailable"
+            
+            # Test PostgreSQL connection
+            if hasattr(self, 'postgres_pool') and self.postgres_pool:
+                async with self.postgres_pool.acquire() as conn:
+                    await conn.execute("SELECT 1")
+                    postgres_status = "healthy"
+            else:
+                postgres_status = "unavailable"
+            
+            return {
+                "status": "healthy",
+                "redis": redis_status,
+                "postgres": postgres_status,
+                "initialized": self._initialized
+            }
+            
+        except Exception as e:
+            return {
+                "status": "unhealthy", 
+                "reason": str(e),
+                "initialized": self._initialized
+            }
+    
     async def _initialize_database_schema(self) -> None:
         """Initialize PostgreSQL database schema"""
         schema_sql = """
