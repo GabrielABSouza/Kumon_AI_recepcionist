@@ -345,9 +345,9 @@ class CostMonitor:
         cache_key = self._generate_secure_cache_key("daily_budget", date)
         
         try:
-            cached_data = await enhanced_cache_service.get_cached_data(
+            cached_data = await enhanced_cache_service.get(
                 cache_key,
-                ttl_seconds=86400  # 24 hours
+                category="budget"
             )
             
             if cached_data:
@@ -408,10 +408,11 @@ class CostMonitor:
                 ]
             }
             
-            await enhanced_cache_service.cache_data(
+            await enhanced_cache_service.set(
                 cache_key,
                 json.dumps(budget_data),
-                ttl_seconds=86400  # 24 hours
+                ttl=86400,  # 24 hours
+                category="budget"
             )
             
         except Exception as e:

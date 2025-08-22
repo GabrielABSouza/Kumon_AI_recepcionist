@@ -548,10 +548,11 @@ class BusinessMetricsService:
                 "session_id": event.session_id
             }
             
-            await enhanced_cache_service.cache_data(
+            await enhanced_cache_service.set(
                 cache_key,
                 json.dumps(event_data),
-                ttl_seconds=86400 * 7  # Keep for 7 days
+                ttl=86400 * 7,  # Keep for 7 days
+                category="metrics"
             )
         except Exception as e:
             app_logger.warning(f"Could not cache conversion event: {e}")
@@ -569,10 +570,11 @@ class BusinessMetricsService:
                 "context": violation.context
             }
             
-            await enhanced_cache_service.cache_data(
+            await enhanced_cache_service.set(
                 cache_key,
                 json.dumps(violation_data),
-                ttl_seconds=86400 * 30  # Keep for 30 days
+                ttl=86400 * 30,  # Keep for 30 days
+                category="metrics"
             )
         except Exception as e:
             app_logger.warning(f"Could not cache SLA violation: {e}")
