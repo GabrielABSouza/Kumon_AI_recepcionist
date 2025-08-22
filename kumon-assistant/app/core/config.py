@@ -101,7 +101,7 @@ class Settings(BaseSettings):
     
     # Memory System Configuration (Redis + PostgreSQL)
     MEMORY_REDIS_URL: str = Field(default="", env="REDIS_URL")
-    MEMORY_POSTGRES_URL: str = "postgresql://postgres:password@postgres.railway.internal:5432/railway"
+    MEMORY_POSTGRES_URL: str = Field(default="", env="DATABASE_URL")  # Use Railway DATABASE_URL
     MEMORY_ENABLE_SYSTEM: bool = True
     
     # Redis Configuration
