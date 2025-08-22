@@ -3,7 +3,7 @@ Configuration settings for the Kumon AI Receptionist
 Production-ready configuration with environment validation
 """
 from pydantic_settings import BaseSettings
-from pydantic import EmailStr, validator
+from pydantic import EmailStr, validator, Field
 from typing import Optional, List, Dict, Any
 import os
 import sys
@@ -89,7 +89,7 @@ class Settings(BaseSettings):
     GOOGLE_SHEETS_ID: str = ""
     
     # Database
-    DATABASE_URL: str = "postgresql://postgres:password@postgres.railway.internal:5432/railway"
+    DATABASE_URL: str = Field(default="", env="DATABASE_URL")
     
     # Database Connection Pooling (Production Optimization)
     DB_POOL_SIZE: int = 20  # Number of persistent connections
@@ -100,7 +100,7 @@ class Settings(BaseSettings):
     DB_POOL_PRE_PING: bool = True  # Verify connections before use
     
     # Memory System Configuration (Redis + PostgreSQL)
-    MEMORY_REDIS_URL: str = "redis://redis.railway.internal:6379/0"
+    MEMORY_REDIS_URL: str = Field(default="", env="REDIS_URL")
     MEMORY_POSTGRES_URL: str = "postgresql://postgres:password@postgres.railway.internal:5432/railway"
     MEMORY_ENABLE_SYSTEM: bool = True
     
