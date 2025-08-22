@@ -116,8 +116,8 @@ class PricingComplianceMonitor:
                 return compliance_level, alerts
             
             # Check for pricing negotiations
-            if pricing_result.result == ValidationResult.REQUIRES_HANDOFF:
-                violation_data = pricing_result.data or {}
+            if pricing_result.validation_result == ValidationResult.REQUIRES_HANDOFF:
+                violation_data = pricing_result.business_data or {}
                 if violation_data.get("negotiation_detected", False):
                     alert = ComplianceAlert(
                         alert_id=f"pricing_neg_{conversation_record.session_id}_{int(datetime.now().timestamp())}",
@@ -137,7 +137,7 @@ class PricingComplianceMonitor:
                     compliance_level = ComplianceLevel.WARNING
             
             # Check for pricing accuracy violations
-            if pricing_result.result == ValidationResult.REJECTED:
+            if pricing_result.validation_result == ValidationResult.REJECTED:
                 alert = ComplianceAlert(
                     alert_id=f"pricing_acc_{conversation_record.session_id}_{int(datetime.now().timestamp())}",
                     category=ComplianceCategory.PRICING,
@@ -185,7 +185,7 @@ class QualificationComplianceMonitor:
             if not qualification_result:
                 return compliance_level, alerts
             
-            qualification_data = qualification_result.data or {}
+            qualification_data = qualification_result.business_data or {}
             completion_percentage = qualification_data.get("completion_percentage", 0.0)
             missing_fields = qualification_data.get("missing_fields", [])
             is_qualified = qualification_data.get("is_qualified", False)
@@ -273,8 +273,8 @@ class HandoffComplianceMonitor:
                 return compliance_level, alerts
             
             # Check for appropriate handoff triggers
-            if handoff_result.result == ValidationResult.REQUIRES_HANDOFF:
-                handoff_data = handoff_result.data or {}
+            if handoff_result.validation_result == ValidationResult.REQUIRES_HANDOFF:
+                handoff_data = handoff_result.business_data or {}
                 handoff_score = handoff_data.get("handoff_score", 0.0)
                 handoff_reasons = handoff_data.get("handoff_reasons", [])
                 
@@ -302,8 +302,8 @@ class HandoffComplianceMonitor:
                 conversation_record.handoff_reason = ", ".join(handoff_reasons)
             
             # Check for missed handoff opportunities
-            elif handoff_result.result == ValidationResult.WARNING:
-                handoff_data = handoff_result.data or {}
+            elif handoff_result.validation_result == ValidationResult.WARNING:
+                handoff_data = handoff_result.business_data or {}
                 if handoff_data.get("monitoring", False):
                     alert = ComplianceAlert(
                         alert_id=f"handoff_mon_{conversation_record.session_id}_{int(datetime.now().timestamp())}",
@@ -352,8 +352,8 @@ class BusinessHoursComplianceMonitor:
                 return compliance_level, alerts
             
             # Check for out-of-hours interactions
-            if hours_result.result == ValidationResult.REJECTED:
-                hours_data = hours_result.data or {}
+            if hours_result.validation_result == ValidationResult.REJECTED:
+                hours_data = hours_result.business_data or {}
                 alert = ComplianceAlert(
                     alert_id=f"hours_out_{conversation_record.session_id}_{int(datetime.now().timestamp())}",
                     category=ComplianceCategory.BUSINESS_HOURS,
@@ -373,8 +373,8 @@ class BusinessHoursComplianceMonitor:
                 compliance_level = ComplianceLevel.WARNING
             
             # Check for lunch break interactions
-            elif hours_result.result == ValidationResult.WARNING:
-                hours_data = hours_result.data or {}
+            elif hours_result.validation_result == ValidationResult.WARNING:
+                hours_data = hours_result.business_data or {}
                 if hours_data.get("is_lunch_break", False):
                     alert = ComplianceAlert(
                         alert_id=f"hours_lunch_{conversation_record.session_id}_{int(datetime.now().timestamp())}",
@@ -529,8 +529,8 @@ class BusinessComplianceMonitor:
             
             # Add qualification completion tracking
             qualification_result = business_rule_results.get(RuleType.QUALIFICATION)
-            if qualification_result and qualification_result.data:
-                compliance_check["qualification_completion"] = qualification_result.data.get("completion_percentage", 0.0)
+            if qualification_result and qualification_result.business_data:
+                compliance_check["qualification_completion"] = qualification_result.business_data.get("completion_percentage", 0.0)
             
             conversation_record.compliance_checks.append(compliance_check)
             
