@@ -5,6 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import logging
+import asyncio
 
 from app.api.v1 import whatsapp, health, units, conversation
 # Temporarily disable alerts until monitoring dependencies are resolved
