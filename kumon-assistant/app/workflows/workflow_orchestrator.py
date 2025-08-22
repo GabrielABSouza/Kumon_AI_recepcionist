@@ -15,6 +15,7 @@ Features:
 
 import asyncio
 import json
+import os
 from typing import Dict, List, Any, Optional, Callable
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
@@ -163,7 +164,7 @@ class WorkflowOrchestrator:
                     description="Process conversation context and history",
                     handler=self._process_conversation_step,
                     dependencies=["extract_intent"],
-                    timeout_seconds=60
+                    timeout_seconds=30 if os.getenv("RAILWAY_ENVIRONMENT") else 60
                 ),
                 WorkflowStep(
                     step_id="generate_response",
@@ -171,7 +172,7 @@ class WorkflowOrchestrator:
                     description="Generate AI response using RAG engine",
                     handler=self._generate_response_step,
                     dependencies=["process_conversation"],
-                    timeout_seconds=120
+                    timeout_seconds=45 if os.getenv("RAILWAY_ENVIRONMENT") else 120
                 ),
                 WorkflowStep(
                     step_id="send_response",
@@ -183,7 +184,7 @@ class WorkflowOrchestrator:
                 )
             ],
             priority=WorkflowPriority.HIGH,
-            timeout_seconds=300
+            timeout_seconds=120 if os.getenv("RAILWAY_ENVIRONMENT") else 300
         )
         
         # 2. System Health Check Workflow
@@ -205,7 +206,7 @@ class WorkflowOrchestrator:
                     name="Database Health Check",
                     description="Verify database connectivity and performance",
                     handler=self._check_database_health_step,
-                    timeout_seconds=60
+                    timeout_seconds=20 if os.getenv("RAILWAY_ENVIRONMENT") else 60
                 ),
                 WorkflowStep(
                     step_id="check_services_health",
