@@ -56,14 +56,49 @@ def get_railway_database_url() -> Optional[str]:
         "POSTGRESQL_URL",        # Alternative naming  
         "DB_URL",                # Some Railway services use this
         "DATABASE_PRIVATE_URL",  # Railway private networking
-        "DATABASE_PUBLIC_URL"    # Railway public URL
+        "DATABASE_PUBLIC_URL",   # Railway public URL
+        # Railway PostgreSQL plugin specific names
+        "PGHOST",                # PostgreSQL host (we'll construct URL)
+        "PGDATABASE",            # PostgreSQL database name
+        "PGUSER",                # PostgreSQL user
+        "PGPASSWORD",            # PostgreSQL password
+        "PGPORT"                 # PostgreSQL port
     ]
     
-    for var in db_url_vars:
+    # First try direct URL variables
+    url_vars = ["DATABASE_URL", "POSTGRES_URL", "POSTGRESQL_URL", "DB_URL", "DATABASE_PRIVATE_URL", "DATABASE_PUBLIC_URL"]
+    
+    # First try direct URL variables
+    for var in url_vars:
         url = os.getenv(var)
         if url and (url.startswith("postgresql://") or url.startswith("postgres://")):
             logger.info(f"Found Railway database URL via {var}")
             return url
+    
+    # Try to construct URL from individual components (Railway PostgreSQL plugin style)
+    pghost = os.getenv("PGHOST")
+    pgdatabase = os.getenv("PGDATABASE")  
+    pguser = os.getenv("PGUSER")
+    pgpassword = os.getenv("PGPASSWORD")
+    pgport = os.getenv("PGPORT", "5432")
+    
+    if all([pghost, pgdatabase, pguser, pgpassword]):
+        constructed_url = f"postgresql://{pguser}:{pgpassword}@{pghost}:{pgport}/{pgdatabase}"
+        logger.info(f"Constructed Railway database URL from PG* variables")
+        return constructed_url
+    
+    # Debug: List ALL environment variables that might be database-related
+    logger.warning("No valid Railway database URL found. Debugging environment variables:")
+    all_vars = sorted(os.environ.keys())
+    db_related = [var for var in all_vars if any(keyword in var.upper() for keyword in ['DATABASE', 'POSTGRES', 'PG', 'DB'])]
+    
+    for var in db_related:
+        value = os.getenv(var, "")
+        # Don't log full credentials, just show if present
+        if any(keyword in var.upper() for keyword in ['PASSWORD', 'PASS', 'SECRET', 'KEY']):
+            logger.info(f"  {var}: {'[PRESENT]' if value else '[MISSING]'}")
+        else:
+            logger.info(f"  {var}: {value[:50]}{'...' if len(value) > 50 else ''}")
     
     logger.warning("No valid Railway database URL found")
     return None
