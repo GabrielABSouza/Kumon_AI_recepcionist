@@ -58,6 +58,27 @@ class UserContext:
     def contact_email(self):
         return get_collected_field(self._state, "contact_email")
     
+    @property
+    def programs_interested(self):
+        return get_collected_field(self._state, "programs_of_interest") or []
+    
+    @property
+    def interest_type(self):
+        return get_collected_field(self._state, "interest_type")
+    
+    @property
+    def email(self):
+        # Alias for contact_email to maintain compatibility
+        return get_collected_field(self._state, "contact_email")
+    
+    @property
+    def preferred_time(self):
+        return get_collected_field(self._state, "preferred_time")
+    
+    @property
+    def booking_id(self):
+        return get_collected_field(self._state, "booking_id")
+    
     def to_dict(self):
         return dict(self._state["collected_data"])
 
@@ -127,50 +148,52 @@ class AgentState:
 # ============ MIGRATION HELPERS ============
 
 def migrate_legacy_state_to_cecilia(legacy_data: dict) -> CeciliaState:
-    """Convert legacy state dictionary to CeciliaState"""
+    """Migrate legacy state format to CeciliaState"""
+    # Extract basic information
     phone_number = legacy_data.get("phone_number", "unknown")
-    user_message = legacy_data.get("last_user_message", "")
+    last_message = legacy_data.get("last_user_message", "")
     
     # Create new CeciliaState
-    cecilia_state = create_initial_cecilia_state(phone_number, user_message)
-    
-    # Migrate stage and step if present
-    if "current_stage" in legacy_data:
-        cecilia_state["current_stage"] = legacy_data["current_stage"]
-    if "current_step" in legacy_data:
-        cecilia_state["current_step"] = legacy_data["current_step"]
+    cecilia_state = create_initial_cecilia_state(phone_number, last_message)
     
     # Migrate collected data
     if "collected_data" in legacy_data:
-        for key, value in legacy_data["collected_data"].items():
-            set_collected_field(cecilia_state, key, value)
+        for field, value in legacy_data["collected_data"].items():
+            set_collected_field(cecilia_state, field, value)
+    
+    # Migrate current stage/step
+    if "current_stage" in legacy_data:
+        cecilia_state["current_stage"] = legacy_data["current_stage"]
+    
+    if "current_step" in legacy_data:
+        cecilia_state["current_step"] = legacy_data["current_step"]
+    
+    # Migrate messages if present
+    if "messages" in legacy_data:
+        cecilia_state["messages"] = legacy_data["messages"]
     
     return cecilia_state
 
-def extract_legacy_compatible_data(cecilia_state: CeciliaState) -> dict:
-    """Extract data from CeciliaState in legacy format for compatibility"""
+def create_legacy_compatible_state(phone_number: str, user_message: str = "") -> dict:
+    """Create a state that works with both legacy and CeciliaState systems"""
+    cecilia_state = create_initial_cecilia_state(phone_number, user_message)
+    
+    # Return both the CeciliaState and legacy-compatible wrapper
     return {
-        "phone_number": cecilia_state["phone_number"],
-        "current_stage": cecilia_state["current_stage"],
-        "current_step": cecilia_state["current_step"],
-        "last_user_message": cecilia_state["last_user_message"],
-        "collected_data": dict(cecilia_state["collected_data"]),
-        "conversation_metrics": dict(cecilia_state["conversation_metrics"])
+        "cecilia_state": cecilia_state,
+        "user_context": UserContext(cecilia_state),
+        "agent_state": AgentState(cecilia_state),
+        "conversation_metrics": ConversationMetricsLegacy(cecilia_state)
     }
 
-# ============ EXPORT LEGACY INTERFACE ============
-
+# Export all compatibility components
 __all__ = [
-    # Core types (bridged to CeciliaState)
-    "ConversationState",
-    "WorkflowStage", 
+    # Core CeciliaState system
+    "CeciliaState",
+    "ConversationState", 
+    "WorkflowStage",
     "ConversationStep",
-    "CollectedData",
-    "ConversationMetrics",
-    "DataValidation",
-    "DecisionTrail",
-    
-    # Utility functions
+    "create_initial_cecilia_state",
     "create_initial_state",
     "get_collected_field",
     "set_collected_field",
@@ -179,10 +202,10 @@ __all__ = [
     
     # Legacy compatibility classes
     "UserContext",
-    "ConversationMetricsLegacy",
+    "ConversationMetricsLegacy", 
     "AgentState",
     
-    # Migration helpers
+    # Migration utilities
     "migrate_legacy_state_to_cecilia",
-    "extract_legacy_compatible_data"
+    "create_legacy_compatible_state"
 ]

@@ -151,6 +151,10 @@ app.include_router(units.router, prefix="/api/v1", tags=["units"])
 # Health and utility endpoints
 app.include_router(health.router, prefix="/api/v1", tags=["health"])
 
+# Comprehensive health monitoring endpoints (Wave 5)
+from app.api.v1 import health_comprehensive
+app.include_router(health_comprehensive.router, prefix="/api/v1", tags=["health-monitoring"])
+
 # Conversation flow management endpoints
 app.include_router(conversation.router, prefix="/api/v1", tags=["conversation"])
 # LLM Service monitoring and management
@@ -456,7 +460,7 @@ async def startup_event():
         try:
             from app.services.conversation_memory_service import conversation_memory_service
             # Add timeout for memory service initialization
-            await asyncio.wait_for(conversation_memory_service.initialize(), timeout=60.0)
+            await asyncio.wait_for(conversation_memory_service.initialize(), timeout=30.0 if os.getenv("RAILWAY_ENVIRONMENT") else 60.0)
             app_logger.info("✅ Conversation memory system initialized successfully")
             
             # Perform health check
@@ -464,7 +468,8 @@ async def startup_event():
             app_logger.info(f"Memory system health: {health_status}")
             
         except asyncio.TimeoutError:
-            app_logger.error("❌ Memory service initialization timed out after 60 seconds")
+            timeout_val = 30 if os.getenv("RAILWAY_ENVIRONMENT") else 60
+            app_logger.error(f"❌ Memory service initialization timed out after {timeout_val} seconds")
             app_logger.warning("Continuing with in-memory conversation storage")
         except Exception as e:
             app_logger.error(f"❌ Failed to initialize conversation memory system: {e}")
@@ -487,6 +492,34 @@ async def startup_event():
     except Exception as e:
         app_logger.error(f"❌ Failed to initialize cache system: {e}")
         app_logger.warning("Continuing without enhanced caching")
+    
+    # Initialize Wave 5: Health Monitoring System
+    try:
+        app_logger.info("🏥 Initializing Wave 5: Health Monitoring System...")
+        from app.core.health_monitor import health_monitor
+        
+        # Register core components for monitoring
+        health_monitor.register_component("database", timeout=10.0)
+        health_monitor.register_component("cache", timeout=5.0)
+        health_monitor.register_component("circuit_breakers", timeout=2.0)
+        health_monitor.register_component("memory", timeout=1.0)
+        
+        # Perform initial health check
+        initial_health = await health_monitor.perform_health_check()
+        app_logger.info(f"Initial system health: {initial_health['overall_status']} ({initial_health['check_duration']}s)")
+        
+        # Start continuous monitoring in background (only in production)
+        if settings.ENVIRONMENT == "production":
+            asyncio.create_task(health_monitor.start_monitoring())
+            app_logger.info("✅ Continuous health monitoring started")
+        else:
+            app_logger.info("ℹ️ Continuous health monitoring disabled in development")
+        
+        app_logger.info("✅ Wave 5: Health Monitoring System initialized successfully")
+        
+    except Exception as e:
+        app_logger.error(f"❌ Failed to initialize health monitoring: {e}")
+        app_logger.warning("Continuing without health monitoring")
     
     # Temporarily disable Performance Integration Services until dependencies are resolved
     # try:
@@ -565,6 +598,14 @@ async def shutdown_event():
         app_logger.info("✅ Wave 2: Enhanced Cache System cleaned up")
     except Exception as e:
         app_logger.error(f"❌ Error during cache system cleanup: {e}")
+    
+    # Cleanup Wave 5: Health Monitoring System
+    try:
+        from app.core.health_monitor import health_monitor
+        health_monitor.stop_monitoring()
+        app_logger.info("✅ Wave 5: Health Monitoring System stopped")
+    except Exception as e:
+        app_logger.error(f"❌ Error stopping health monitoring: {e}")
     
     # Performance Integration Services temporarily disabled
     # try:

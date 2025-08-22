@@ -315,8 +315,8 @@ class AdvancedIntentClassifier:
         if user_context.programs_interested:
             context.mentioned_programs.update(user_context.programs_interested)
         
-        context.current_topic = state["stage"].value
-        context.last_agent_action = state.get("step", ConversationStep.WELCOME).value
+        context.current_topic = state["current_stage"].value
+        context.last_agent_action = state.get("current_step", ConversationStep.WELCOME).value
         
         return context
     

@@ -18,6 +18,7 @@ from enum import Enum
 import redis.asyncio as redis
 from ..core.config import settings
 from ..core.logger import app_logger
+from ..core.circuit_breaker import circuit_breaker, CircuitBreakerOpenError
 
 
 class CacheLayer(Enum):
@@ -155,6 +156,7 @@ class EnhancedCacheService:
             app_logger.error(f"Cache service initialization failed: {e}")
             raise
     
+    @circuit_breaker(failure_threshold=3, recovery_timeout=10, name="cache_get")
     async def get(self, key: str, category: str = "default") -> Optional[Any]:
         """
         Get value from hierarchical cache
@@ -230,6 +232,7 @@ class EnhancedCacheService:
             app_logger.error(f"Cache get error for key {key}: {e}")
             return None
     
+    @circuit_breaker(failure_threshold=3, recovery_timeout=10, name="cache_set")
     async def set(
         self, 
         key: str, 

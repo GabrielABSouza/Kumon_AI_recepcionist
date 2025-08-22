@@ -22,6 +22,7 @@ import asyncio
 import json
 import logging
 import time
+import os
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Any, Tuple, Union
 from contextlib import asynccontextmanager
@@ -40,6 +41,7 @@ from ..models.conversation_memory import (
 )
 from ..core.config import settings
 from ..core.logger import app_logger
+from ..core.circuit_breaker import circuit_breaker, CircuitBreakerOpenError
 
 # ============================================================================
 # CONFIGURATION
@@ -48,9 +50,9 @@ from ..core.logger import app_logger
 class MemoryServiceConfig(BaseSettings):
     """Configuration for conversation memory service"""
     
-    # Redis Configuration
-    redis_url: str = getattr(settings, 'MEMORY_REDIS_URL', "redis://localhost:6379/0")
-    redis_max_connections: int = 20
+    # Redis Configuration  
+    redis_url: str = settings.MEMORY_REDIS_URL or "redis://localhost:6379/0"
+    redis_max_connections: int = 10 if os.getenv("RAILWAY_ENVIRONMENT") else 20
     redis_retry_on_timeout: bool = True
     redis_socket_timeout: float = 5.0
     redis_socket_connect_timeout: float = 5.0
@@ -62,9 +64,9 @@ class MemoryServiceConfig(BaseSettings):
     
     # PostgreSQL Configuration  
     postgres_url: str = settings.DATABASE_URL
-    postgres_min_pool_size: int = 5
-    postgres_max_pool_size: int = 20
-    postgres_command_timeout: float = 30.0
+    postgres_min_pool_size: int = 2 if os.getenv("RAILWAY_ENVIRONMENT") else 5
+    postgres_max_pool_size: int = 10 if os.getenv("RAILWAY_ENVIRONMENT") else 20
+    postgres_command_timeout: float = 10.0 if os.getenv("RAILWAY_ENVIRONMENT") else 30.0
     postgres_server_settings: Dict[str, str] = {
         "application_name": "kumon_conversation_memory",
         "timezone": "UTC"
@@ -197,8 +199,13 @@ class ConversationMemoryService:
                 await r.ping()
                 app_logger.info("Redis connection established")
             
-            # Initialize PostgreSQL connection pool with timeout
+            # Initialize PostgreSQL connection pool with shorter timeout
             try:
+                app_logger.info("Attempting PostgreSQL connection", extra={
+                    "postgres_url": self.config.postgres_url[:50] + "...",
+                    "timeout": 10
+                })
+                
                 self.postgres_pool = await asyncio.wait_for(
                     asyncpg.create_pool(
                         self.config.postgres_url,
@@ -207,20 +214,30 @@ class ConversationMemoryService:
                         command_timeout=self.config.postgres_command_timeout,
                         server_settings=self.config.postgres_server_settings
                     ),
-                    timeout=60.0  # 60 second timeout for pool creation (Railway needs more time)
+                    timeout=10.0  # Railway-optimized: 10 seconds timeout
                 )
             except asyncio.TimeoutError:
-                app_logger.error("PostgreSQL connection pool creation timed out after 60 seconds")
+                app_logger.error("PostgreSQL connection pool creation timed out after 10 seconds")
+                app_logger.error("This usually indicates DATABASE_URL is incorrect or PostgreSQL is not accessible")
+                raise
+            except Exception as e:
+                app_logger.error(f"PostgreSQL connection failed: {e}")
+                app_logger.error("Check DATABASE_URL environment variable and PostgreSQL service status")
                 raise
             
             app_logger.info("PostgreSQL connection pool established")
             
-            # Initialize database schema with timeout
+            # Initialize database schema with shorter timeout
             try:
-                await asyncio.wait_for(self._initialize_database_schema(), timeout=60.0)
+                app_logger.info("Initializing database schema...")
+                await asyncio.wait_for(self._initialize_database_schema(), timeout=15.0)
                 app_logger.info("Database schema initialized successfully")
             except asyncio.TimeoutError:
-                app_logger.error("Database schema initialization timed out after 60 seconds")
+                app_logger.error("Database schema initialization timed out after 15 seconds")
+                app_logger.error("This may indicate permission issues or database connectivity problems")
+                raise
+            except Exception as e:
+                app_logger.error(f"Database schema initialization failed: {e}")
                 raise
             
             # Start background tasks
@@ -483,6 +500,7 @@ class ConversationMemoryService:
     # SESSION MANAGEMENT
     # ========================================================================
     
+    @circuit_breaker(failure_threshold=2, recovery_timeout=15, name="memory_create_session")
     async def create_session(
         self, 
         phone_number: str, 
@@ -526,6 +544,7 @@ class ConversationMemoryService:
             app_logger.error(f"Failed to create session for {phone_number}: {e}")
             raise StorageError(f"Session creation failed: {e}")
     
+    @circuit_breaker(failure_threshold=2, recovery_timeout=15, name="memory_get_session")
     async def get_session(self, session_id: str) -> ConversationSession:
         """Get conversation session by ID"""
         
@@ -577,6 +596,7 @@ class ConversationMemoryService:
             app_logger.error(f"Failed to get active session for {phone_number}: {e}")
             return None
     
+    @circuit_breaker(failure_threshold=2, recovery_timeout=15, name="memory_update_session")
     async def update_session(self, session: ConversationSession) -> None:
         """Update conversation session"""
         
@@ -598,6 +618,7 @@ class ConversationMemoryService:
             app_logger.error(f"Failed to update session {session.session_id}: {e}")
             raise StorageError(f"Session update failed: {e}")
     
+    @circuit_breaker(failure_threshold=2, recovery_timeout=15, name="memory_add_message")
     async def add_message_to_session(
         self, 
         session_id: str, 

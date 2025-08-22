@@ -1,6 +1,7 @@
 """
 Configuration settings for the Kumon AI Receptionist
 Production-ready configuration with environment validation
+Railway-optimized with automatic environment detection
 """
 from pydantic_settings import BaseSettings
 from pydantic import EmailStr, validator, Field
@@ -370,9 +371,9 @@ class Settings(BaseSettings):
             "echo": self.DB_ECHO,
             "pool_pre_ping": self.DB_POOL_PRE_PING,
             "connect_args": {
-                "connect_timeout": 10,
+                "connect_timeout": 10 if os.getenv("RAILWAY_ENVIRONMENT") else 30,
                 "application_name": "kumon_assistant",
-                "options": "-c statement_timeout=30000"  # 30 second statement timeout
+                "options": f"-c statement_timeout={10000 if os.getenv('RAILWAY_ENVIRONMENT') else 30000}"  # Railway: 10s, Local: 30s
             }
         }
 
@@ -383,4 +384,12 @@ class Settings(BaseSettings):
 
 
 # Create settings instance
-settings = Settings() 
+settings = Settings()
+
+# Apply Railway optimizations if running on Railway
+try:
+    from .railway_config import railway_config
+    railway_config.apply_to_settings(settings)
+except ImportError:
+    # Railway config not available, use defaults
+    pass 

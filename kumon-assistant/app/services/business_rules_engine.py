@@ -30,6 +30,7 @@ import hashlib
 from ..core.config import settings
 from ..core.logger import app_logger
 from ..services.enhanced_cache_service import enhanced_cache_service
+from ..core.circuit_breaker import circuit_breaker, CircuitBreakerOpenError
 from ..core.state.models import CeciliaState, ConversationStage
 
 
@@ -184,6 +185,7 @@ class PricingValidator:
         self.rules = pricing_rules
         self.cache_key_prefix = "pricing_validation"
     
+    @circuit_breaker(failure_threshold=2, recovery_timeout=15, name="rules_validate_pricing")
     async def validate_pricing_inquiry(self, message: str, context: Dict[str, Any]) -> BusinessRuleResult:
         """Validate pricing-related messages and detect negotiation attempts"""
         start_time = datetime.now()
@@ -556,6 +558,7 @@ class HandoffEvaluator:
         self.config = handoff_config
         self.cache_key_prefix = "handoff_evaluation"
     
+    @circuit_breaker(failure_threshold=2, recovery_timeout=15, name="rules_evaluate_handoff")
     async def evaluate_handoff_need(
         self, 
         message: str, 
@@ -824,6 +827,7 @@ class BusinessRulesEngine:
             "rule_success_rate": 0.0
         }
     
+    @circuit_breaker(failure_threshold=2, recovery_timeout=15, name="rules_evaluate_comprehensive")
     async def evaluate_comprehensive_rules(
         self,
         message: str,
