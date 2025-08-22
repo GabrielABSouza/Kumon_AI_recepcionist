@@ -451,15 +451,14 @@ async def startup_event():
         app_logger.error(f"❌ Failed to initialize maintainability engine: {e}")
         app_logger.warning("Continuing without maintainability engine")
     
-    # Initialize memory system if enabled
     if settings.MEMORY_ENABLE_SYSTEM:
         try:
-            from app.services.conversation_memory_adapter import conversation_memory_adapter
-            await conversation_memory_adapter.initialize()
+            from app.services.conversation_memory_service import conversation_memory_service
+            await conversation_memory_service.initialize()
             app_logger.info("✅ Conversation memory system initialized successfully")
             
             # Perform health check
-            health_status = await conversation_memory_adapter.health_check()
+            health_status = await conversation_memory_service.health_check()
             app_logger.info(f"Memory system health: {health_status}")
             
         except Exception as e:
@@ -549,8 +548,8 @@ async def shutdown_event():
     # Cleanup memory system
     if settings.MEMORY_ENABLE_SYSTEM:
         try:
-            from app.services.conversation_memory_adapter import conversation_memory_adapter
-            await conversation_memory_adapter.cleanup()
+            from app.services.conversation_memory_service import conversation_memory_service
+            await conversation_memory_service.cleanup()
             app_logger.info("✅ Conversation memory system cleaned up")
         except Exception as e:
             app_logger.error(f"❌ Error during memory system cleanup: {e}")

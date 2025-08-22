@@ -23,7 +23,7 @@ aiohttp==3.12.15
 # DATABASE STACK  
 asyncpg==0.29.0
 sqlalchemy[asyncio]==2.0.35
-redis[hiredis]==5.2.0
+redis[hiredis]==6.4.0
 
 # VECTOR DATABASE
 qdrant-client==1.12.0

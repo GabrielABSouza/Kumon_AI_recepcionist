@@ -119,23 +119,23 @@ class EnhancedCacheService:
     async def initialize(self):
         """Initialize Redis connections and cache warming"""
         try:
-            # Setup Redis connections with optimized pools
-            self.redis_sessions = await aioredis.create_redis_pool(
+            # Setup Redis connections with modern API
+            self.redis_sessions = redis.from_url(
                 settings.MEMORY_REDIS_URL,
                 db=2,  # Sessions DB
-                minsize=5,
-                maxsize=20,
-                timeout=5.0,
-                retry_on_timeout=True
+                max_connections=20,
+                retry_on_timeout=True,
+                socket_timeout=5.0,
+                decode_responses=False  # Keep binary for pickle compatibility
             )
             
-            self.redis_rag = await aioredis.create_redis_pool(
+            self.redis_rag = redis.from_url(
                 settings.MEMORY_REDIS_URL,
                 db=3,  # RAG DB
-                minsize=5,
-                maxsize=30,
-                timeout=5.0,
-                retry_on_timeout=True
+                max_connections=30,
+                retry_on_timeout=True,
+                socket_timeout=5.0,
+                decode_responses=False  # Keep binary for pickle compatibility
             )
             
             # Test connections
