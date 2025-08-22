@@ -590,10 +590,11 @@ async def shutdown_event():
 # Entry point for running the server
 if __name__ == "__main__":
     import uvicorn
+    import os
     
     # Get host and port from environment or use defaults
     host = "0.0.0.0"
-    port = 8000
+    port = int(os.getenv("PORT", 8000))
     
     app_logger.info(f"Starting Kumon AI Receptionist API server on {host}:{port}")
     
