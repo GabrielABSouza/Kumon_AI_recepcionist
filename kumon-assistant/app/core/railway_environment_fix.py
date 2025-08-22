@@ -13,6 +13,12 @@ def detect_railway_environment() -> bool:
     """
     Detect if running on Railway platform using multiple indicators
     """
+    # Check for manual override first
+    force_railway = os.getenv("FORCE_RAILWAY_DETECTION")
+    if force_railway and force_railway.lower() in ["1", "true", "yes"]:
+        logger.info("🔧 Railway environment detection manually forced via FORCE_RAILWAY_DETECTION")
+        return True
+    
     indicators = [
         # Railway sets these environment variables
         "RAILWAY_ENVIRONMENT_ID",
@@ -30,18 +36,43 @@ def detect_railway_environment() -> bool:
     # Check if any Railway-specific variables are present
     railway_vars_found = [var for var in indicators if os.getenv(var)]
     
-    # Additional Railway detection methods
+    # Additional Railway detection methods - more flexible approach
     is_railway = bool(railway_vars_found) or (
-        # Railway typically sets PORT to 8080 or dynamic port
-        (os.getenv("PORT") and os.getenv("PORT") in ["8080", "3000"]) and
-        # Railway deployments often have these characteristics
-        (os.getenv("NODE_ENV") == "production" or os.getenv("ENVIRONMENT") == "production") and
+        # Railway sets PORT environment variable
+        os.getenv("PORT") is not None and
+        # Railway deployments often have these characteristics  
+        (os.getenv("NODE_ENV") == "production" or 
+         os.getenv("ENVIRONMENT") == "production" or
+         os.getenv("RAILWAY_ENVIRONMENT") is not None) and
         # Check for Railway-style service names in hostname/paths
-        any(keyword in os.getenv("HOSTNAME", "").lower() for keyword in ["railway", "app-"])
+        any(keyword in os.getenv("HOSTNAME", "").lower() for keyword in ["railway", "app-"]) 
+    ) or (
+        # Fallback: if PORT is set and looks like production deployment
+        os.getenv("PORT") is not None and
+        os.getenv("NODE_ENV") != "development" and
+        os.getenv("HOSTNAME") is not None and
+        "localhost" not in os.getenv("HOSTNAME", "").lower()
     )
     
+    # Enhanced logging for debugging
     if railway_vars_found:
         logger.info(f"Railway environment detected via variables: {railway_vars_found}")
+    else:
+        logger.debug("No direct Railway environment variables found")
+    
+    # Debug logging for detection criteria
+    logger.debug(f"Railway detection criteria:")
+    logger.debug(f"  PORT: {os.getenv('PORT')}")
+    logger.debug(f"  NODE_ENV: {os.getenv('NODE_ENV')}")
+    logger.debug(f"  ENVIRONMENT: {os.getenv('ENVIRONMENT')}")
+    logger.debug(f"  RAILWAY_ENVIRONMENT: {os.getenv('RAILWAY_ENVIRONMENT')}")
+    logger.debug(f"  HOSTNAME: {os.getenv('HOSTNAME')}")
+    logger.debug(f"  Final detection result: {is_railway}")
+    
+    if is_railway:
+        logger.info("✅ Railway environment successfully detected")
+    else:
+        logger.warning("❌ Railway environment not detected - running in local mode")
     
     return is_railway
 
@@ -187,12 +218,23 @@ def apply_railway_environment_fixes():
             os.environ["RAILWAY_ENVIRONMENT"] = "1"
             logger.info("✅ Set RAILWAY_ENVIRONMENT=1")
         
-        # Fix database URL
-        if not os.getenv("DATABASE_URL"):
-            railway_db_url = get_railway_database_url()
-            if railway_db_url:
+        # Fix database URL - always try to get Railway DB URL
+        railway_db_url = get_railway_database_url()
+        if railway_db_url:
+            # Set DATABASE_URL if not set, or log if already set
+            current_db_url = os.getenv("DATABASE_URL")
+            if not current_db_url:
                 os.environ["DATABASE_URL"] = railway_db_url
-                logger.info("✅ Fixed DATABASE_URL")
+                logger.info("✅ Fixed DATABASE_URL from Railway detection")
+            else:
+                logger.info(f"ℹ️ DATABASE_URL already set: {current_db_url[:50]}...")
+                # Verify if it's a valid PostgreSQL URL
+                if not (current_db_url.startswith("postgresql://") or current_db_url.startswith("postgres://")):
+                    logger.warning(f"⚠️ Existing DATABASE_URL doesn't look like PostgreSQL - replacing")
+                    os.environ["DATABASE_URL"] = railway_db_url
+                    logger.info("✅ Replaced invalid DATABASE_URL with Railway URL")
+        else:
+            logger.error("❌ Could not determine Railway DATABASE_URL")
         
         # Fix Redis URL  
         if not os.getenv("REDIS_URL"):
