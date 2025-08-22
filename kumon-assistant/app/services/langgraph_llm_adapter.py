@@ -188,6 +188,7 @@ class KumonLLMService:
     """
     Kumon-specific LLM service wrapper
     Provides business-context-aware responses with integrated cost monitoring
+    LangChain Runnable compatible
     """
     
     def __init__(self):
@@ -206,6 +207,20 @@ class KumonLLMService:
             },
             "subjects": ["Matemática", "Português"]
         }
+    
+    # LangChain Runnable interface compatibility
+    async def ainvoke(self, messages, **kwargs) -> AIMessage:
+        """LangChain async invoke compatibility - delegates to adapter"""
+        return await self.adapter.ainvoke(messages, **kwargs)
+    
+    def invoke(self, messages, **kwargs) -> AIMessage:
+        """LangChain sync invoke compatibility - delegates to adapter"""
+        return self.adapter.invoke(messages, **kwargs)
+    
+    async def astream(self, messages, **kwargs) -> AsyncIterator[str]:
+        """LangChain async streaming compatibility - delegates to adapter"""
+        async for chunk in self.adapter.astream(messages, **kwargs):
+            yield chunk
     
     async def generate_business_response(
         self,
