@@ -307,7 +307,7 @@ class AdvancedIntentClassifier:
         
         # Update context from state
         from .states import UserContext
-        user_context = state.get("user_context", UserContext(phone_number=state.get("phone_number", "")))
+        user_context = state.get("user_context", UserContext(state))
         if user_context.parent_name:
             context.mentioned_names.add(user_context.parent_name)
         if user_context.child_name:
