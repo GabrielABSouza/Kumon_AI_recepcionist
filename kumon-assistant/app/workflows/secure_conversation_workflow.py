@@ -284,7 +284,7 @@ class SecureConversationWorkflow:
             phone_number=phone_number,
             session_id=session_id,
             stage=WorkflowStage.GREETING,
-            step=ConversationStep.INITIAL_CONTACT,
+            step=ConversationStep.WELCOME,
             user_message=user_message,
             message_history=[{
                 "role": "user",
@@ -698,7 +698,7 @@ Estou à disposição para esclarecer todas as suas dúvidas!"""
             phone_number=phone_number,
             session_id="unknown",
             stage=WorkflowStage.GREETING,
-            step=ConversationStep.INITIAL_CONTACT,
+            step=ConversationStep.WELCOME,
             user_message="",
             message_history=[],
             user_context=UserContext(phone_number=phone_number),
