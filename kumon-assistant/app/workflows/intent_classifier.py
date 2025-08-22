@@ -305,15 +305,22 @@ class AdvancedIntentClassifier:
         
         context = self.active_contexts[phone_number]
         
-        # Update context from state
-        from .states import UserContext
-        user_context = state.get("user_context", UserContext(state))
-        if user_context.parent_name:
-            context.mentioned_names.add(user_context.parent_name)
-        if user_context.child_name:
-            context.mentioned_names.add(user_context.child_name)
-        if user_context.programs_interested:
-            context.mentioned_programs.update(user_context.programs_interested)
+        # Update context from state - direct access to avoid property issues
+        collected_data = state.get("collected_data", {})
+        
+        # Add names if available
+        parent_name = collected_data.get("parent_name")
+        if parent_name:
+            context.mentioned_names.add(parent_name)
+            
+        child_name = collected_data.get("child_name")
+        if child_name:
+            context.mentioned_names.add(child_name)
+            
+        # Add programs if available  
+        programs = collected_data.get("programs_of_interest") or collected_data.get("programs_interested") or []
+        if programs:
+            context.mentioned_programs.update(programs)
         
         context.current_topic = state["current_stage"].value
         context.last_agent_action = state.get("current_step", ConversationStep.WELCOME).value
