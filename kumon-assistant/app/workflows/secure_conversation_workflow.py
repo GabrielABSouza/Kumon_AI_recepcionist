@@ -291,7 +291,7 @@ class SecureConversationWorkflow:
                 "content": user_message,
                 "timestamp": datetime.now().isoformat()
             }],
-            user_context=UserContext(state={"phone_number": phone_number}),
+            user_context=None,  # Will be set after state creation
             metrics=ConversationMetrics(),
             ai_response=None,
             prompt_used=None,
@@ -302,6 +302,9 @@ class SecureConversationWorkflow:
             last_error=None,
             retry_count=0
         )
+        
+        # Set user context after state creation
+        new_state["user_context"] = UserContext(new_state)
         
         # Enhance state with business compliance tracking
         new_state = enhance_cecilia_state_with_compliance(new_state)
@@ -694,14 +697,18 @@ Estou à disposição para esclarecer todas as suas dúvidas!"""
         """Get current conversation state or create empty state"""
         from .states import UserContext, ConversationMetrics
         
-        return self.active_conversations.get(phone_number, ConversationState(
+        if phone_number in self.active_conversations:
+            return self.active_conversations[phone_number]
+        
+        # Create default state
+        default_state = ConversationState(
             phone_number=phone_number,
             session_id="unknown",
             stage=WorkflowStage.GREETING,
             step=ConversationStep.WELCOME,
             user_message="",
             message_history=[],
-            user_context=UserContext(state={"phone_number": phone_number}),
+            user_context=None,  # Will be set after creation
             metrics=ConversationMetrics(),
             ai_response=None,
             prompt_used=None,
@@ -711,7 +718,12 @@ Estou à disposição para esclarecer todas as suas dúvidas!"""
             conversation_ended=False,
             last_error=None,
             retry_count=0
-        ))
+        )
+        
+        # Set user context after state creation
+        default_state["user_context"] = UserContext(default_state)
+        
+        return default_state
     
     def _create_secure_workflow(self) -> StateGraph:
         """Create the LangGraph workflow with integrated business rules"""
