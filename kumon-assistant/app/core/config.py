@@ -121,8 +121,8 @@ class Settings(BaseSettings):
     MEMORY_ENABLE_CLIENT_SIDE_CACHE: bool = True
     
     # Qdrant (Vector Database)
-    QDRANT_URL: str = "https://qdrant.railway.app"
-    QDRANT_API_KEY: Optional[str] = None
+    QDRANT_URL: str = Field(default="https://qdrant-production.up.railway.app", env="QDRANT_URL")
+    QDRANT_API_KEY: Optional[str] = Field(default=None, env="QDRANT_API_KEY")
     QDRANT_COLLECTION_NAME: str = "kumon_knowledge"
     
     # Email

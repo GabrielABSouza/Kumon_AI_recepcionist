@@ -56,14 +56,18 @@ class VectorStore:
             return
         
         try:
-            # Initialize Qdrant client
+            # Initialize Qdrant client with timeout
             if settings.QDRANT_API_KEY:
                 self.client = QdrantClient(
                     url=settings.QDRANT_URL,
-                    api_key=settings.QDRANT_API_KEY
+                    api_key=settings.QDRANT_API_KEY,
+                    timeout=30  # 30 second timeout for Railway
                 )
             else:
-                self.client = QdrantClient(url=settings.QDRANT_URL)
+                self.client = QdrantClient(
+                    url=settings.QDRANT_URL,
+                    timeout=30  # 30 second timeout for Railway
+                )
             
             # Ensure collection exists
             await self._ensure_collection_exists()

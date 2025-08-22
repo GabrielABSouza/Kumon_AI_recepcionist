@@ -1,0 +1,22 @@
+{
+  "name": "qdrant",
+  "source": {
+    "type": "image",
+    "image": "qdrant/qdrant:latest"
+  },
+  "environment": {
+    "QDRANT__SERVICE__HTTP_PORT": "6333",
+    "QDRANT__SERVICE__GRPC_PORT": "6334",
+    "QDRANT__LOG_LEVEL": "INFO",
+    "QDRANT__STORAGE__SNAPSHOTS_PATH": "./snapshots",
+    "QDRANT__STORAGE__STORAGE_PATH": "./storage",
+    "QDRANT__SERVICE__ENABLE_CORS": "true"
+  },
+  "deploy": {
+    "healthcheck": {
+      "path": "/",
+      "port": 6333
+    },
+    "restartPolicyType": "ON_FAILURE"
+  }
+}
