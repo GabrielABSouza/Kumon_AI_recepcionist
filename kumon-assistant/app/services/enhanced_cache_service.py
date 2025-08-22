@@ -15,7 +15,7 @@ from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
 from enum import Enum
 
-import redis.asyncio as aioredis
+import redis.asyncio as redis
 from ..core.config import settings
 from ..core.logger import app_logger
 

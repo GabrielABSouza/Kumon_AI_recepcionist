@@ -49,7 +49,7 @@ class MemoryServiceConfig(BaseSettings):
     """Configuration for conversation memory service"""
     
     # Redis Configuration
-    redis_url: str = "redis://localhost:6379/0"
+    redis_url: str = getattr(settings, 'MEMORY_REDIS_URL', "redis://localhost:6379/0")
     redis_max_connections: int = 20
     redis_retry_on_timeout: bool = True
     redis_socket_timeout: float = 5.0
@@ -231,33 +231,34 @@ class ConversationMemoryService:
         app_logger.info("Cleaning up ConversationMemoryService")
         
         # Cancel background tasks
-        if self._write_task and not self._write_task.done():
+        if hasattr(self, '_write_task') and self._write_task and not self._write_task.done():
             self._write_task.cancel()
-        try:
+            try:
                 await self._write_task
-        except asyncio.CancelledError:
+            except asyncio.CancelledError:
                 pass
                 
-        if self._cache_invalidation_task and not self._cache_invalidation_task.done():
+        if hasattr(self, '_cache_invalidation_task') and self._cache_invalidation_task and not self._cache_invalidation_task.done():
             self._cache_invalidation_task.cancel()
-        try:
+            try:
                 await self._cache_invalidation_task
-        except asyncio.CancelledError:
+            except asyncio.CancelledError:
                 pass
         
         # Flush pending writes
-        if self._write_queue:
+        if hasattr(self, '_write_queue') and self._write_queue:
             await self._flush_write_queue()
         
         # Close connections
-        if self.redis_pool:
+        if hasattr(self, 'redis_pool') and self.redis_pool:
             await self.redis_pool.disconnect()
             
-        if self.postgres_pool:
+        if hasattr(self, 'postgres_pool') and self.postgres_pool:
             await self.postgres_pool.close()
         
         # Clear cache
-        self._client_cache.clear()
+        if hasattr(self, '_client_cache') and self._client_cache:
+            self._client_cache.clear()
         
         self._initialized = False
         app_logger.info("ConversationMemoryService cleanup completed")
