@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 import asyncio
 
-from ..services.langchain_rag import langchain_rag_service
+from app.core.dependencies import langchain_rag_service
 from ..services.hybrid_embedding_service import hybrid_embedding_service
 from ..services.vector_store import vector_store, SearchResult
 from ..core.logger import app_logger
