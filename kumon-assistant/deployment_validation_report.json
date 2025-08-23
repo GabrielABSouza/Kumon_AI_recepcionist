@@ -13,7 +13,7 @@
       "warnings": [],
       "missing_vars": [],
       "environment": "development",
-      "timestamp": "2025-08-21T16:10:47.205374+00:00",
+      "timestamp": "2025-08-23T17:05:27.790530+00:00",
       "business_rules_compliance": {
         "business_hours": {
           "start": 8,
@@ -65,7 +65,7 @@
           "echo": false,
           "pool_pre_ping": true,
           "connect_args": {
-            "connect_timeout": 10,
+            "connect_timeout": 30,
             "application_name": "kumon_assistant",
             "options": "-c statement_timeout=30000"
           }
@@ -83,7 +83,7 @@
         "postgres_config": {
           "min_pool_size": 5,
           "max_pool_size": 20,
-          "command_timeout": 30.0
+          "command_timeout": 30
         },
         "memory_settings_optimal": true
       },
@@ -107,7 +107,7 @@
     "openai": {
       "healthy": true,
       "configured": true,
-      "timestamp": "2025-08-21T16:10:47.205652+00:00",
+      "timestamp": "2025-08-23T17:05:27.790571+00:00",
       "response_time_ms": 0.01,
       "cost_management": {
         "daily_budget_brl": 5.0,
@@ -155,7 +155,7 @@
     "evolution": {
       "healthy": false,
       "configured": true,
-      "timestamp": "2025-08-21T16:10:47.205672+00:00",
+      "timestamp": "2025-08-23T17:05:27.790594+00:00",
       "response_time_ms": 0.0,
       "configuration_validation": {
         "api_key_configured": true,
@@ -216,17 +216,17 @@
     "database": {
       "healthy": false,
       "error": "Database URL not configured for production",
-      "timestamp": "2025-08-21T16:10:47.205679+00:00",
+      "timestamp": "2025-08-23T17:05:27.790600+00:00",
       "critical": true
     },
     "redis": {
       "healthy": false,
       "error": "Redis URL not configured for production",
-      "timestamp": "2025-08-21T16:10:47.205682+00:00"
+      "timestamp": "2025-08-23T17:05:27.790604+00:00"
     },
     "performance": {
-      "config_response_time_ms": 0.010013580322265625,
-      "openai_response_time_ms": 0.0050067901611328125,
+      "config_response_time_ms": 0.02288818359375,
+      "openai_response_time_ms": 0.008344650268554688,
       "meets_targets": true
     },
     "business_compliance": {

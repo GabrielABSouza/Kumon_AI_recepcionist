@@ -348,8 +348,14 @@ async def startup_event():
         llm_service_instance=dependencies.llm_service
     )
     dependencies.secure_workflow = SecureConversationWorkflow()
+    
+    # Initialize LangChain RAG service
+    from app.services.langchain_rag import LangChainRAGService
+    dependencies.langchain_rag_service = LangChainRAGService(dependencies.llm_service)
+    await dependencies.langchain_rag_service.initialize()
+    
     app_logger.info(
-        "✅ Core services (LLM, Intent Classifier, Secure Workflow) initialized successfully"
+        "✅ Core services (LLM, Intent Classifier, Secure Workflow, RAG) initialized successfully"
     )
 
     # DEBUG: Log environment variable status
