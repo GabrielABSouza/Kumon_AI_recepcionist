@@ -21,8 +21,8 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 
 from ..core.config import settings
-from ..core.dependencies import intent_classifier
 from ..core.logger import app_logger
+from ..core.service_factory import get_intent_classifier
 from ..core.state.models import CeciliaState as ConversationState
 from ..core.state.models import ConversationStage as WorkflowStage
 from ..core.state.models import ConversationStep
@@ -91,7 +91,7 @@ class SecureConversationWorkflow:
     def __init__(self):
         # Core components
         self.prompt_manager = PromptManager()
-        self.intent_classifier = intent_classifier
+        self.intent_classifier = None  # Will be loaded lazily via service factory
         self.context_manager = ConversationContextManager()
         # Legacy smart router removed - using CeciliaWorkflow instead
         # self.smart_router = SmartConversationRouter()
@@ -265,7 +265,7 @@ class SecureConversationWorkflow:
             state = self.active_conversations[phone_number]
 
             # Update with current message
-            state["user_message"] = user_message
+            state["last_user_message"] = user_message
             state["message_history"].append(
                 {"role": "user", "content": user_message, "timestamp": datetime.now().isoformat()}
             )
@@ -277,31 +277,10 @@ class SecureConversationWorkflow:
             :12
         ]  # nosec B324
 
-        from .states import ConversationMetrics, UserContext
+        # Use the proper CeciliaState creation function
+        from ..core.state.models import create_initial_cecilia_state
 
-        new_state = ConversationState(
-            phone_number=phone_number,
-            session_id=session_id,
-            stage=WorkflowStage.GREETING,
-            step=ConversationStep.WELCOME,
-            user_message=user_message,
-            message_history=[
-                {"role": "user", "content": user_message, "timestamp": datetime.now().isoformat()}
-            ],
-            user_context=None,  # Will be set after state creation
-            metrics=ConversationMetrics(),
-            ai_response=None,
-            prompt_used=None,
-            validation_passed=False,
-            next_action=None,
-            requires_human=False,
-            conversation_ended=False,
-            last_error=None,
-            retry_count=0,
-        )
-
-        # Set user context after state creation
-        new_state["user_context"] = UserContext(new_state)
+        new_state = create_initial_cecilia_state(phone_number, user_message)
 
         # Enhance state with business compliance tracking
         new_state = enhance_cecilia_state_with_compliance(new_state)
@@ -319,9 +298,12 @@ class SecureConversationWorkflow:
         try:
             # Use sanitized message for processing
             sanitized_message = security_result.get(
-                "sanitized_message", conversation_state["user_message"]
+                "sanitized_message", conversation_state.get("user_message", conversation_state.get("last_user_message", ""))
             )
-            conversation_state["user_message"] = sanitized_message
+            # Update both possible keys for compatibility
+            if "user_message" in conversation_state:
+                conversation_state["user_message"] = sanitized_message
+            conversation_state["last_user_message"] = sanitized_message
 
             # Run workflow components in parallel for efficiency
             workflow_results = await asyncio.gather(
@@ -444,8 +426,15 @@ class SecureConversationWorkflow:
     async def _classify_intent(self, conversation_state: ConversationState):
         """Classify user intent with context awareness"""
         try:
+            # Lazy load intent classifier via service factory
+            if self.intent_classifier is None:
+                self.intent_classifier = await get_intent_classifier()
+            
+            # Get user message from correct state key
+            user_message = conversation_state.get("user_message") or conversation_state.get("last_user_message", "")
+            
             intent_result = await self.intent_classifier.classify_intent(
-                conversation_state["user_message"], conversation_state
+                user_message, conversation_state
             )
             return intent_result
         except Exception as e:
@@ -468,8 +457,11 @@ class SecureConversationWorkflow:
     ) -> Dict[str, Any]:
         """Resolve contextual references in the message"""
         try:
+            # Get user message from correct state key
+            user_message = conversation_state.get("user_message") or conversation_state.get("last_user_message", "")
+            
             resolved_message, references = self.context_manager.resolve_references(
-                conversation_state["user_message"], conversation_state
+                user_message, conversation_state
             )
             return {"resolved_message": resolved_message, "resolved_references": references}
         except Exception as e:
@@ -514,11 +506,11 @@ class SecureConversationWorkflow:
             # Prepare prompt variables
             prompt_variables = {
                 "user_name": conversation_state.get("user_name", ""),
-                "user_message": conversation_state["user_message"],
+                "user_message": conversation_state.get("user_message", conversation_state.get("last_user_message", "")),
                 "detected_intent": conversation_state.get("detected_intent", ""),
                 "rag_context": conversation_state.get("rag_context", ""),
-                "conversation_stage": conversation_state["stage"].value,
-                "current_step": conversation_state["step"].value,
+                "conversation_stage": conversation_state.get("stage", conversation_state.get("current_stage", "")).value if hasattr(conversation_state.get("stage", conversation_state.get("current_stage", "")), 'value') else str(conversation_state.get("stage", conversation_state.get("current_stage", ""))),
+                "current_step": conversation_state.get("step", conversation_state.get("current_step", "")).value if hasattr(conversation_state.get("step", conversation_state.get("current_step", "")), 'value') else str(conversation_state.get("step", conversation_state.get("current_step", ""))),
                 "business_name": "Kumon Vila A",
                 "current_time": datetime.now().strftime("%H:%M"),
                 "current_day": datetime.now().strftime("%A"),
@@ -562,7 +554,7 @@ Estou à disposição para esclarecer todas as suas dúvidas!"""
     def _select_prompt_name(self, conversation_state: ConversationState) -> str:
         """Select appropriate prompt name based on conversation state"""
 
-        stage = conversation_state["stage"]
+        stage = conversation_state.get("stage", conversation_state.get("current_stage"))
         intent = conversation_state.get("detected_intent", "")
 
         # Intent-based prompt selection
