@@ -28,5 +28,14 @@ Este documento detalha os problemas identificados na análise de logs de 23/08/2
 
 -   **Problema:** Muitas mensagens de log aparecem duplicadas, com e sem o prefixo do logger.
 -   **Impacto:** Dificulta a leitura, análise e depuração dos logs.
--   **Plano de Ação:** Inspecionar a configuração do logger (provavelmente em `app/core/logger.py`) e remover o handler redundante que causa a duplicação das mensagens.
+-   **Plano de Ação:** Inspecionar a configuração do logger (provavelmente em `app/core/logger.py`) e remover o handler que está causando a duplicação das mensagens.
 -   **Status:** `Concluído`
+
+---
+
+### 4. Dívida Técnica: Erros de Qualidade de Código
+
+-   **Problema:** Os hooks `flake8` e `mypy` detectaram centenas de erros de estilo, formatação e tipagem estática no código.
+-   **Impacto:** Dificulta a manutenção, aumenta a probabilidade de bugs e viola as boas práticas de desenvolvimento.
+-   **Plano de Ação:** Realizar um esforço concentrado para corrigir todos os erros apontados pelos linters e garantir que o `pre-commit` passe sem erros.
+-   **Status:** `Não iniciado`

@@ -25,10 +25,10 @@ repos:
         args: ["--profile", "black", "--filter-files"]
 
 # Análise de estilo e erros
-# -   repo: https://github.com/pycqa/flake8
-#     rev: 7.1.0
-#     hooks:
-#     -   id: flake8
+-   repo: https://github.com/pycqa/flake8
+    rev: 7.1.0
+    hooks:
+    -   id: flake8
 
 # Análise de segurança
 -   repo: https://github.com/pycqa/bandit
@@ -44,7 +44,7 @@ repos:
     -   id: detect-secrets
 
 # Checagem estática de tipos
-# -   repo: https://github.com/pre-commit/mirrors-mypy
-#     rev: v1.10.0
-#     hooks:
-#     -   id: mypy
+-   repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.10.0
+    hooks:
+    -   id: mypy
