@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from ..core.logger import app_logger
 from ..core.config import settings
 from ..models.message import WhatsAppMessage, MessageResponse
-from ..workflows.secure_conversation_workflow import secure_workflow, SecureWorkflowAction
+from ..workflows.secure_conversation_workflow import SecureConversationWorkflow, SecureWorkflowAction
 from ..security.security_manager import security_manager
 
 
@@ -53,6 +53,9 @@ class SecureMessageProcessor:
         # Processing metrics
         self.metrics = ProcessingMetrics()
         
+        # Initialize workflow instance via service factory
+        self.secure_workflow = None  # Will be initialized lazily
+        
         # Processing configuration
         self.config = {
             "max_processing_time": 30.0,  # seconds
@@ -72,6 +75,13 @@ class SecureMessageProcessor:
         }
         
         app_logger.info("Secure Message Processor initialized (Fase 5 Complete)")
+    
+    async def _get_secure_workflow(self):
+        """Get secure workflow instance using service factory"""
+        if self.secure_workflow is None:
+            from ..core.service_factory import get_secure_workflow
+            self.secure_workflow = await get_secure_workflow()
+        return self.secure_workflow
     
     async def process_message(self, whatsapp_message) -> MessageResponse:
         """
@@ -279,7 +289,8 @@ class SecureMessageProcessor:
         
         try:
             # Execute workflow with timeout
-            workflow_task = secure_workflow.process_secure_message(
+            secure_workflow_instance = await self._get_secure_workflow()
+            workflow_task = secure_workflow_instance.process_secure_message(
                 phone_number, message_content, metadata
             )
             
@@ -449,7 +460,8 @@ class SecureMessageProcessor:
         try:
             # Check core components
             security_status = security_manager.get_security_metrics()
-            workflow_status = secure_workflow.get_security_metrics()
+            secure_workflow_instance = await self._get_secure_workflow()
+            workflow_status = secure_workflow_instance.get_security_metrics()
             
             # Test security responsiveness
             test_start = time.time()

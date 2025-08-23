@@ -6,8 +6,6 @@ import asyncio
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from app.core.dependencies import llm_service
-
 # Removed ChatOpenAI import - using new LLM service abstraction
 from langchain.callbacks.base import BaseCallbackHandler
 from langchain.prompts import ChatPromptTemplate, PromptTemplate
@@ -50,7 +48,7 @@ class LangChainRAGService:
     """LangChain-powered RAG service with semantic search"""
 
     def __init__(self, llm_service_instance):
-        self.llm = None
+        self.llm = llm_service_instance
         self.retrieval_chain = None
         self._initialized = False
         self.callback_handler = LoggingCallbackHandler()
@@ -90,9 +88,8 @@ Resposta:"""
             await vector_store.initialize()
             await hybrid_embedding_service.initialize_model()
 
-            # Initialize LLM using new service abstraction
+            # LLM service already set in constructor
             # Note: kumon_llm_service handles provider selection, cost monitoring, and fallback
-            self.llm = llm_service_instance  # Direct usage of the adapter
 
             # Create retrieval chain
             self._create_retrieval_chain()

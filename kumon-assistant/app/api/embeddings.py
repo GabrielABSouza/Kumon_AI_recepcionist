@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 import asyncio
 
-from app.core.dependencies import langchain_rag_service
+from app.core.service_factory import get_langchain_rag_service
 from ..services.hybrid_embedding_service import hybrid_embedding_service
 from ..services.vector_store import vector_store, SearchResult
 from ..core.logger import app_logger
@@ -62,6 +62,7 @@ async def query_rag_system(request: QueryRequest):
         app_logger.info(f"RAG query received: {request.question[:50]}...")
         
         # Use LangChain RAG service directly
+        langchain_rag_service = await get_langchain_rag_service()
         rag_result = await langchain_rag_service.query(
             question=request.question,
             search_kwargs={"score_threshold": request.similarity_threshold or 0.7},
@@ -150,6 +151,7 @@ async def add_document(request: AddDocumentRequest):
             "keywords": request.keywords,
             "metadata": request.metadata or {}
         }]
+        langchain_rag_service = await get_langchain_rag_service()
         success = await langchain_rag_service.add_knowledge_base_documents(documents)
         
         if success:
@@ -192,6 +194,7 @@ async def get_system_stats():
     Get system statistics and health information
     """
     try:
+        langchain_rag_service = await get_langchain_rag_service()
         stats = await langchain_rag_service.get_system_stats()
         return stats
         
@@ -209,7 +212,12 @@ async def health_check():
         # Check if all services are initialized
         embedding_ready = hybrid_embedding_service.primary_service is not None
         vector_store_ready = vector_store._initialized
-        rag_ready = langchain_rag_service._initialized
+        rag_ready = False
+        try:
+            langchain_rag_service = await get_langchain_rag_service()
+            rag_ready = langchain_rag_service._initialized
+        except Exception:
+            rag_ready = False
         
         health_status = {
             "status": "healthy" if all([embedding_ready, vector_store_ready, rag_ready]) else "degraded",
@@ -237,6 +245,7 @@ async def initialize_system():
     Initialize the embedding system
     """
     try:
+        langchain_rag_service = await get_langchain_rag_service()
         await langchain_rag_service.initialize()
         
         return {
@@ -256,6 +265,7 @@ async def reload_knowledge_base():
     """
     try:
         # LangChain RAG doesn't have a specific reload method - reinitialization accomplishes this
+        langchain_rag_service = await get_langchain_rag_service()
         await langchain_rag_service.initialize()
         success = True
         

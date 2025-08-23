@@ -6,8 +6,59 @@ Forces proper Railway environment detection and database configuration
 import os
 import logging
 from typing import Dict, Any, Optional
+import threading
+import tempfile
+import time
 
 logger = logging.getLogger(__name__)
+
+# Execution guard to prevent multiple executions
+_execution_guard = threading.Lock()
+_fixes_applied = False
+_execution_count = 0
+_process_lock_file = None
+
+def _create_process_lock():
+    """Create a process-level lock file to prevent multiple executions across restarts"""
+    global _process_lock_file
+    try:
+        lock_dir = tempfile.gettempdir()
+        lock_path = os.path.join(lock_dir, "railway_environment_fix.lock")
+        
+        # Create lock file if it doesn't exist
+        _process_lock_file = open(lock_path, 'w')
+        _process_lock_file.write(f"pid:{os.getpid()}\ntime:{time.time()}\n")
+        _process_lock_file.flush()
+        
+        # Try to acquire exclusive lock (non-blocking)
+        try:
+            import fcntl
+            fcntl.flock(_process_lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            logger.debug(f"Process lock acquired: {lock_path}")
+            return True
+        except (ImportError, BlockingIOError):
+            # fcntl not available (Windows) or lock already held
+            _process_lock_file.close()
+            _process_lock_file = None
+            return False
+            
+    except Exception as e:
+        logger.debug(f"Could not create process lock: {e}")
+        if _process_lock_file:
+            _process_lock_file.close()
+            _process_lock_file = None
+        return False
+
+def _release_process_lock():
+    """Release the process-level lock"""
+    global _process_lock_file
+    if _process_lock_file:
+        try:
+            _process_lock_file.close()
+            _process_lock_file = None
+            logger.debug("Process lock released")
+        except Exception as e:
+            logger.debug(f"Error releasing process lock: {e}")
 
 def detect_railway_environment() -> bool:
     """
@@ -205,8 +256,25 @@ def get_railway_qdrant_config() -> Dict[str, Any]:
 def apply_railway_environment_fixes():
     """
     Apply Railway environment fixes by setting missing environment variables
+    EXECUTION GUARD: Ensures fixes are applied only ONCE per application startup
     """
-    logger.info("🔧 Applying Railway environment fixes...")
+    global _fixes_applied, _execution_count
+    
+    with _execution_guard:
+        _execution_count += 1
+        
+        # Execution guard - prevent multiple executions
+        if _fixes_applied:
+            logger.info(f"🔒 Railway environment fixes already applied (execution #{_execution_count})")
+            logger.debug(f"Previous execution completed successfully - skipping duplicate call")
+            return
+        
+        # Additional process-level guard for extra safety
+        process_lock_acquired = _create_process_lock()
+        if not process_lock_acquired:
+            logger.debug("Process lock not acquired - continuing with thread-level guard only")
+        
+        logger.info(f"🔧 Applying Railway environment fixes (execution #{_execution_count})...")
     
     is_railway = detect_railway_environment()
     
@@ -260,18 +328,47 @@ def apply_railway_environment_fixes():
         
         logger.info("🎯 Railway environment fixes applied successfully")
         
+        # Mark fixes as applied BEFORE verification to prevent race conditions
+        _fixes_applied = True
+        
         # Verify fixes
         logger.info("🔍 Verification:")
         logger.info(f"DATABASE_URL present: {bool(os.getenv('DATABASE_URL'))}")
         logger.info(f"REDIS_URL present: {bool(os.getenv('REDIS_URL'))}")  
         logger.info(f"QDRANT_URL: {os.getenv('QDRANT_URL', 'Not set')}")
         logger.info(f"RAILWAY_ENVIRONMENT: {os.getenv('RAILWAY_ENVIRONMENT', 'Not set')}")
+        logger.info(f"✅ Railway environment fixes completed and marked as applied")
+        
+        # Release process lock
+        _release_process_lock()
         
     else:
         logger.info("💻 Local development environment detected - no Railway fixes needed")
+        # Mark as applied even for local development to prevent future executions
+        _fixes_applied = True
+        
+        # Release process lock
+        _release_process_lock()
 
-# Auto-apply fixes on import in production-like environments  
-if __name__ != "__main__":
-    # Only auto-apply if it looks like Railway
-    if any(os.getenv(var) for var in ["PORT", "RAILWAY_PROJECT_ID", "RAILWAY_ENVIRONMENT_ID"]):
-        apply_railway_environment_fixes()
+# REMOVED: Auto-execution on import to prevent multiple executions
+# Railway environment fixes should ONLY be called explicitly from main.py
+# This prevents the critical issue of 3x execution causing config corruption
+
+# Debug function to check if fixes were applied
+def get_execution_status():
+    """Get current execution status for debugging"""
+    return {
+        "fixes_applied": _fixes_applied,
+        "execution_count": _execution_count,
+        "thread_safe": True
+    }
+
+# Utility function to force reset (for testing only)
+def _reset_execution_guard():
+    """TESTING ONLY: Reset execution guard - DO NOT USE IN PRODUCTION"""
+    global _fixes_applied, _execution_count
+    if __name__ == "__main__":  # Only allow in direct script execution
+        with _execution_guard:
+            _fixes_applied = False
+            _execution_count = 0
+            logger.warning("⚠️ TESTING: Execution guard reset")

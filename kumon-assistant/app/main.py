@@ -11,14 +11,22 @@ import os
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Apply Railway fixes immediately
+# Apply Railway fixes immediately - SINGLE POINT OF CONTROL
 try:
-    from app.core.railway_environment_fix import apply_railway_environment_fixes
+    from app.core.railway_environment_fix import apply_railway_environment_fixes, get_execution_status
 
+    logger.info("🔧 Initiating Railway environment fixes from main.py...")
     apply_railway_environment_fixes()
-    logger.info("✅ Railway environment fixes applied successfully")
+    
+    # Validate execution status
+    status = get_execution_status()
+    logger.info(f"✅ Railway environment fixes completed successfully")
+    logger.info(f"📊 Execution status: Applied={status['fixes_applied']}, Count={status['execution_count']}")
+    
 except Exception as e:
     logger.error(f"❌ Failed to apply Railway fixes: {e}")
+    # Continue startup even if Railway fixes fail - application should be resilient
+    logger.warning("⚠️ Continuing startup without Railway fixes - some features may be limited")
 
 import asyncio
 
@@ -328,10 +336,7 @@ async def root():
 
 
 from app.core import dependencies
-from app.services.langchain_rag import LangChainRAGService
-from app.services.production_llm_service import ProductionLLMService
-from app.workflows.intent_classifier import AdvancedIntentClassifier
-from app.workflows.secure_conversation_workflow import SecureConversationWorkflow
+from app.core.service_factory import service_factory, register_core_services
 
 
 # Startup event with comprehensive validation
@@ -355,22 +360,23 @@ async def startup_event():
             if any(pattern in key.upper() for pattern in ["DATABASE", "POSTGRES", "OPENAI", "EVOLUTION", "RAILWAY"]):
                 app_logger.info(f"  {key}: {'[SET]' if os.getenv(key) else '[NOT SET]'}")
     
-    # Initialize core services
-    app_logger.info("🔄 Initializing core services...")
-    dependencies.llm_service = ProductionLLMService()
-    await dependencies.llm_service.initialize()
-    dependencies.intent_classifier = AdvancedIntentClassifier(
-        llm_service_instance=dependencies.llm_service
-    )
-    dependencies.secure_workflow = SecureConversationWorkflow()
+    # Initialize core services using service factory
+    app_logger.info("🔄 Initializing core services with service factory...")
     
-    # Initialize LangChain RAG service
-    from app.services.langchain_rag import LangChainRAGService
-    dependencies.langchain_rag_service = LangChainRAGService(dependencies.llm_service)
-    await dependencies.langchain_rag_service.initialize()
+    # Register all core services with the factory
+    register_core_services()
+    
+    # Initialize core services through factory (will populate dependencies as well)
+    await service_factory.initialize_core_services()
+    
+    # Populate dependencies for backward compatibility
+    dependencies.llm_service = await service_factory.get_service('llm_service')
+    dependencies.intent_classifier = await service_factory.get_service('intent_classifier')
+    dependencies.secure_workflow = await service_factory.get_service('secure_workflow')
+    dependencies.langchain_rag_service = await service_factory.get_service('langchain_rag_service')
     
     app_logger.info(
-        "✅ Core services (LLM, Intent Classifier, Secure Workflow, RAG) initialized successfully"
+        "✅ Core services (LLM, Intent Classifier, Secure Workflow, RAG) initialized via service factory"
     )
 
     # DEBUG: Log environment variable status

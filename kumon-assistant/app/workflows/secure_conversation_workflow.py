@@ -32,7 +32,7 @@ from ..services.business_compliance_monitor import business_compliance_monitor
 
 # Legacy smart router removed - using CeciliaWorkflow instead
 # from ..workflows.smart_router import SmartConversationRouter
-from ..services.langchain_rag import langchain_rag_service
+from ..core.service_factory import get_langchain_rag_service
 from ..services.rag_business_validator import rag_business_validator
 from ..workflows.context_manager import ConversationContextManager
 from ..workflows.nodes.business_rules_nodes import (
@@ -480,6 +480,7 @@ class SecureConversationWorkflow:
         """Generate RAG context for enhanced responses with business validation"""
         try:
             # Get RAG response
+            langchain_rag_service = await get_langchain_rag_service()
             rag_result = await langchain_rag_service.query(user_message, include_sources=True)
 
             # Validate RAG response against business rules

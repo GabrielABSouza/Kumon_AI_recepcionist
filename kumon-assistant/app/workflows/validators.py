@@ -16,7 +16,7 @@ from datetime import datetime
 from dataclasses import dataclass
 from enum import Enum
 
-from ..services.langgraph_llm_adapter import langgraph_llm_adapter
+from ..services.langgraph_llm_adapter import LangGraphLLMAdapter
 from langchain.prompts import ChatPromptTemplate
 
 from ..core.logger import app_logger
@@ -73,7 +73,7 @@ class SecurityValidationAgent:
     
     def __init__(self):
         # LLM for quality validation using new service abstraction
-        self.llm = langgraph_llm_adapter
+        self.llm = LangGraphLLMAdapter()
         
         # Validation thresholds and configuration
         self.thresholds = {

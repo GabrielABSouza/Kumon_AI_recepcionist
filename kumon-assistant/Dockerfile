@@ -17,6 +17,11 @@ WORKDIR /app
 
 # Copy requirements and install Python dependencies
 COPY requirements-production.txt .
+
+# Install PyTorch CPU-only first for Railway optimization
+RUN pip install --no-cache-dir torch==2.5.1+cpu torchvision==0.20.1+cpu torchaudio==2.5.1+cpu --index-url https://download.pytorch.org/whl/cpu
+
+# Install remaining dependencies
 RUN pip install --no-cache-dir -r requirements-production.txt
 
 # Copy application code
@@ -33,4 +38,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 EXPOSE ${PORT}
 
 # Start command for Railway
-CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT}
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]

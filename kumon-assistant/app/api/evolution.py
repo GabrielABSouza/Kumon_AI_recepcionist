@@ -6,8 +6,8 @@ import asyncio
 import json
 from typing import Any, Dict, List, Optional
 
-# Import dependencies including RAG service
-from app.core.dependencies import langchain_rag_service
+# Import service factory for RAG service
+from app.core.service_factory import get_langchain_rag_service
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from pydantic import BaseModel, Field
 
@@ -788,7 +788,7 @@ async def evolution_health_check():
             "status": "healthy",
             "evolution_api_url": settings.EVOLUTION_API_URL,
             "instances_count": len(instances),
-            "langchain_rag_initialized": langchain_rag_service._initialized if langchain_rag_service else False,
+            "langchain_rag_initialized": False,  # Will be updated after service factory migration
         }
 
     except Exception as e:
@@ -811,6 +811,7 @@ async def test_message(
         context = {"phone": phone, "sender_name": "Test User", "instance": instance_name}
 
         # Get AI response using LangChain RAG service
+        langchain_rag_service = await get_langchain_rag_service()
         rag_response = await langchain_rag_service.query(question=message, include_sources=False)
         ai_response = rag_response.answer
 

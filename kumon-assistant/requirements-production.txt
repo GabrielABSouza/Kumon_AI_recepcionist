@@ -44,6 +44,11 @@ langsmith==0.1.143
 langgraph==0.2.45
 
 # ML LIBRARIES - PyTorch CPU-only for Railway deployment
+# PyTorch CPU-only: Optimized for Railway cloud deployment (no CUDA overhead)
+# Install via: pip install torch==2.5.1+cpu torchvision==0.20.1+cpu torchaudio==2.5.1+cpu --index-url https://download.pytorch.org/whl/cpu
+torch==2.5.1
+torchvision==0.20.1  
+torchaudio==2.5.1
 sentence-transformers==3.3.0
 transformers==4.46.0
 numpy==1.26.4

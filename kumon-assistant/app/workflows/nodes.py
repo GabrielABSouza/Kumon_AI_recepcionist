@@ -16,7 +16,7 @@ from langchain.schema import BaseMessage, HumanMessage, SystemMessage
 from ..core.config import settings
 from ..core.logger import app_logger
 from ..prompts.manager import prompt_manager
-from ..services.langchain_rag import langchain_rag_service
+from ..core.service_factory import get_langchain_rag_service
 from ..services.langgraph_llm_adapter import langgraph_llm_adapter, kumon_llm_service
 from ..clients.google_calendar import GoogleCalendarClient
 from .states import (
@@ -220,6 +220,7 @@ async def information_node(state: ConversationState) -> ConversationState:
         else:
             # Use RAG to answer general questions
             try:
+                langchain_rag_service = await get_langchain_rag_service()
                 rag_result = await langchain_rag_service.query(
                     question=state["user_message"],
                     search_kwargs={"score_threshold": 0.6},

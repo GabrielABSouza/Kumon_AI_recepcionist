@@ -1,7 +1,7 @@
 from typing import Dict, Any, List
 from ..state.models import CeciliaState, ConversationStage, ConversationStep, get_collected_field, set_collected_field, increment_metric
 from ..state.managers import StateManager
-from ...services.langchain_rag import langchain_rag_service  # FAQ Qdrant integration
+from ...core.service_factory import get_langchain_rag_service  # FAQ Qdrant integration
 import logging
 
 logger = logging.getLogger(__name__)
@@ -22,6 +22,7 @@ class InformationNode:
         # ========== INTEGRAÇÃO COM FAQ QDRANT ==========
         try:
             # 1. Consultar FAQ vetorizada primeiro
+            langchain_rag_service = await get_langchain_rag_service()
             rag_result = await langchain_rag_service.query(
                 question=user_message,
                 search_kwargs={
