@@ -1,18 +1,20 @@
 """
 Evolution API integration endpoints for WhatsApp
 """
-from fastapi import APIRouter, HTTPException, Request, BackgroundTasks
-from pydantic import BaseModel, Field
-from typing import Dict, Any, List, Optional
+
 import asyncio
 import json
+from typing import Any, Dict, List, Optional
 
-from ..clients.evolution_api import evolution_api_client, WhatsAppMessage, InstanceInfo
 # Enhanced RAG engine removed - using langchain_rag_service directly
 from app.core.dependencies import langchain_rag_service
-from ..services.message_processor import MessageProcessor
-from ..core.logger import app_logger
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from pydantic import BaseModel, Field
+
+from ..clients.evolution_api import InstanceInfo, WhatsAppMessage, evolution_api_client
 from ..core.config import settings
+from ..core.logger import app_logger
+from ..services.message_processor import MessageProcessor
 
 # Conversation flow is now handled by message processor
 
@@ -21,12 +23,14 @@ router = APIRouter(prefix="/api/v1/evolution", tags=["evolution"])
 
 class CreateInstanceRequest(BaseModel):
     """Request model for creating WhatsApp instance"""
+
     instance_name: str = Field(..., description="Name for the WhatsApp instance")
     webhook_url: Optional[str] = Field(None, description="Webhook URL for this instance")
 
 
 class SendMessageRequest(BaseModel):
     """Request model for sending messages"""
+
     instance_name: str = Field(..., description="WhatsApp instance name")
     phone: str = Field(..., description="Phone number to send message to")
     message: str = Field(..., description="Message text to send")
@@ -34,6 +38,7 @@ class SendMessageRequest(BaseModel):
 
 class SendMediaRequest(BaseModel):
     """Request model for sending media messages"""
+
     instance_name: str = Field(..., description="WhatsApp instance name")
     phone: str = Field(..., description="Phone number to send message to")
     media_url: str = Field(..., description="URL of the media to send")
@@ -43,6 +48,7 @@ class SendMediaRequest(BaseModel):
 
 class SendButtonRequest(BaseModel):
     """Request model for sending button messages"""
+
     instance_name: str = Field(..., description="WhatsApp instance name")
     phone: str = Field(..., description="Phone number to send message to")
     text: str = Field(..., description="Message text")
@@ -53,7 +59,7 @@ class SendButtonRequest(BaseModel):
 from ..services.secure_message_processor import SecureMessageProcessor
 
 # Check if secure processing is enabled
-if getattr(settings, 'USE_SECURE_PROCESSING', True):
+if getattr(settings, "USE_SECURE_PROCESSING", True):
     # Use secure message processor with all security features
     message_processor = SecureMessageProcessor()
     app_logger.info("🛡️ Evolution route using SECURE Message Processor (Fase 5)")
@@ -68,16 +74,15 @@ async def create_instance(request: CreateInstanceRequest):
     """Create a new WhatsApp instance"""
     try:
         result = await evolution_api_client.create_instance(
-            instance_name=request.instance_name,
-            webhook_url=request.webhook_url
+            instance_name=request.instance_name, webhook_url=request.webhook_url
         )
-        
+
         return {
             "success": True,
             "message": f"Instance '{request.instance_name}' created successfully",
-            "data": result
+            "data": result,
         }
-        
+
     except Exception as e:
         app_logger.error(f"Error creating instance: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to create instance: {str(e)}")
@@ -88,7 +93,7 @@ async def list_instances():
     """List all WhatsApp instances"""
     try:
         instances = await evolution_api_client.list_instances()
-        
+
         return {
             "success": True,
             "instances": [
@@ -96,12 +101,12 @@ async def list_instances():
                     "instance_name": instance.instance_name,
                     "status": instance.status,
                     "phone_number": instance.phone_number,
-                    "profile_name": instance.profile_name
+                    "profile_name": instance.profile_name,
                 }
                 for instance in instances
-            ]
+            ],
         }
-        
+
     except Exception as e:
         app_logger.error(f"Error listing instances: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to list instances: {str(e)}")
@@ -112,7 +117,7 @@ async def get_instance_info(instance_name: str):
     """Get information about a specific WhatsApp instance"""
     try:
         instance = await evolution_api_client.get_instance_info(instance_name)
-        
+
         return {
             "success": True,
             "instance": {
@@ -120,10 +125,10 @@ async def get_instance_info(instance_name: str):
                 "status": instance.status,
                 "qr_code": instance.qr_code,
                 "phone_number": instance.phone_number,
-                "profile_name": instance.profile_name
-            }
+                "profile_name": instance.profile_name,
+            },
         }
-        
+
     except Exception as e:
         app_logger.error(f"Error getting instance info: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to get instance info: {str(e)}")
@@ -134,19 +139,19 @@ async def get_qr_code(instance_name: str):
     """Get QR code for WhatsApp instance"""
     try:
         qr_code = await evolution_api_client.get_qr_code(instance_name)
-        
+
         if qr_code:
             return {
                 "success": True,
                 "qr_code": qr_code,
-                "message": "Scan this QR code with WhatsApp to connect the instance"
+                "message": "Scan this QR code with WhatsApp to connect the instance",
             }
         else:
             return {
                 "success": False,
-                "message": "QR code not available or instance already connected"
+                "message": "QR code not available or instance already connected",
             }
-        
+
     except Exception as e:
         app_logger.error(f"Error getting QR code: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to get QR code: {str(e)}")
@@ -157,14 +162,14 @@ async def get_instance_status(instance_name: str):
     """Get connection status of an instance"""
     try:
         status = await evolution_api_client.get_instance_status(instance_name)
-        
+
         return {
             "success": True,
             "instance_name": instance_name,
             "status": status,
-            "connected": status == "open"
+            "connected": status == "open",
         }
-        
+
     except Exception as e:
         app_logger.error(f"Error getting instance status: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to get instance status: {str(e)}")
@@ -175,15 +180,12 @@ async def delete_instance(instance_name: str):
     """Delete a WhatsApp instance"""
     try:
         success = await evolution_api_client.delete_instance(instance_name)
-        
+
         if success:
-            return {
-                "success": True,
-                "message": f"Instance '{instance_name}' deleted successfully"
-            }
+            return {"success": True, "message": f"Instance '{instance_name}' deleted successfully"}
         else:
             raise HTTPException(status_code=500, detail="Failed to delete instance")
-        
+
     except Exception as e:
         app_logger.error(f"Error deleting instance: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to delete instance: {str(e)}")
@@ -194,15 +196,15 @@ async def restart_instance(instance_name: str):
     """Restart a WhatsApp instance"""
     try:
         success = await evolution_api_client.restart_instance(instance_name)
-        
+
         if success:
             return {
                 "success": True,
-                "message": f"Instance '{instance_name}' restarted successfully"
+                "message": f"Instance '{instance_name}' restarted successfully",
             }
         else:
             raise HTTPException(status_code=500, detail="Failed to restart instance")
-        
+
     except Exception as e:
         app_logger.error(f"Error restarting instance: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to restart instance: {str(e)}")
@@ -213,17 +215,11 @@ async def send_text_message(request: SendMessageRequest):
     """Send a text message via WhatsApp"""
     try:
         result = await evolution_api_client.send_text_message(
-            instance_name=request.instance_name,
-            phone=request.phone,
-            message=request.message
+            instance_name=request.instance_name, phone=request.phone, message=request.message
         )
-        
-        return {
-            "success": True,
-            "message": "Text message sent successfully",
-            "data": result
-        }
-        
+
+        return {"success": True, "message": "Text message sent successfully", "data": result}
+
     except Exception as e:
         app_logger.error(f"Error sending text message: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to send message: {str(e)}")
@@ -238,15 +234,11 @@ async def send_media_message(request: SendMediaRequest):
             phone=request.phone,
             media_url=request.media_url,
             caption=request.caption,
-            media_type=request.media_type
+            media_type=request.media_type,
         )
-        
-        return {
-            "success": True,
-            "message": "Media message sent successfully",
-            "data": result
-        }
-        
+
+        return {"success": True, "message": "Media message sent successfully", "data": result}
+
     except Exception as e:
         app_logger.error(f"Error sending media message: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to send media message: {str(e)}")
@@ -260,15 +252,11 @@ async def send_button_message(request: SendButtonRequest):
             instance_name=request.instance_name,
             phone=request.phone,
             text=request.text,
-            buttons=request.buttons
+            buttons=request.buttons,
         )
-        
-        return {
-            "success": True,
-            "message": "Button message sent successfully",
-            "data": result
-        }
-        
+
+        return {"success": True, "message": "Button message sent successfully", "data": result}
+
     except Exception as e:
         app_logger.error(f"Error sending button message: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to send button message: {str(e)}")
@@ -280,94 +268,88 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
     try:
         # Get raw webhook data
         webhook_data = await request.json()
-        
+
         # Extract event type from URL path if present
         url_path = str(request.url.path)
         event_type = "unknown"
-        
+
         if "/webhook/" in url_path:
             # Extract event type from path like /webhook/messages-upsert
             path_parts = url_path.split("/webhook/")
             if len(path_parts) > 1:
                 event_type = path_parts[1].replace("-", "_")
-        
+
         app_logger.info(f"Received webhook: {event_type} from path: {url_path}")
-        
+
         # Handle messages-upsert specifically (most important for our AI assistant)
         if event_type in ["messages_upsert", "messages-upsert"]:
             # Parse message from the webhook
             parsed_message = evolution_api_client.parse_webhook_message(webhook_data)
-            
+
             if parsed_message:
                 app_logger.info(
                     f"Processing message from {parsed_message.phone} via instance {parsed_message.instance}"
                 )
-                
+
                 # Process message in background to avoid webhook timeout
                 background_tasks.add_task(process_message_background, parsed_message)
-                
+
                 return {
                     "success": True,
-                    "message": "Messages webhook received and message queued for processing"
+                    "message": "Messages webhook received and message queued for processing",
                 }
             else:
                 app_logger.info("No processable message found in messages webhook")
-        
+
         # Handle other event types
         elif event_type in ["presence_update", "presence-update"]:
             presence_data = webhook_data.get("data", {})
             presence_state = presence_data.get("presence", "unknown")
             instance = webhook_data.get("instance", "unknown")
             app_logger.info(f"Presence update for instance {instance}: {presence_state}")
-            
+
         elif event_type in ["chats_update", "chats-update"]:
             chat_data = webhook_data.get("data", {})
             instance = webhook_data.get("instance", "unknown")
             app_logger.info(f"Chats update for instance {instance}")
-            
+
         elif event_type in ["connection_update", "connection-update"]:
             connection_data = webhook_data.get("data", {})
             connection_state = connection_data.get("state", "unknown")
             instance = webhook_data.get("instance", "unknown")
             app_logger.info(f"Connection update for instance {instance}: {connection_state}")
-            
+
         else:
             # Fallback: try to parse as regular message webhook
             parsed_message = evolution_api_client.parse_webhook_message(webhook_data)
-            
+
             if parsed_message:
                 app_logger.info(
                     f"Processing message from {parsed_message.phone} via instance {parsed_message.instance}"
                 )
-                
+
                 # Process message in background to avoid webhook timeout
                 background_tasks.add_task(process_message_background, parsed_message)
-                
+
                 return {
                     "success": True,
-                    "message": "Webhook received and message queued for processing"
+                    "message": "Webhook received and message queued for processing",
                 }
             else:
                 # Handle non-message events (connection updates, QR codes, etc.)
                 webhook_event_type = webhook_data.get("event", "unknown")
-                
+
                 if webhook_event_type == "qrcode.updated":
                     app_logger.info("QR Code updated event received")
                 elif webhook_event_type == "connection.update":
                     connection_state = webhook_data.get("data", {}).get("state", "unknown")
                     app_logger.info(f"Connection state updated: {connection_state}")
-        
-        return {
-            "success": True,
-            "message": f"Webhook event '{event_type}' processed successfully"
-        }
-        
+
+        return {"success": True, "message": f"Webhook event '{event_type}' processed successfully"}
+
     except Exception as e:
         app_logger.error(f"Error processing webhook: {str(e)}")
-        return {
-            "success": False,
-            "error": "Failed to process webhook"
-        }
+        return {"success": False, "error": "Failed to process webhook"}
 
 
 # Catch-all route for specific event paths
@@ -384,37 +366,34 @@ async def handle_messages_update_direct(request: Request, background_tasks: Back
     try:
         # Get raw webhook data
         webhook_data = await request.json()
-        
+
         app_logger.info(f"Received messages-update webhook: {webhook_data}")
-        
+
         # Parse message from the webhook
         parsed_message = evolution_api_client.parse_webhook_message(webhook_data)
-        
+
         if parsed_message:
             app_logger.info(
                 f"Processing message from {parsed_message.phone} via instance {parsed_message.instance}"
             )
-            
+
             # Process message in background to avoid webhook timeout
             background_tasks.add_task(process_message_background, parsed_message)
-            
+
             return {
                 "success": True,
-                "message": "Messages-update webhook received and message queued for processing"
+                "message": "Messages-update webhook received and message queued for processing",
             }
         else:
             app_logger.info("No processable message found in messages-update webhook")
             return {
                 "success": True,
-                "message": "Messages-update webhook received but no message to process"
+                "message": "Messages-update webhook received but no message to process",
             }
-        
+
     except Exception as e:
         app_logger.error(f"Error processing messages-update webhook: {str(e)}")
-        return {
-            "success": False,
-            "error": "Failed to process messages-update webhook"
-        }
+        return {"success": False, "error": "Failed to process messages-update webhook"}
 
 
 @router.post("/messages-upsert")
@@ -422,25 +401,25 @@ async def handle_messages_upsert_direct(request: Request):
     """Handle messages-upsert webhook directly"""
     try:
         webhook_data = await request.json()
-        
+
         app_logger.info(f"📨 Received messages-upsert webhook: {webhook_data}")
-        
+
         # Extract message information
         instance = webhook_data.get("instance")
         message_data = webhook_data.get("data", {})
-        
+
         # Skip messages from ourselves
         if message_data.get("key", {}).get("fromMe", False):
             app_logger.info(f"🔄 Skipping message from self (fromMe=True)")
             return {"status": "ok", "message": "Message from self, skipped"}
-        
+
         app_logger.info(f"📱 Processing message from instance: {instance}")
-        
+
         # Process message immediately for debugging
         await process_message_from_webhook(webhook_data)
-        
+
         return {"status": "ok", "message": "Message received and queued for processing"}
-        
+
     except Exception as e:
         app_logger.error(f"❌ Error handling messages-upsert: {str(e)}")
         return {"status": "error", "message": str(e)}
@@ -452,27 +431,21 @@ async def handle_presence_update_direct(request: Request):
     try:
         # Get raw webhook data
         webhook_data = await request.json()
-        
+
         app_logger.info(f"Received presence-update webhook: {webhook_data}")
-        
+
         # Extract presence information
         presence_data = webhook_data.get("data", {})
         presence_state = presence_data.get("presence", "unknown")
         instance = webhook_data.get("instance", "unknown")
-        
+
         app_logger.info(f"Presence update for instance {instance}: {presence_state}")
-        
-        return {
-            "success": True,
-            "message": f"Presence update processed: {presence_state}"
-        }
-        
+
+        return {"success": True, "message": f"Presence update processed: {presence_state}"}
+
     except Exception as e:
         app_logger.error(f"Error processing presence-update webhook: {str(e)}")
-        return {
-            "success": False,
-            "error": "Failed to process presence-update webhook"
-        }
+        return {"success": False, "error": "Failed to process presence-update webhook"}
 
 
 @router.post("/chats-update")
@@ -481,26 +454,20 @@ async def handle_chats_update_direct(request: Request):
     try:
         # Get raw webhook data
         webhook_data = await request.json()
-        
+
         app_logger.info(f"Received chats-update webhook: {webhook_data}")
-        
+
         # Extract chat information
         chat_data = webhook_data.get("data", {})
         instance = webhook_data.get("instance", "unknown")
-        
+
         app_logger.info(f"Chats update for instance {instance}")
-        
-        return {
-            "success": True,
-            "message": "Chats update processed"
-        }
-        
+
+        return {"success": True, "message": "Chats update processed"}
+
     except Exception as e:
         app_logger.error(f"Error processing chats-update webhook: {str(e)}")
-        return {
-            "success": False,
-            "error": "Failed to process chats-update webhook"
-        }
+        return {"success": False, "error": "Failed to process chats-update webhook"}
 
 
 @router.post("/connection-update")
@@ -509,27 +476,21 @@ async def handle_connection_update_direct(request: Request):
     try:
         # Get raw webhook data
         webhook_data = await request.json()
-        
+
         app_logger.info(f"Received connection-update webhook: {webhook_data}")
-        
+
         # Extract connection information
         connection_data = webhook_data.get("data", {})
         connection_state = connection_data.get("state", "unknown")
         instance = webhook_data.get("instance", "unknown")
-        
+
         app_logger.info(f"Connection update for instance {instance}: {connection_state}")
-        
-        return {
-            "success": True,
-            "message": f"Connection update processed: {connection_state}"
-        }
-        
+
+        return {"success": True, "message": f"Connection update processed: {connection_state}"}
+
     except Exception as e:
         app_logger.error(f"Error processing connection-update webhook: {str(e)}")
-        return {
-            "success": False,
-            "error": "Failed to process connection-update webhook"
-        }
+        return {"success": False, "error": "Failed to process connection-update webhook"}
 
 
 # Additional webhook endpoints for all Evolution API events
@@ -730,20 +691,22 @@ async def process_message_from_webhook(webhook_data: Dict[str, Any]):
     app_logger.info(f"DEBUG: STARTING process_message_from_webhook function")
     try:
         app_logger.info(f"DEBUG: About to parse webhook data: {webhook_data}")
-        
+
         # Parse message from the webhook
         parsed_message = evolution_api_client.parse_webhook_message(webhook_data)
-        
+
         app_logger.info(f"DEBUG: Parsed message result: {parsed_message}")
-        
+
         if parsed_message:
-            app_logger.info(f"✅ Message parsed successfully: {parsed_message.phone} | '{parsed_message.message}'")
-            
+            app_logger.info(
+                f"✅ Message parsed successfully: {parsed_message.phone} | '{parsed_message.message}'"
+            )
+
             # Process message in background to avoid webhook timeout
             await process_message_background(parsed_message)
         else:
             app_logger.info("ℹ️ No processable message found in webhook")
-            
+
     except Exception as e:
         app_logger.error(f"❌ Error processing message from webhook: {str(e)}")
 
@@ -757,16 +720,16 @@ async def process_message_background(message: WhatsAppMessage):
             "sender_name": message.sender_name,
             "message_id": message.message_id,
             "instance": message.instance,
-            "timestamp": message.timestamp
+            "timestamp": message.timestamp,
         }
-        
+
         # Skip empty messages
         if not message.message.strip():
             app_logger.info(f"Skipping empty message from {message.phone}")
             return
-        
+
         app_logger.info(f"🔄 Processing message: '{message.message}' from {message.phone}")
-        
+
         # Use the message processor (secure or legacy based on config)
         if isinstance(message_processor, SecureMessageProcessor):
             # Process through secure workflow (now accepts Evolution format)
@@ -775,11 +738,9 @@ async def process_message_background(message: WhatsAppMessage):
         else:
             # Legacy processor expects separate arguments
             ai_response = await message_processor.process_message(
-                message=message.message,
-                phone_number=message.phone,
-                context=context
+                message=message.message, phone_number=message.phone, context=context
             )
-        
+
         if ai_response:
             app_logger.info(f"✅ Message processor returned response: '{ai_response[:100]}...'")
         else:
@@ -790,20 +751,18 @@ async def process_message_background(message: WhatsAppMessage):
                 "Sou a sua assistente virtual e estou aqui para ajudá-lo com informações sobre nossa metodologia de ensino.\n\n"
                 "Para começar, você está buscando o Kumon para você mesmo ou para outra pessoa? 🤔"
             )
-        
+
         # Send response back via WhatsApp
         app_logger.info(f"📤 Sending response to {message.phone}: '{ai_response[:100]}...'")
         await evolution_api_client.send_text_message(
-            instance_name=message.instance,
-            phone=message.phone,
-            message=ai_response
+            instance_name=message.instance, phone=message.phone, message=ai_response
         )
-        
+
         app_logger.info(f"✅ Response sent successfully to {message.phone}")
-        
+
     except Exception as e:
         app_logger.error(f"❌ Error processing message in background: {str(e)}")
-        
+
         # Send error message to user
         try:
             error_response = (
@@ -812,9 +771,7 @@ async def process_message_background(message: WhatsAppMessage):
                 "Você está buscando o Kumon para você mesmo ou para outra pessoa?"
             )
             await evolution_api_client.send_text_message(
-                instance_name=message.instance,
-                phone=message.phone,
-                message=error_response
+                instance_name=message.instance, phone=message.phone, message=error_response
             )
         except Exception as send_error:
             app_logger.error(f"❌ Failed to send error message: {str(send_error)}")
@@ -826,19 +783,19 @@ async def evolution_health_check():
     try:
         # Try to list instances to check if Evolution API is accessible
         instances = await evolution_api_client.list_instances()
-        
+
         return {
             "status": "healthy",
             "evolution_api_url": settings.EVOLUTION_API_URL,
             "instances_count": len(instances),
-            "langchain_rag_initialized": langchain_rag_service._initialized
+            "langchain_rag_initialized": langchain_rag_service._initialized,
         }
-        
+
     except Exception as e:
         return {
             "status": "unhealthy",
             "error": str(e),
-            "evolution_api_url": settings.EVOLUTION_API_URL
+            "evolution_api_url": settings.EVOLUTION_API_URL,
         }
 
 
@@ -846,31 +803,24 @@ async def evolution_health_check():
 async def test_message(
     instance_name: str = "kumon_test",
     phone: str = "5511999999999",
-    message: str = "Como funciona o método Kumon?"
+    message: str = "Como funciona o método Kumon?",
 ):
     """Test endpoint to simulate a message and get AI response"""
     try:
         # Build test context
-        context = {
-            "phone": phone,
-            "sender_name": "Test User",
-            "instance": instance_name
-        }
-        
+        context = {"phone": phone, "sender_name": "Test User", "instance": instance_name}
+
         # Get AI response using LangChain RAG service
-        rag_response = await langchain_rag_service.query(
-            question=message,
-            include_sources=False
-        )
+        rag_response = await langchain_rag_service.query(question=message, include_sources=False)
         ai_response = rag_response.answer
-        
+
         return {
             "success": True,
             "input_message": message,
             "ai_response": ai_response,
-            "context": context
+            "context": context,
         }
-        
+
     except Exception as e:
         app_logger.error(f"Error in test message: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Test failed: {str(e)}")
@@ -885,7 +835,7 @@ async def setup_guide():
             {
                 "step": 1,
                 "title": "Start Evolution API",
-                "description": "Run `docker-compose up -d` to start Evolution API and dependencies"
+                "description": "Run `docker-compose up -d` to start Evolution API and dependencies",
             },
             {
                 "step": 2,
@@ -893,36 +843,36 @@ async def setup_guide():
                 "description": "POST to /api/v1/evolution/instances with instance_name",
                 "example": {
                     "instance_name": "kumon_main",
-                    "webhook_url": "http://kumon-assistant:8000/api/v1/evolution/webhook"
-                }
+                    "webhook_url": "http://kumon-assistant:8000/api/v1/evolution/webhook",
+                },
             },
             {
                 "step": 3,
                 "title": "Get QR Code",
-                "description": "GET /api/v1/evolution/instances/{instance_name}/qr to get QR code"
+                "description": "GET /api/v1/evolution/instances/{instance_name}/qr to get QR code",
             },
             {
                 "step": 4,
                 "title": "Scan QR Code",
-                "description": "Open WhatsApp on your phone, go to Settings > Linked Devices > Link a Device, and scan the QR code"
+                "description": "Open WhatsApp on your phone, go to Settings > Linked Devices > Link a Device, and scan the QR code",
             },
             {
                 "step": 5,
                 "title": "Test Connection",
-                "description": "Send a message to the connected WhatsApp number and check if the Kumon Assistant responds"
-            }
+                "description": "Send a message to the connected WhatsApp number and check if the Kumon Assistant responds",
+            },
         ],
         "endpoints": {
             "create_instance": "POST /api/v1/evolution/instances",
             "list_instances": "GET /api/v1/evolution/instances",
             "get_qr_code": "GET /api/v1/evolution/instances/{instance_name}/qr",
             "webhook": "POST /api/v1/evolution/webhook",
-            "test_message": "POST /api/v1/evolution/test/message"
+            "test_message": "POST /api/v1/evolution/test/message",
         },
         "notes": [
             "Make sure Evolution API is running before creating instances",
             "Each instance can handle one WhatsApp number",
             "Webhooks are automatically configured when creating instances",
-            "The Kumon Assistant will respond to all messages sent to connected numbers"
-        ]
-    } 
+            "The Kumon Assistant will respond to all messages sent to connected numbers",
+        ],
+    }
