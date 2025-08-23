@@ -11,45 +11,6 @@
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 3
   },
-  "services": {
-    "postgres": {
-      "type": "postgresql",
-      "config": {
-        "version": "15",
-        "extensions": ["uuid-ossp", "pg_trgm"],
-        "maxConnections": 100,
-        "sharedBuffers": "256MB",
-        "effectiveCacheSize": "1GB",
-        "maintenanceWorkMem": "64MB",
-        "checkpointCompletionTarget": 0.9,
-        "walBuffers": "16MB",
-        "defaultStatisticsTarget": 100,
-        "randomPageCost": 1.1,
-        "effectiveIOConcurrency": 200
-      },
-      "resources": {
-        "memory": "512MB",
-        "cpu": "0.5"
-      }
-    },
-    "redis": {
-      "type": "redis",
-      "config": {
-        "version": "7",
-        "maxMemoryPolicy": "allkeys-lru",
-        "persistence": "aof",
-        "aofFsync": "everysec",
-        "savePoints": ["900 1", "300 10", "60 10000"],
-        "maxClients": 1000,
-        "timeout": 300,
-        "databases": 16
-      },
-      "resources": {
-        "memory": "256MB",
-        "cpu": "0.25"
-      }
-    }
-  },
   "environments": {
     "production": {
       "variables": {
@@ -58,8 +19,8 @@
         "REQUIRE_HTTPS": "true",
         "VALIDATE_API_KEYS": "true",
         "ENABLE_HEALTH_CHECKS": "true",
-        "DB_POOL_SIZE": "20",
-        "DB_MAX_OVERFLOW": "10",
+        "DB_POOL_SIZE": "2",
+        "DB_MAX_OVERFLOW": "4",
         "DB_POOL_TIMEOUT": "30",
         "DB_POOL_RECYCLE": "1800",
         "DB_ECHO": "false",
@@ -74,17 +35,8 @@
         "LLM_REQUEST_TIMEOUT_SECONDS": "30",
         "RESPONSE_TIME_TARGET": "5.0",
         "RESPONSE_TIME_WARNING": "4.0",
-        "EVOLUTION_API_URL": "${{EVOLUTION_API_URL}}",
-        "EVOLUTION_API_KEY": "${{EVOLUTION_API_KEY}}",
-        "OPENAI_API_KEY": "${{OPENAI_API_KEY}}",
-        "DATABASE_URL": "${{DATABASE_URL}}",
-        "MEMORY_REDIS_URL": "${{REDIS_URL}}",
-        "GOOGLE_SERVICE_ACCOUNT_JSON": "${{GOOGLE_SERVICE_ACCOUNT_JSON}}",
-        "GOOGLE_CALENDAR_ID": "${{GOOGLE_CALENDAR_ID}}",
-        "GOOGLE_PROJECT_ID": "${{GOOGLE_PROJECT_ID}}",
-        "GOOGLE_CREDENTIALS_PATH": "/app/google-service-account.json",
-        "JWT_SECRET_KEY": "${{JWT_SECRET_KEY}}",
-        "LANGSMITH_API_KEY": "${{LANGSMITH_API_KEY}}"
+        "RAILWAY_ENVIRONMENT": "1",
+        "FORCE_RAILWAY_DETECTION": "1"
       },
       "healthChecks": {
         "basic": {
