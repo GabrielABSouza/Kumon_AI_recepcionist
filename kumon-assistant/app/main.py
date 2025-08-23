@@ -380,7 +380,7 @@ async def startup_event():
     )
 
     # DEBUG: Log environment variable status
-    import os
+    # os already imported globally
 
     app_logger.info("🔍 DEBUG: Environment variable status:")
     app_logger.info(f"OPENAI_API_KEY present: {bool(os.getenv('OPENAI_API_KEY'))}")
@@ -729,8 +729,7 @@ async def shutdown_event():
 
 # Entry point for running the server
 if __name__ == "__main__":
-    import os
-
+    # os already imported globally
     import uvicorn
 
     # Get host and port from environment or use defaults
