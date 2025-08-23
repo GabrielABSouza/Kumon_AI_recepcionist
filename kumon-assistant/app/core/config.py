@@ -255,6 +255,9 @@ class Settings(BaseSettings):
     @validator('OPENAI_API_KEY')
     def validate_openai_api_key(cls, v, values):
         """Validate OpenAI API key in production"""
+        # Skip validation if running on Railway during startup (will be validated later)
+        if os.getenv('RAILWAY_ENVIRONMENT_ID') and v == '':
+            return v
         if values.get('ENVIRONMENT') == Environment.PRODUCTION and values.get('VALIDATE_API_KEYS', True):
             if not v or not v.startswith('sk-'):
                 raise ValueError("OpenAI API key is required in production and must start with 'sk-'")
@@ -285,6 +288,9 @@ class Settings(BaseSettings):
     @validator('EVOLUTION_API_KEY')
     def validate_evolution_api_key(cls, v, values):
         """Validate Evolution API key in production"""
+        # Skip validation if running on Railway during startup (will be validated later)
+        if os.getenv('RAILWAY_ENVIRONMENT_ID') and v == '':
+            return v
         if values.get('ENVIRONMENT') == Environment.PRODUCTION and values.get('VALIDATE_API_KEYS', True):
             if not v:
                 raise ValueError("Evolution API key is required in production")
@@ -293,6 +299,9 @@ class Settings(BaseSettings):
     @validator('DATABASE_URL')
     def validate_database_url(cls, v, values):
         """Validate database URL format"""
+        # Skip validation if running on Railway during startup (will be validated later)
+        if os.getenv('RAILWAY_ENVIRONMENT_ID') and v == '':
+            return v
         if values.get('ENVIRONMENT') == Environment.PRODUCTION:
             if not v or not v.startswith(('postgresql://', 'postgres://')):
                 raise ValueError("Valid PostgreSQL database URL is required in production")
@@ -383,8 +392,30 @@ class Settings(BaseSettings):
         extra = "ignore"  # Allow extra environment variables to be ignored
 
 
-# Create settings instance
-settings = Settings()
+# Create settings instance with lazy initialization for Railway
+import os
+
+def get_settings():
+    """Lazy initialization of settings to allow Railway environment fixes to apply first"""
+    global _settings_instance
+    if '_settings_instance' not in globals():
+        _settings_instance = Settings()
+    return _settings_instance
+
+# For backward compatibility, create a property-based settings object
+class LazySettings:
+    def __getattr__(self, name):
+        return getattr(get_settings(), name)
+    
+    def __setattr__(self, name, value):
+        return setattr(get_settings(), name, value)
+
+# Use lazy loading in production to allow Railway fixes to apply
+if os.getenv("RAILWAY_ENVIRONMENT_ID"):
+    settings = LazySettings()
+else:
+    # Development mode - immediate initialization
+    settings = Settings()
 
 # Apply Railway optimizations if running on Railway
 try:

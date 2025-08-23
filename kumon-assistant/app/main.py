@@ -340,6 +340,21 @@ async def startup_event():
     """Application startup validation and initialization"""
     app_logger.info("🚀 Kumon AI Receptionist API v2.0 starting up...")
 
+    # Validate critical environment variables after Railway fixes
+    critical_vars = {
+        "DATABASE_URL": os.getenv("DATABASE_URL"),
+        "OPENAI_API_KEY": os.getenv("OPENAI_API_KEY"),
+        "EVOLUTION_API_KEY": os.getenv("EVOLUTION_API_KEY")
+    }
+    
+    missing_vars = [k for k, v in critical_vars.items() if not v]
+    if missing_vars:
+        app_logger.error(f"❌ Missing critical environment variables: {missing_vars}")
+        app_logger.info("📋 Available environment variables:")
+        for key in sorted(os.environ.keys()):
+            if any(pattern in key.upper() for pattern in ["DATABASE", "POSTGRES", "OPENAI", "EVOLUTION", "RAILWAY"]):
+                app_logger.info(f"  {key}: {'[SET]' if os.getenv(key) else '[NOT SET]'}")
+    
     # Initialize core services
     app_logger.info("🔄 Initializing core services...")
     dependencies.llm_service = ProductionLLMService()
