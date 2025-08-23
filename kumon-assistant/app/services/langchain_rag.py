@@ -189,6 +189,13 @@ Resposta:"""
 
         start_time = time.time()
 
+        # Check cache first
+        cache_key = f"rag_query:{question}:{str(search_kwargs)}"
+        cached_response = await enhanced_cache_service.get(cache_key, CacheLayer.L1)
+        if cached_response:
+            app_logger.info(f"RAG cache hit for query: {question[:50]}...")
+            return cached_response
+
         try:
             # Set default search parameters
             search_params = {"limit": 3, "score_threshold": 0.7}
@@ -250,13 +257,20 @@ Resposta:"""
                 },
             )
 
-            return RAGResponse(
+            response = RAGResponse(
                 answer=answer,
                 sources=search_results if include_sources else [],
                 context_used=context,
                 confidence_score=confidence_score,
                 processing_time=processing_time,
             )
+
+            # Cache the response with 5 minute TTL
+            await enhanced_cache_service.set(
+                cache_key, response, CacheLayer.L1, ttl=300  # 5 minutes
+            )
+
+            return response
 
         except Exception as e:
             app_logger.error(f"Error in RAG query: {str(e)}")

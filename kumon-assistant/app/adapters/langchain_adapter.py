@@ -16,11 +16,11 @@ from ..core.logger import app_logger
 
 class LangChainProductionLLMAdapter(BaseLLM):
     """
-    Adapter that wraps ProductionLLMService to be compatible with 
+    Adapter that wraps ProductionLLMService to be compatible with
     LangChain's Runnable interface.
 
-    This allows our existing ProductionLLMService to work seamlessly 
-    with LangChain chains while maintaining all existing functionality 
+    This allows our existing ProductionLLMService to work seamlessly
+    with LangChain chains while maintaining all existing functionality
     including failover and cost monitoring.
     """
 
@@ -47,21 +47,12 @@ class LangChainProductionLLMAdapter(BaseLLM):
 
             for msg in messages:
                 if isinstance(msg, SystemMessage):
-                    formatted_messages.append({
-                        "role": "system", 
-                        "content": msg.content
-                    })
+                    formatted_messages.append({"role": "system", "content": msg.content})
                 elif isinstance(msg, HumanMessage):
-                    formatted_messages.append({
-                        "role": "user", 
-                        "content": msg.content
-                    })
+                    formatted_messages.append({"role": "user", "content": msg.content})
                 else:
                     # Handle other message types as user messages
-                    formatted_messages.append({
-                        "role": "user", 
-                        "content": str(msg.content)
-                    })
+                    formatted_messages.append({"role": "user", "content": str(msg.content)})
 
             # Call our ProductionLLMService
             response = await self.production_llm_service.generate_response(
@@ -89,13 +80,9 @@ class LangChainProductionLLMAdapter(BaseLLM):
             loop = asyncio.get_event_loop()
             if loop.is_running():
                 # If we're already in an async context, can't use run_until_complete
-                raise RuntimeError(
-                    "Cannot run sync _call in async context. Use async methods."
-                )
+                raise RuntimeError("Cannot run sync _call in async context. Use async methods.")
             else:
-                return loop.run_until_complete(
-                    self._acall(messages, stop, run_manager, **kwargs)
-                )
+                return loop.run_until_complete(self._acall(messages, stop, run_manager, **kwargs))
         except Exception as e:
             app_logger.error(f"LangChain adapter sync call error: {e}")
             raise
@@ -133,9 +120,7 @@ class LangChainProductionLLMAdapter(BaseLLM):
         try:
             loop = asyncio.get_event_loop()
             if loop.is_running():
-                raise RuntimeError(
-                    "Cannot run sync _generate in async context. Use async methods."
-                )
+                raise RuntimeError("Cannot run sync _generate in async context. Use async methods.")
             else:
                 return loop.run_until_complete(
                     self._agenerate(messages, stop, run_manager, **kwargs)
@@ -277,6 +262,4 @@ def create_langchain_adapter(production_llm_service, adapter_type: str = "runnab
     elif adapter_type == "runnable":
         return LangChainRunnableAdapter(production_llm_service)
     else:
-        raise ValueError(
-            f"Unknown adapter type: {adapter_type}. Use 'runnable' or 'llm'"
-        )
+        raise ValueError(f"Unknown adapter type: {adapter_type}. Use 'runnable' or 'llm'")

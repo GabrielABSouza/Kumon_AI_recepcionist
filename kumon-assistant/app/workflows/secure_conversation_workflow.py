@@ -22,17 +22,16 @@ from langgraph.graph import END, StateGraph
 
 from ..core.config import settings
 from ..core.logger import app_logger
-from ..core.service_factory import get_intent_classifier
+
+# Legacy smart router removed - using CeciliaWorkflow instead
+# from ..workflows.smart_router import SmartConversationRouter
+from ..core.service_factory import get_intent_classifier, get_langchain_rag_service
 from ..core.state.models import CeciliaState as ConversationState
 from ..core.state.models import ConversationStage as WorkflowStage
 from ..core.state.models import ConversationStep
 from ..prompts.manager import PromptManager
 from ..security.security_manager import security_manager
 from ..services.business_compliance_monitor import business_compliance_monitor
-
-# Legacy smart router removed - using CeciliaWorkflow instead
-# from ..workflows.smart_router import SmartConversationRouter
-from ..core.service_factory import get_langchain_rag_service
 from ..services.rag_business_validator import rag_business_validator
 from ..workflows.context_manager import ConversationContextManager
 from ..workflows.nodes.business_rules_nodes import (
@@ -112,7 +111,7 @@ class SecureConversationWorkflow:
         # Workflow configuration
         self.config = {
             "max_retries": 3,
-            "security_timeout": 30.0,
+            "security_timeout": 45.0,  # Increased from 30s to handle Qdrant + RAG operations
             "validation_timeout": 15.0,
             "max_conversation_length": 50,
             "auto_escalation_threshold": 0.8,
@@ -298,7 +297,10 @@ class SecureConversationWorkflow:
         try:
             # Use sanitized message for processing
             sanitized_message = security_result.get(
-                "sanitized_message", conversation_state.get("user_message", conversation_state.get("last_user_message", ""))
+                "sanitized_message",
+                conversation_state.get(
+                    "user_message", conversation_state.get("last_user_message", "")
+                ),
             )
             # Update both possible keys for compatibility
             if "user_message" in conversation_state:
@@ -429,10 +431,12 @@ class SecureConversationWorkflow:
             # Lazy load intent classifier via service factory
             if self.intent_classifier is None:
                 self.intent_classifier = await get_intent_classifier()
-            
+
             # Get user message from correct state key
-            user_message = conversation_state.get("user_message") or conversation_state.get("last_user_message", "")
-            
+            user_message = conversation_state.get("user_message") or conversation_state.get(
+                "last_user_message", ""
+            )
+
             intent_result = await self.intent_classifier.classify_intent(
                 user_message, conversation_state
             )
@@ -458,8 +462,10 @@ class SecureConversationWorkflow:
         """Resolve contextual references in the message"""
         try:
             # Get user message from correct state key
-            user_message = conversation_state.get("user_message") or conversation_state.get("last_user_message", "")
-            
+            user_message = conversation_state.get("user_message") or conversation_state.get(
+                "last_user_message", ""
+            )
+
             resolved_message, references = self.context_manager.resolve_references(
                 user_message, conversation_state
             )
@@ -506,11 +512,35 @@ class SecureConversationWorkflow:
             # Prepare prompt variables
             prompt_variables = {
                 "user_name": conversation_state.get("user_name", ""),
-                "user_message": conversation_state.get("user_message", conversation_state.get("last_user_message", "")),
+                "user_message": conversation_state.get(
+                    "user_message", conversation_state.get("last_user_message", "")
+                ),
                 "detected_intent": conversation_state.get("detected_intent", ""),
                 "rag_context": conversation_state.get("rag_context", ""),
-                "conversation_stage": conversation_state.get("stage", conversation_state.get("current_stage", "")).value if hasattr(conversation_state.get("stage", conversation_state.get("current_stage", "")), 'value') else str(conversation_state.get("stage", conversation_state.get("current_stage", ""))),
-                "current_step": conversation_state.get("step", conversation_state.get("current_step", "")).value if hasattr(conversation_state.get("step", conversation_state.get("current_step", "")), 'value') else str(conversation_state.get("step", conversation_state.get("current_step", ""))),
+                "conversation_stage": (
+                    conversation_state.get(
+                        "stage", conversation_state.get("current_stage", "")
+                    ).value
+                    if hasattr(
+                        conversation_state.get(
+                            "stage", conversation_state.get("current_stage", "")
+                        ),
+                        "value",
+                    )
+                    else str(
+                        conversation_state.get("stage", conversation_state.get("current_stage", ""))
+                    )
+                ),
+                "current_step": (
+                    conversation_state.get("step", conversation_state.get("current_step", "")).value
+                    if hasattr(
+                        conversation_state.get("step", conversation_state.get("current_step", "")),
+                        "value",
+                    )
+                    else str(
+                        conversation_state.get("step", conversation_state.get("current_step", ""))
+                    )
+                ),
                 "business_name": "Kumon Vila A",
                 "current_time": datetime.now().strftime("%H:%M"),
                 "current_day": datetime.now().strftime("%A"),

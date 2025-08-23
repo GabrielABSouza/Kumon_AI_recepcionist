@@ -142,9 +142,7 @@ class ServiceFactory:
                 # Services that expect llm_service_instance as positional argument
                 if name == "langchain_rag_service":
                     # Special case: Create LangChain adapter for RAG service
-                    from ..adapters.langchain_adapter import (
-                        create_langchain_adapter,
-                    )
+                    from ..adapters.langchain_adapter import create_langchain_adapter
 
                     llm_service = dependencies.get("llm_service")
                     langchain_adapter = create_langchain_adapter(
@@ -168,18 +166,14 @@ class ServiceFactory:
             self._initialization_status[name] = True
 
             elapsed = time.time() - start_time
-            self._logger.info(
-                f"✅ Service created successfully: {name} ({elapsed:.2f}s)"
-            )
+            self._logger.info(f"✅ Service created successfully: {name} ({elapsed:.2f}s)")
 
             return instance
 
         except Exception as e:
             self._initialization_status[name] = False
             elapsed = time.time() - start_time
-            self._logger.error(
-                f"❌ Failed to create service '{name}' ({elapsed:.2f}s): {e}"
-            )
+            self._logger.error(f"❌ Failed to create service '{name}' ({elapsed:.2f}s): {e}")
             raise RuntimeError(f"Service initialization failed: {name}") from e
 
     def get_service_sync(self, name: str) -> Optional[Any]:
@@ -211,9 +205,7 @@ class ServiceFactory:
                 try:
                     await self.get_service(service_name)
                 except Exception as e:
-                    self._logger.error(
-                        f"❌ Failed to initialize {service_name}: {e}"
-                    )
+                    self._logger.error(f"❌ Failed to initialize {service_name}: {e}")
                     # Continue with other services
 
         self._logger.info("✅ Core services initialization completed")
