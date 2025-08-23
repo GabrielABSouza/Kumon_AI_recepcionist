@@ -9,7 +9,7 @@ import json
 
 from ..clients.evolution_api import evolution_api_client, WhatsAppMessage, InstanceInfo
 # Enhanced RAG engine removed - using langchain_rag_service directly
-from ..services.langchain_rag import langchain_rag_service
+from app.core.dependencies import langchain_rag_service
 from ..services.message_processor import MessageProcessor
 from ..core.logger import app_logger
 from ..core.config import settings
