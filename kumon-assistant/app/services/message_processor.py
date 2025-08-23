@@ -8,7 +8,7 @@ from ..models.message import WhatsAppMessage, MessageResponse, MessageType
 from ..services.intent_classifier import IntentClassifier
 from ..services.availability_service import AvailabilityService
 from ..services.booking_service import BookingService
-from ..services.langchain_rag import langchain_rag_service
+from ..core.dependencies import langchain_rag_service
 # Legacy conversation flow removed - now using CeciliaWorkflow only
 from ..services.secure_message_processor import secure_message_processor
 from ..core.logger import app_logger
