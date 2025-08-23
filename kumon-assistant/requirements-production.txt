@@ -20,7 +20,7 @@ httpx==0.27.2
 aiofiles==24.1.0
 aiohttp==3.12.15
 
-# DATABASE STACK  
+# DATABASE STACK
 asyncpg==0.29.0
 sqlalchemy[asyncio]==2.0.35
 redis[hiredis]==6.4.0
@@ -30,6 +30,7 @@ qdrant-client==1.12.0
 
 # AI/ML CORE
 openai==1.54.0
+anthropic==0.40.0
 
 # LANGCHAIN ECOSYSTEM - UNIFIED 0.3.x
 langchain==0.3.7

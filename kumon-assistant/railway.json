@@ -6,10 +6,15 @@
   },
   "deploy": {
     "numReplicas": 1,
-    "healthcheckPath": "/api/v1/health",
-    "healthcheckTimeout": 300,
     "restartPolicyType": "ON_FAILURE",
-    "restartPolicyMaxRetries": 3
+    "restartPolicyMaxRetries": 3,
+    "healthcheck": {
+      "path": "/api/v1/health",
+      "initialDelay": 15,
+      "interval": 30,
+      "timeout": 120,
+      "retries": 3
+    }
   },
   "environments": {
     "production": {
@@ -22,7 +27,7 @@
         "DB_POOL_SIZE": "2",
         "DB_MAX_OVERFLOW": "4",
         "DB_POOL_TIMEOUT": "30",
-        "DB_POOL_RECYCLE": "1800",
+        "DB_POOL_RECYCLE": "1800",  # pragma: allowlist secret  # pragma: allowlist secret
         "DB_ECHO": "false",
         "DB_POOL_PRE_PING": "true",
         "MEMORY_REDIS_MAX_CONNECTIONS": "20",
@@ -37,38 +42,6 @@
         "RESPONSE_TIME_WARNING": "4.0",
         "RAILWAY_ENVIRONMENT": "1",
         "FORCE_RAILWAY_DETECTION": "1"
-      },
-      "healthChecks": {
-        "basic": {
-          "path": "/api/v1/health",
-          "timeout": 30,
-          "interval": 60,
-          "retries": 3
-        },
-        "detailed": {
-          "path": "/api/v1/health/detailed",
-          "timeout": 60,
-          "interval": 300,
-          "retries": 2
-        },
-        "readiness": {
-          "path": "/api/v1/health/ready",
-          "timeout": 10,
-          "interval": 30,
-          "retries": 5
-        },
-        "liveness": {
-          "path": "/api/v1/health/live",
-          "timeout": 5,
-          "interval": 15,
-          "retries": 3
-        },
-        "railway": {
-          "path": "/api/v1/health/railway",
-          "timeout": 45,
-          "interval": 120,
-          "retries": 2
-        }
       },
       "scaling": {
         "minReplicas": 1,

@@ -1,9 +1,11 @@
 """
 FastAPI application entry point
 """
+
+import logging
+
 # CRITICAL: Apply Railway environment fixes FIRST
 import os
-import logging
 
 # Force Railway environment detection and fixes before any other imports
 logging.basicConfig(level=logging.INFO)
@@ -12,17 +14,14 @@ logger = logging.getLogger(__name__)
 # Apply Railway fixes immediately
 try:
     from app.core.railway_environment_fix import apply_railway_environment_fixes
+
     apply_railway_environment_fixes()
     logger.info("✅ Railway environment fixes applied successfully")
 except Exception as e:
     logger.error(f"❌ Failed to apply Railway fixes: {e}")
 
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 import asyncio
 
-from app.api.v1 import whatsapp, health, units, conversation
 # Temporarily disable alerts until monitoring dependencies are resolved
 # from app.api.v1 import alerts
 # Temporarily disable performance until auth/jwt dependencies are resolved
@@ -32,8 +31,13 @@ from app.api.v1 import whatsapp, health, units, conversation
 # Temporarily disable workflows until cryptography is installed
 # from app.api.v1 import workflows, llm_service, config
 from app.api import embeddings, evolution
+from app.api.v1 import conversation, health, units, whatsapp
 from app.core.config import settings
 from app.core.logger import app_logger
+from app.services.cache_manager import cache_manager
+from app.workflows.development_workflow import development_workflow_manager
+from app.workflows.maintainability_engine import maintainability_engine
+
 # Temporarily disable monitoring imports until dependencies are installed
 # from app.monitoring.performance_middleware import PerformanceMiddleware
 # from app.monitoring.performance_monitor import performance_monitor
@@ -52,9 +56,10 @@ from app.core.logger import app_logger
 # Temporarily disable security features until cryptography is installed
 # from app.security.audit_logger import audit_logger, AuditEventType, AuditSeverity, AuditOutcome
 from app.workflows.workflow_orchestrator import workflow_orchestrator
-from app.workflows.development_workflow import development_workflow_manager
-from app.workflows.maintainability_engine import maintainability_engine
-from app.services.cache_manager import cache_manager
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
 # Temporarily disable performance integration service until dependencies are resolved
 # from app.services.performance_integration_service import performance_integration
 
@@ -64,8 +69,9 @@ app = FastAPI(
     description="AI-powered WhatsApp receptionist for Kumon with multi-unit support, semantic search, and Evolution API integration",
     version="2.0.0",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
 )
+
 
 # Enhanced CORS configuration with security validation
 def get_cors_origins():
@@ -73,23 +79,24 @@ def get_cors_origins():
     base_origins = [
         "https://*.railway.app",
         "https://localhost:3000",
-        "https://localhost:8080", 
+        "https://localhost:8080",
         "https://127.0.0.1:3000",
-        "https://evolution-api.com"
+        "https://evolution-api.com",
     ]
-    
+
     # Add FRONTEND_URL only if properly configured
-    if hasattr(settings, 'FRONTEND_URL') and settings.FRONTEND_URL:
-        if settings.FRONTEND_URL.startswith('https://'):
+    if hasattr(settings, "FRONTEND_URL") and settings.FRONTEND_URL:
+        if settings.FRONTEND_URL.startswith("https://"):
             base_origins.append(settings.FRONTEND_URL)
             app_logger.info(f"Added FRONTEND_URL to CORS: {settings.FRONTEND_URL}")
         else:
             app_logger.warning(f"Invalid FRONTEND_URL ignored (not HTTPS): {settings.FRONTEND_URL}")
-    
+
     # Remove None values and log final configuration
     origins = [origin for origin in base_origins if origin is not None]
     app_logger.info(f"CORS origins configured: {len(origins)} domains")
     return origins
+
 
 # Add CORS middleware with enhanced security
 app.add_middleware(
@@ -117,7 +124,7 @@ app.add_middleware(
 #     AuthenticationMiddleware,
 #     protected_paths=[
 #         "/api/v1/performance",           # All performance monitoring endpoints
-#         "/api/v1/alerts",               # All alert management endpoints  
+#         "/api/v1/alerts",               # All alert management endpoints
 #         "/api/v1/security",             # All security monitoring endpoints
 #         "/api/v1/workflows",            # All workflow orchestration endpoints
 #         "/api/v1/auth/users",           # User management endpoints
@@ -139,22 +146,23 @@ app.add_middleware(
 #     enable_optimization=True
 # )
 
+
 # Global exception handler
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request, exc):
     app_logger.error(f"HTTP error: {exc.detail}", extra={"status_code": exc.status_code})
     return JSONResponse(
-        status_code=exc.status_code,
-        content={"error": exc.detail, "status_code": exc.status_code}
+        status_code=exc.status_code, content={"error": exc.detail, "status_code": exc.status_code}
     )
+
 
 @app.exception_handler(Exception)
 async def general_exception_handler(request, exc):
     app_logger.error(f"Unexpected error: {str(exc)}")
     return JSONResponse(
-        status_code=500,
-        content={"error": "Internal server error", "status_code": 500}
+        status_code=500, content={"error": "Internal server error", "status_code": 500}
     )
+
 
 # Include routers
 # Legacy single-unit webhook (for backward compatibility)
@@ -168,6 +176,7 @@ app.include_router(health.router, prefix="/api/v1", tags=["health"])
 
 # Comprehensive health monitoring endpoints (Wave 5)
 from app.api.v1 import health_comprehensive
+
 app.include_router(health_comprehensive.router, prefix="/api/v1", tags=["health-monitoring"])
 
 # Conversation flow management endpoints
@@ -200,15 +209,20 @@ app.include_router(evolution.router, tags=["evolution"])
 
 # Security management endpoints (Phase 3)
 from app.api.v1 import security
+
 app.include_router(security.router, prefix="/api/v1/security", tags=["security"])
 
 # Calendar monitoring endpoints (Architecture Hardening)
 from app.api.v1 import calendar_monitoring
-app.include_router(calendar_monitoring.router, prefix="/api/v1/calendar", tags=["calendar-monitoring"])
+
+app.include_router(
+    calendar_monitoring.router, prefix="/api/v1/calendar", tags=["calendar-monitoring"]
+)
 
 # Workflow management endpoints (Wave 4)
 # Temporarily disable workflows router until dependencies are resolved
 # app.include_router(workflows.router, prefix="/api/v1/workflows", tags=["workflows"])
+
 
 # Root path operation
 @app.get("/")
@@ -221,7 +235,7 @@ async def root():
         "status": "running",
         "features": [
             "Multi-unit support",
-            "Unit-specific webhooks", 
+            "Unit-specific webhooks",
             "Evolution API WhatsApp integration (cost-free)",
             "WhatsApp Business API integration (legacy)",
             "AI-powered responses with semantic search",
@@ -248,7 +262,7 @@ async def root():
             "Automated refactoring planning",
             "Code quality assessment & improvement",
             "Legacy code modernization",
-            "Continuous improvement automation"
+            "Continuous improvement automation",
         ],
         "docs": "/docs",
         "endpoints": {
@@ -272,7 +286,7 @@ async def root():
             "load_test_run": "/api/v1/performance/load-test/run",
             "stress_test_run": "/api/v1/performance/load-test/stress",
             "auth_login": "/api/v1/auth/login",
-            "auth_register": "/api/v1/auth/register", 
+            "auth_register": "/api/v1/auth/register",
             "auth_me": "/api/v1/auth/me",
             "auth_users": "/api/v1/auth/users",
             "auth_roles": "/api/v1/auth/roles",
@@ -290,7 +304,7 @@ async def root():
             "maintainability_summary": "/api/v1/workflows/maintainability/summary",
             "debt_dashboard": "/api/v1/workflows/maintainability/debt-dashboard",
             "workflow_analytics": "/api/v1/workflows/analytics/workflow-performance",
-            "workflow_health": "/api/v1/workflows/health"
+            "workflow_health": "/api/v1/workflows/health",
         },
         "whatsapp_integration": {
             "evolution_api": {
@@ -301,25 +315,43 @@ async def root():
                     "Real-time message processing",
                     "Media message support",
                     "Button message support",
-                    "Instance management"
+                    "Instance management",
                 ],
-                "setup_url": "/api/v1/evolution/setup/guide"
+                "setup_url": "/api/v1/evolution/setup/guide",
             },
             "business_api": {
                 "description": "Official WhatsApp Business API (legacy support)",
-                "status": "deprecated"
-            }
-        }
+                "status": "deprecated",
+            },
+        },
     }
+
+
+from app.core import dependencies
+from app.services.production_llm_service import ProductionLLMService
+from app.workflows.intent_classifier import AdvancedIntentClassifier
+from app.workflows.secure_conversation_workflow import SecureConversationWorkflow
+
 
 # Startup event with comprehensive validation
 @app.on_event("startup")
 async def startup_event():
     """Application startup validation and initialization"""
     app_logger.info("🚀 Kumon AI Receptionist API v2.0 starting up...")
-    
+
+    # Initialize core services
+    app_logger.info("🔄 Initializing core services...")
+    dependencies.llm_service = ProductionLLMService()
+    await dependencies.llm_service.initialize()
+    dependencies.intent_classifier = AdvancedIntentClassifier()
+    dependencies.secure_workflow = SecureConversationWorkflow()
+    app_logger.info(
+        "✅ Core services (LLM, Intent Classifier, Secure Workflow) initialized successfully"
+    )
+
     # DEBUG: Log environment variable status
     import os
+
     app_logger.info("🔍 DEBUG: Environment variable status:")
     app_logger.info(f"OPENAI_API_KEY present: {bool(os.getenv('OPENAI_API_KEY'))}")
     app_logger.info(f"EVOLUTION_API_KEY present: {bool(os.getenv('EVOLUTION_API_KEY'))}")
@@ -327,11 +359,11 @@ async def startup_event():
     app_logger.info(f"OPENAI_API_KEY length: {len(os.getenv('OPENAI_API_KEY', ''))}")
     app_logger.info(f"EVOLUTION_API_KEY length: {len(os.getenv('EVOLUTION_API_KEY', ''))}")
     app_logger.info(f"JWT_SECRET_KEY length: {len(os.getenv('JWT_SECRET_KEY', ''))}")
-    
+
     # Run startup validation first
     try:
         from app.core.startup_validation import validate_startup_requirements
-        
+
         app_logger.info("🔍 Running comprehensive startup validation...")
         validation_success = await validate_startup_requirements()
         if not validation_success:
@@ -341,28 +373,30 @@ async def startup_event():
                 app_logger.warning("🚨 Some external services may be unavailable")
             else:
                 app_logger.error("❌ Startup validation failed!")
-                app_logger.warning("🚨 TEMPORARY: Allowing startup with missing secrets for debugging")
+                app_logger.warning(
+                    "🚨 TEMPORARY: Allowing startup with missing secrets for debugging"
+                )
                 # raise RuntimeError("Application startup validation failed")
-        
+
         app_logger.info("✅ Startup validation passed")
-        
+
     except Exception as e:
         app_logger.error(f"💀 CRITICAL: Startup validation error: {e}")
         raise RuntimeError(f"Startup validation failed: {e}")
-    
+
     # Initialize security systems (Phase 2)
     try:
         app_logger.info("🔐 Initializing enterprise security systems...")
-        
+
         # Initialize secrets manager
         app_logger.info("🔑 Secrets management system initialized")
-        
+
         # Initialize SSL/TLS certificates
         app_logger.info("🛡️ SSL/TLS certificate management initialized")
-        
+
         # Initialize encryption system
         # Temporarily disabled: app_logger.info(f"🔐 Encryption service initialized with {len(encryption_service.encryption_keys)} keys")
-        
+
         # Initialize audit logging system - temporarily disabled
         # audit_logger.log_event(
         #     event_type=AuditEventType.SYSTEM_ACCESS,
@@ -372,18 +406,18 @@ async def startup_event():
         #     details={"component": "kumon_api", "version": "2.0.0"}
         # )
         app_logger.info("📋 Security audit logging temporarily disabled")
-        
+
         # Temporarily disable authentication system until jwt is installed
         # from app.security.auth_manager import auth_manager
         # await auth_manager.cleanup_expired_sessions()
         app_logger.info("⚠️ Authentication & authorization system temporarily disabled")
-        
+
         app_logger.info("✅ Enterprise security systems initialized successfully")
-        
+
     except Exception as e:
         app_logger.error(f"❌ Failed to initialize security systems: {e}")
         app_logger.warning("Continuing with reduced security")
-    
+
     # Temporarily disable performance monitoring system until psutil is installed
     # try:
     #     app_logger.info("🚀 Initializing performance monitoring system...")
@@ -395,7 +429,7 @@ async def startup_event():
     #     app_logger.error(f"❌ Failed to initialize performance monitoring: {e}")
     #     app_logger.warning("Continuing without performance monitoring")
     app_logger.info("⚠️ Performance monitoring temporarily disabled")
-    
+
     # Temporarily disable alert management system until dependencies are installed
     # try:
     #     app_logger.info("🔔 Initializing alert management system...")
@@ -407,7 +441,7 @@ async def startup_event():
     #     app_logger.error(f"❌ Failed to initialize alert management: {e}")
     #     app_logger.warning("Continuing without intelligent alerting")
     app_logger.info("⚠️ Alert management temporarily disabled")
-    
+
     # Temporarily disable performance optimization system until dependencies are installed
     # try:
     #     app_logger.info("⚡ Initializing performance optimization system...")
@@ -419,7 +453,7 @@ async def startup_event():
     #     app_logger.error(f"❌ Failed to initialize performance optimization: {e}")
     #     app_logger.warning("Continuing without performance optimization")
     app_logger.info("⚠️ Performance optimization temporarily disabled")
-    
+
     # Temporarily disable security monitoring system until dependencies are installed
     # try:
     #     app_logger.info("🛡️ Initializing security monitoring system...")
@@ -431,7 +465,7 @@ async def startup_event():
     #     app_logger.error(f"❌ Failed to initialize security monitoring: {e}")
     #     app_logger.warning("Continuing without security monitoring")
     app_logger.info("⚠️ Security monitoring temporarily disabled")
-    
+
     # Temporarily disable capacity validation system until dependencies are installed
     # try:
     #     app_logger.info("🏋️ Initializing automated capacity validation system...")
@@ -443,7 +477,7 @@ async def startup_event():
     #     app_logger.error(f"❌ Failed to initialize capacity validation: {e}")
     #     app_logger.warning("Continuing without automated capacity validation")
     app_logger.info("⚠️ Capacity validation temporarily disabled")
-    
+
     # Initialize workflow orchestration system (Wave 4)
     try:
         app_logger.info("🔄 Initializing workflow orchestration system...")
@@ -452,7 +486,7 @@ async def startup_event():
     except Exception as e:
         app_logger.error(f"❌ Failed to initialize workflow orchestrator: {e}")
         app_logger.warning("Continuing without workflow orchestration")
-    
+
     # Initialize development workflow management (Wave 4)
     try:
         app_logger.info("🛠️ Initializing development workflow management...")
@@ -461,7 +495,7 @@ async def startup_event():
     except Exception as e:
         app_logger.error(f"❌ Failed to initialize development workflow management: {e}")
         app_logger.warning("Continuing without development workflow management")
-    
+
     # Initialize maintainability engine (Wave 4)
     try:
         app_logger.info("⚙️ Initializing maintainability engine...")
@@ -470,72 +504,82 @@ async def startup_event():
     except Exception as e:
         app_logger.error(f"❌ Failed to initialize maintainability engine: {e}")
         app_logger.warning("Continuing without maintainability engine")
-    
+
     if settings.MEMORY_ENABLE_SYSTEM:
         try:
-            from app.services.conversation_memory_service import conversation_memory_service
+            from app.services.conversation_memory_service import (
+                conversation_memory_service,
+            )
+
             # Add timeout for memory service initialization
-            await asyncio.wait_for(conversation_memory_service.initialize(), timeout=30.0 if os.getenv("RAILWAY_ENVIRONMENT") else 60.0)
+            await asyncio.wait_for(
+                conversation_memory_service.initialize(),
+                timeout=30.0 if os.getenv("RAILWAY_ENVIRONMENT") else 60.0,
+            )
             app_logger.info("✅ Conversation memory system initialized successfully")
-            
+
             # Perform health check
             health_status = await conversation_memory_service.health_check()
             app_logger.info(f"Memory system health: {health_status}")
-            
+
         except asyncio.TimeoutError:
             timeout_val = 30 if os.getenv("RAILWAY_ENVIRONMENT") else 60
-            app_logger.error(f"❌ Memory service initialization timed out after {timeout_val} seconds")
+            app_logger.error(
+                f"❌ Memory service initialization timed out after {timeout_val} seconds"
+            )
             app_logger.warning("Continuing with in-memory conversation storage")
         except Exception as e:
             app_logger.error(f"❌ Failed to initialize conversation memory system: {e}")
             app_logger.warning("Continuing with in-memory conversation storage")
-    
+
     # Initialize Wave 2: Enhanced Cache System
     try:
         app_logger.info("💾 Initializing Wave 2: Enhanced Cache System...")
         await cache_manager.initialize()
-        
+
         # Warm common cache patterns
         await cache_manager.warm_common_patterns()
-        
+
         # Perform cache health check
         cache_health = await cache_manager.health_check()
         app_logger.info(f"Cache system health: {cache_health['status']}")
-        
+
         app_logger.info("✅ Wave 2: Enhanced Cache System initialized successfully")
-        
+
     except Exception as e:
         app_logger.error(f"❌ Failed to initialize cache system: {e}")
         app_logger.warning("Continuing without enhanced caching")
-    
+
     # Initialize Wave 5: Health Monitoring System
     try:
         app_logger.info("🏥 Initializing Wave 5: Health Monitoring System...")
         from app.core.health_monitor import health_monitor
-        
+
         # Register core components for monitoring
         health_monitor.register_component("database", timeout=10.0)
         health_monitor.register_component("cache", timeout=5.0)
         health_monitor.register_component("circuit_breakers", timeout=2.0)
         health_monitor.register_component("memory", timeout=1.0)
-        
+
         # Perform initial health check
         initial_health = await health_monitor.perform_health_check()
-        app_logger.info(f"Initial system health: {initial_health['overall_status']} ({initial_health['check_duration']}s)")
-        
+        app_logger.info(
+            f"Initial system health: {initial_health['overall_status']} ({initial_health['check_duration']}s)"
+        )
+
         # Start continuous monitoring in background (only in production)
         if settings.ENVIRONMENT == "production":
             asyncio.create_task(health_monitor.start_monitoring())
             app_logger.info("✅ Continuous health monitoring started")
         else:
             app_logger.info("ℹ️ Continuous health monitoring disabled in development")
-        
+
         app_logger.info("✅ Wave 5: Health Monitoring System initialized successfully")
-        
+
     except Exception as e:
         app_logger.error(f"❌ Failed to initialize health monitoring: {e}")
         app_logger.warning("Continuing without health monitoring")
-    
+
     # Temporarily disable Performance Integration Services until dependencies are resolved
     # try:
     #     app_logger.info("⚡ Initializing Performance Integration Services (Wave 4.2)...")
@@ -546,11 +590,12 @@ async def startup_event():
     #     app_logger.warning("Continuing without performance optimization integration")
     app_logger.info("⚠️ Performance Integration Services temporarily disabled")
 
-# Shutdown event  
+
+# Shutdown event
 @app.on_event("shutdown")
 async def shutdown_event():
     app_logger.info("Kumon AI Receptionist API shutting down...")
-    
+
     # Performance optimization system temporarily disabled
     # try:
     #     await performance_optimizer.stop_optimization()
@@ -558,7 +603,7 @@ async def shutdown_event():
     # except Exception as e:
     #     app_logger.error(f"❌ Error stopping performance optimization: {e}")
     app_logger.info("⚠️ Performance optimization was disabled")
-    
+
     # Alert management system temporarily disabled
     # try:
     #     await alert_manager.stop_processing()
@@ -566,7 +611,7 @@ async def shutdown_event():
     # except Exception as e:
     #     app_logger.error(f"❌ Error stopping alert management: {e}")
     app_logger.info("⚠️ Alert management was disabled")
-    
+
     # Performance monitoring system temporarily disabled
     # try:
     #     await performance_monitor.stop_monitoring()
@@ -574,7 +619,7 @@ async def shutdown_event():
     # except Exception as e:
     #     app_logger.error(f"❌ Error stopping performance monitoring: {e}")
     app_logger.info("⚠️ Performance monitoring was disabled")
-    
+
     # Security monitoring system temporarily disabled
     # try:
     #     await security_monitor.stop_monitoring()
@@ -582,7 +627,7 @@ async def shutdown_event():
     # except Exception as e:
     #     app_logger.error(f"❌ Error stopping security monitoring: {e}")
     app_logger.info("⚠️ Security monitoring was disabled")
-    
+
     # Capacity validation system temporarily disabled
     # try:
     #     await capacity_validator.stop_capacity_validation()
@@ -590,38 +635,42 @@ async def shutdown_event():
     # except Exception as e:
     #     app_logger.error(f"❌ Error stopping capacity validation: {e}")
     app_logger.info("⚠️ Capacity validation was disabled")
-    
+
     # Stop workflow orchestration system (Wave 4)
     try:
         await workflow_orchestrator.cleanup_old_executions()
         app_logger.info("✅ Workflow orchestration system stopped")
     except Exception as e:
         app_logger.error(f"❌ Error stopping workflow orchestration: {e}")
-    
+
     # Cleanup memory system
     if settings.MEMORY_ENABLE_SYSTEM:
         try:
-            from app.services.conversation_memory_service import conversation_memory_service
+            from app.services.conversation_memory_service import (
+                conversation_memory_service,
+            )
+
             await conversation_memory_service.cleanup()
             app_logger.info("✅ Conversation memory system cleaned up")
         except Exception as e:
             app_logger.error(f"❌ Error during memory system cleanup: {e}")
-    
+
     # Cleanup Wave 2: Enhanced Cache System
     try:
         await cache_manager.cleanup()
         app_logger.info("✅ Wave 2: Enhanced Cache System cleaned up")
     except Exception as e:
         app_logger.error(f"❌ Error during cache system cleanup: {e}")
-    
+
     # Cleanup Wave 5: Health Monitoring System
     try:
         from app.core.health_monitor import health_monitor
+
         health_monitor.stop_monitoring()
         app_logger.info("✅ Wave 5: Health Monitoring System stopped")
     except Exception as e:
         app_logger.error(f"❌ Error stopping health monitoring: {e}")
-    
+
     # Performance Integration Services temporarily disabled
     # try:
     #     await performance_integration.shutdown()
@@ -629,7 +678,7 @@ async def shutdown_event():
     # except Exception as e:
     #     app_logger.error(f"❌ Error shutting down Performance Integration Services: {e}")
     app_logger.info("⚠️ Performance Integration Services was disabled")
-    
+
     # Shutdown security systems
     try:
         # Log shutdown event - temporarily disabled
@@ -640,7 +689,7 @@ async def shutdown_event():
         #     action="system_shutdown",
         #     details={"component": "kumon_api", "graceful": True}
         # )
-        
+
         # Shutdown audit logger - temporarily disabled
         # audit_logger.shutdown()
         app_logger.info("✅ Security audit logging system temporarily disabled")
@@ -650,20 +699,21 @@ async def shutdown_event():
 
 # Entry point for running the server
 if __name__ == "__main__":
-    import uvicorn
     import os
-    
+
+    import uvicorn
+
     # Get host and port from environment or use defaults
-    host = "0.0.0.0"
+    host = "0.0.0.0"  # nosec B104  # nosec B104
     port = int(os.getenv("PORT", 8000))
-    
+
     app_logger.info(f"Starting Kumon AI Receptionist API server on {host}:{port}")
-    
+
     uvicorn.run(
         "app.main:app",
         host=host,
         port=port,
         reload=False,  # Disable reload in production
         access_log=True,
-        log_level="info"
+        log_level="info",
     )
