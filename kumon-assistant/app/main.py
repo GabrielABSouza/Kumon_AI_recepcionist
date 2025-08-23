@@ -331,6 +331,8 @@ from app.core import dependencies
 from app.services.production_llm_service import ProductionLLMService
 from app.workflows.intent_classifier import AdvancedIntentClassifier
 from app.workflows.secure_conversation_workflow import SecureConversationWorkflow
+from app.services.langchain_rag import LangChainRAGService
+
 
 
 # Startup event with comprehensive validation
@@ -343,7 +345,7 @@ async def startup_event():
     app_logger.info("🔄 Initializing core services...")
     dependencies.llm_service = ProductionLLMService()
     await dependencies.llm_service.initialize()
-    dependencies.intent_classifier = AdvancedIntentClassifier()
+    dependencies.intent_classifier = AdvancedIntentClassifier(llm_service_instance=dependencies.llm_service)
     dependencies.secure_workflow = SecureConversationWorkflow()
     app_logger.info(
         "✅ Core services (LLM, Intent Classifier, Secure Workflow) initialized successfully"

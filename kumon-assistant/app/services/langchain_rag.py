@@ -18,7 +18,7 @@ from ..core.logger import app_logger
 from .vector_store import vector_store, SearchResult, DocumentChunk
 from .hybrid_embedding_service import hybrid_embedding_service
 from .enhanced_cache_service import enhanced_cache_service, CacheLayer
-from .langgraph_llm_adapter import kumon_llm_service
+from app.core.dependencies import llm_service
 
 
 class LoggingCallbackHandler(BaseCallbackHandler):
@@ -47,7 +47,7 @@ class RAGResponse:
 class LangChainRAGService:
     """LangChain-powered RAG service with semantic search"""
     
-    def __init__(self):
+    def __init__(self, llm_service_instance):
         self.llm = None
         self.retrieval_chain = None
         self._initialized = False
@@ -91,7 +91,7 @@ Resposta:"""
             
             # Initialize LLM using new service abstraction
             # Note: kumon_llm_service handles provider selection, cost monitoring, and fallback
-            self.llm = kumon_llm_service  # Direct usage of the adapter
+            self.llm = llm_service_instance  # Direct usage of the adapter
             
             # Create retrieval chain
             self._create_retrieval_chain()
@@ -210,7 +210,7 @@ Resposta:"""
             )
             
             # Generate response using kumon_llm_service
-            answer = await kumon_llm_service.generate_business_response(
+            answer = await self.llm.generate_business_response(
                 user_input=question,
                 conversation_context={"messages": []},
                 workflow_stage="rag_query",
@@ -377,5 +377,4 @@ Resposta:"""
             return False
 
 
-# Global instance
-langchain_rag_service = LangChainRAGService() 
+# Global instance removed, will be initialized on startup 

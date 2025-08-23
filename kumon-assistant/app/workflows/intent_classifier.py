@@ -105,8 +105,8 @@ class AdvancedIntentClassifier:
     user intent in the context of the ongoing conversation.
     """
 
-    def __init__(self):
-        self.llm = llm_service
+    def __init__(self, llm_service_instance):
+        self.llm = llm_service_instance
 
         # Intent patterns with context awareness
         self.intent_patterns = self._build_intent_patterns()
