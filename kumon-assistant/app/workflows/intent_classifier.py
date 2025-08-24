@@ -106,6 +106,7 @@ class AdvancedIntentClassifier:
     """
 
     def __init__(self, llm_service_instance):
+        self.llm_service_instance = llm_service_instance  # Correctly assign the dependency
         self.llm = llm_service_instance
 
         # Intent patterns with context awareness
@@ -159,7 +160,7 @@ class AdvancedIntentClassifier:
                     r"\b(segunda|terça|quarta|quinta|sexta)\b",
                     r"\b(cancelar|remarcar|mudar\s+horário)\b",
                 ],
-                "urgency_indicators": ["hoje", "amanhã", "essa\s+semana", "urgente"],
+                "urgency_indicators": ["hoje", "amanhã", r"essa\s+semana", "urgente"],
                 "time_indicators": ["manhã", "tarde", "horário", "disponível"],
             },
             IntentCategory.CLARIFICATION: {
@@ -171,9 +172,9 @@ class AdvancedIntentClassifier:
                     r"\b(explica\s+melhor|mais\s+detalhes)\b",
                 ],
                 "confusion_levels": {
-                    "high": ["muito\s+confuso", "não\s+entendo\s+nada"],
-                    "medium": ["confuso", "não\s+entendi"],
-                    "low": ["pode\s+repetir", "como\s+assim"],
+                    "high": [r"muito\s+confuso", r"não\s+entendo\s+nada"],
+                    "medium": ["confuso", r"não\s+entendi"],
+                    "low": [r"pode\s+repetir", r"como\s+assim"],
                 },
             },
             IntentCategory.OBJECTION: {
@@ -200,9 +201,9 @@ class AdvancedIntentClassifier:
                     r"\b(fechado|combinado|deal)\b",
                 ],
                 "commitment_levels": {
-                    "high": ["quero", "vou\s+fazer", "fechado"],
+                    "high": ["quero", r"vou\s+fazer", "fechado"],
                     "medium": ["interessado", "gostei"],
-                    "low": ["talvez", "vou\s+pensar"],
+                    "low": ["talvez", r"vou\s+pensar"],
                 },
             },
         }
@@ -547,8 +548,8 @@ class AdvancedIntentClassifier:
         )
 
         # Add recent message history
-        if state["message_history"]:
-            recent_messages = state["message_history"][-3:]  # Last 3 messages
+        if state["messages"]:
+            recent_messages = state["messages"][-3:]  # Last 3 messages
             context_parts.append("Últimas mensagens:")
             for msg in recent_messages:
                 context_parts.append(f"- {msg['role']}: {msg['content'][:50]}...")

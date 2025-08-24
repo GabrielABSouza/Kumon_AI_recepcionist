@@ -136,21 +136,20 @@ class ServiceFactory:
             init_args = {**config["init_args"], **dependencies}
 
             # Handle different initialization patterns
-            if config["dependencies"] and any(
+            if name == "intent_classifier":
+                instance = service_class(llm_service_instance=dependencies.get("llm_service"))
+            elif name == "langchain_rag_service":
+                # Special case: Create LangChain adapter for RAG service
+                from ..adapters.langchain_adapter import create_langchain_adapter
+
+                llm_service = dependencies.get("llm_service")
+                langchain_adapter = create_langchain_adapter(llm_service, adapter_type="runnable")
+                instance = service_class(langchain_adapter)
+            elif config["dependencies"] and any(
                 "llm_service" in dep for dep in config["dependencies"]
             ):
-                # Services that expect llm_service_instance as positional argument
-                if name == "langchain_rag_service":
-                    # Special case: Create LangChain adapter for RAG service
-                    from ..adapters.langchain_adapter import create_langchain_adapter
-
-                    llm_service = dependencies.get("llm_service")
-                    langchain_adapter = create_langchain_adapter(
-                        llm_service, adapter_type="runnable"
-                    )
-                    instance = service_class(langchain_adapter)
-                else:
-                    instance = service_class(dependencies.get("llm_service"))
+                # Fallback for other services that might expect llm_service as a positional argument
+                instance = service_class(dependencies.get("llm_service"))
             else:
                 # Standard initialization
                 instance = service_class(**init_args)

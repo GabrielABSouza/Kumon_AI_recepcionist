@@ -1,6 +1,7 @@
 """
 Production LLM Service with Failover & Cost Management
 Unified service for LangGraph integration with backward compatibility
+Implements StandardLLMInterface for complete interface standardization
 """
 
 import asyncio
@@ -12,6 +13,14 @@ from ..core.config import settings
 from ..core.logger import app_logger
 from .cost_monitor import cost_monitor
 from .enhanced_cache_service import enhanced_cache_service
+from .interfaces.llm_interface import (
+    InterfaceValidator,
+    LLMInterfaceAdapter,
+    LLMInterfaceType,
+    StandardLLMInterface,
+    StandardLLMRequest,
+    StandardLLMResponse,
+)
 from .llm_base import (
     CompatibilityLayer,
     LLMMetrics,
@@ -38,17 +47,18 @@ class FailoverConfig:
     circuit_breaker_timeout: int = 60  # seconds
 
 
-class ProductionLLMService:
+class ProductionLLMService(StandardLLMInterface):
     """
     Production-ready LLM service with comprehensive failover and monitoring
+    Implements StandardLLMInterface for complete interface standardization
 
     Features:
     - OpenAI primary, Anthropic fallback
     - Real-time cost monitoring with budget enforcement
     - Circuit breaker pattern for reliability
     - Performance metrics and health monitoring
-    - Backward compatibility with existing LLMStreamingService
-    - LangGraph integration ready
+    - Standard interface compliance for all integrations
+    - LangGraph and LangChain compatibility
     """
 
     def __init__(self, failover_config: Optional[FailoverConfig] = None):
@@ -130,10 +140,12 @@ class ProductionLLMService:
                 "providers": list(self.router.providers.keys()),
                 "default_provider": self.router.default_provider,
                 "routing_rules": len(self.router.routing_rules),
+                "interface_standard": "StandardLLMInterface",
+                "interface_type": self.interface_type.value,
             },
         )
 
-    async def generate_streamed_response(
+    async def _generate_streamed_response_internal(
         self,
         user_message: str,
         system_prompt: str,
@@ -403,7 +415,393 @@ class ProductionLLMService:
             },
         }
 
+    def _parse_messages(
+        self, messages: List[Dict[str, str]]
+    ) -> tuple[str, str, List[Dict[str, str]]]:
+        """
+        Parse messages into system prompt, user message, and conversation history
+
+        Args:
+            messages: List of message dictionaries with 'role' and 'content'
+
+        Returns:
+            Tuple of (system_prompt, user_message, conversation_history)
+        """
+        system_prompt = ""
+        user_message = ""
+        conversation_history = []
+
+        for msg in messages:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+
+            if role == "system":
+                system_prompt = content
+            elif role == "user":
+                user_message = content  # Will be overwritten by last user message
+            elif role == "assistant":
+                conversation_history.append(msg)
+
+        # Ensure we have the last user message if multiple exist
+        user_messages = [msg for msg in messages if msg.get("role") == "user"]
+        if user_messages:
+            user_message = user_messages[-1].get("content", "")
+
+        return system_prompt, user_message, conversation_history
+
+    async def generate_response_legacy(
+        self,
+        messages: List[Dict[str, str]],
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        **kwargs,
+    ) -> LLMResponse:
+        """
+        Generate complete response by streaming and collecting output
+
+        Compatibility method for LangChain adapters that expect non-streaming response.
+        This method wraps the streaming interface to provide a complete response.
+
+        Args:
+            messages: List of conversation messages
+            max_tokens: Maximum tokens to generate
+            temperature: Response randomness (0.0-1.0)
+            **kwargs: Additional generation parameters
+
+        Returns:
+            LLMResponse object with complete response content
+
+        Raises:
+            RuntimeError: If response generation fails
+        """
+        if not self.is_initialized:
+            await self.initialize()
+
+        start_time = time.time()
+
+        try:
+            # Use shared message parsing method
+            system_prompt, user_message, conversation_history = self._parse_messages(messages)
+
+            # Track metrics
+            chunks_received = 0
+            first_chunk_time = None
+
+            # Stream and collect complete response
+            full_response = ""
+            async for chunk in self.generate_streamed_response(
+                user_message=user_message,
+                system_prompt=system_prompt,
+                conversation_history=conversation_history,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                context=kwargs.get("context", {}),
+            ):
+                full_response += chunk
+                chunks_received += 1
+                if chunks_received == 1:
+                    first_chunk_time = time.time()
+
+            completion_time = time.time()
+
+            # Get provider information
+            provider = self.router.providers.get(self.router.default_provider)
+            provider_name = self.router.default_provider
+            model_name = getattr(provider, "model", "unknown")
+
+            # Create proper metrics object
+            metrics = LLMMetrics(
+                provider=provider_name,
+                model=model_name,
+                start_time=start_time,
+                first_chunk_time=first_chunk_time,
+                completion_time=completion_time,
+                total_chunks=chunks_received,
+                total_characters=len(full_response),
+                # Token counting will be estimated for now - proper tokenizer can be added later
+                input_tokens=self._estimate_tokens(
+                    " ".join(msg.get("content", "") for msg in messages)
+                ),
+                output_tokens=self._estimate_tokens(full_response),
+                cost_estimate=None,  # Will be calculated by cost monitor
+            )
+
+            # Create proper LLMResponse
+            response = LLMResponse(
+                content=full_response,
+                metrics=metrics,
+                provider=provider_name,
+                model=model_name,
+                finish_reason="stop",
+                usage={
+                    "prompt_tokens": metrics.input_tokens,
+                    "completion_tokens": metrics.output_tokens,
+                    "total_tokens": (metrics.input_tokens or 0) + (metrics.output_tokens or 0),
+                },
+            )
+
+            app_logger.info(
+                "Response generation completed",
+                extra={
+                    "provider": provider_name,
+                    "model": model_name,
+                    "response_length": len(full_response),
+                    "duration_ms": metrics.total_duration_ms,
+                    "first_chunk_ms": metrics.first_chunk_latency_ms,
+                    "total_chunks": chunks_received,
+                },
+            )
+
+            return response
+
+        except asyncio.TimeoutError:
+            app_logger.error("Response generation timed out")
+            raise RuntimeError("Response generation timed out") from None
+        except Exception as e:
+            app_logger.error(
+                "Response generation failed",
+                extra={"error_type": type(e).__name__, "provider": self.router.default_provider},
+            )
+            raise RuntimeError("Response generation temporarily unavailable") from e
+
+    def _estimate_tokens(self, text: str) -> int:
+        """
+        Estimate token count for text
+
+        This is a simple estimation. For production, consider using tiktoken
+        or the provider's tokenizer for accurate counts.
+
+        Args:
+            text: Text to estimate tokens for
+
+        Returns:
+            Estimated token count
+        """
+        # More accurate estimation based on common patterns
+        # Average English word is ~4.7 characters, average token is ~0.75 words
+        words = len(text.split())
+        chars = len(text)
+
+        # Use combination of word count and character count for better estimate
+        # This accounts for punctuation, special characters, etc.
+        word_estimate = words * 1.3  # Tokens tend to be slightly more than words
+        char_estimate = chars / 4.0  # Fallback character-based estimate
+
+        # Weight word estimate more heavily for normal text
+        if words > 0:
+            return int(word_estimate * 0.7 + char_estimate * 0.3)
+        else:
+            return int(char_estimate)
+
+    # StandardLLMInterface implementation
+    @property
+    def interface_type(self) -> LLMInterfaceType:
+        """Return interface type"""
+        return LLMInterfaceType.COMPLETE
+
+    @property
+    def model_name(self) -> str:
+        """Return current model name"""
+        if self.router and self.router.default_provider:
+            provider = self.router.providers.get(self.router.default_provider)
+            return getattr(provider, "model", "unknown")
+        return "unknown"
+
+    @property
+    def provider_name(self) -> str:
+        """Return current provider name"""
+        return self.router.default_provider if self.router else "unknown"
+
+    async def generate_response(self, request: StandardLLMRequest) -> StandardLLMResponse:
+        """
+        StandardLLMInterface compliant generate_response method
+
+        Args:
+            request: StandardLLMRequest with all parameters
+
+        Returns:
+            StandardLLMResponse with complete response data
+        """
+        if not self.is_initialized:
+            await self.initialize()
+
+        # Validate request
+        InterfaceValidator.validate_request(request)
+
+        start_time = time.time()
+
+        try:
+            # Extract message components using shared parsing method
+            system_prompt, user_message, conversation_history = self._parse_messages(
+                request.messages
+            )
+
+            # Generate response using existing streaming infrastructure
+            full_response = ""
+            chunks_received = 0
+            first_chunk_time = None
+
+            async for chunk in self._generate_streamed_response_internal(
+                user_message=user_message,
+                system_prompt=system_prompt,
+                conversation_history=conversation_history,
+                max_tokens=request.max_tokens,
+                temperature=request.temperature,
+                context=request.context or {},
+            ):
+                full_response += chunk
+                chunks_received += 1
+                if chunks_received == 1:
+                    first_chunk_time = time.time()
+
+            completion_time = time.time()
+
+            # Create standardized response
+            response = StandardLLMResponse(
+                content=full_response,
+                interface_type=LLMInterfaceType.COMPLETE,
+                model_used=self.model_name,
+                provider=self.provider_name,
+                token_usage={
+                    "prompt_tokens": self._estimate_tokens(
+                        " ".join(msg.get("content", "") for msg in request.messages)
+                    ),
+                    "completion_tokens": self._estimate_tokens(full_response),
+                    "total_tokens": self._estimate_tokens(
+                        " ".join(msg.get("content", "") for msg in request.messages)
+                    )
+                    + self._estimate_tokens(full_response),
+                },
+                finish_reason="stop",
+                metadata={
+                    "chunks_received": chunks_received,
+                    "first_chunk_latency_ms": (
+                        (first_chunk_time - start_time) * 1000 if first_chunk_time else None
+                    ),
+                    "total_duration_ms": (completion_time - start_time) * 1000,
+                    "workflow_stage": request.workflow_stage,
+                    "request_metadata": request.metadata,
+                },
+            )
+
+            # Validate response
+            InterfaceValidator.validate_response(response)
+
+            app_logger.info(
+                "Standard interface response generated",
+                extra={
+                    "provider": self.provider_name,
+                    "model": self.model_name,
+                    "response_length": len(full_response),
+                    "interface_type": response.interface_type.value,
+                    "duration_ms": response.metadata["total_duration_ms"],
+                },
+            )
+
+            return response
+
+        except Exception as e:
+            app_logger.error(
+                "Standard interface response generation failed",
+                extra={"error": str(e), "provider": self.provider_name},
+            )
+            raise
+
+    async def generate_streamed_response(self, request: StandardLLMRequest) -> AsyncIterator[str]:
+        """
+        StandardLLMInterface compliant streaming method
+
+        Args:
+            request: StandardLLMRequest with streaming enabled
+
+        Yields:
+            Response chunks as strings
+        """
+        # Validate request
+        InterfaceValidator.validate_request(request)
+
+        # Extract message components
+        system_prompt, user_message, conversation_history = self._parse_messages(request.messages)
+
+        # Stream using existing infrastructure
+        async for chunk in self._generate_streamed_response_internal(
+            user_message=user_message,
+            system_prompt=system_prompt,
+            conversation_history=conversation_history,
+            max_tokens=request.max_tokens,
+            temperature=request.temperature,
+            context=request.context or {},
+        ):
+            yield chunk
+
+    async def ainvoke(self, messages: List[Any], **kwargs) -> Any:
+        """LangChain/LangGraph async invoke compatibility"""
+        try:
+            # Convert to standard request
+            request = LLMInterfaceAdapter.to_standard_request(
+                messages, LLMInterfaceType.LANGCHAIN, **kwargs
+            )
+
+            # Generate response
+            response = await self.generate_response(request)
+
+            # Return in LangChain format
+            return response.to_langchain_format()
+
+        except Exception as e:
+            app_logger.error(f"ainvoke error: {e}")
+            raise
+
+    def invoke(self, messages: List[Any], **kwargs) -> Any:
+        """LangChain synchronous invoke compatibility"""
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                raise RuntimeError("Cannot run sync invoke in async context. Use ainvoke instead.")
+            else:
+                return loop.run_until_complete(self.ainvoke(messages, **kwargs))
+        except Exception as e:
+            app_logger.error(f"invoke error: {e}")
+            raise
+
+    async def astream(self, messages: List[Any], **kwargs) -> AsyncIterator[str]:
+        """LangChain/LangGraph async streaming compatibility"""
+        try:
+            # Convert to standard request
+            request = LLMInterfaceAdapter.to_standard_request(
+                messages, LLMInterfaceType.LANGCHAIN, stream=True, **kwargs
+            )
+
+            # Stream response
+            async for chunk in self.generate_streamed_response(request):
+                yield chunk
+
+        except Exception as e:
+            app_logger.error(f"astream error: {e}")
+            raise
+
     # Backward compatibility methods
+    async def generate_streamed_response_legacy(
+        self,
+        user_message: str,
+        system_prompt: str,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> AsyncIterator[str]:
+        """Legacy generate_streamed_response method for backward compatibility"""
+
+        async for chunk in self._generate_streamed_response_internal(
+            user_message=user_message,
+            system_prompt=system_prompt,
+            conversation_history=conversation_history,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            context=context,
+        ):
+            yield chunk
+
     async def stream_response(
         self, messages: List[Dict[str, str]], context: Optional[Dict[str, Any]] = None
     ) -> AsyncIterator[str]:
@@ -413,6 +811,25 @@ class ProductionLLMService:
     def get_performance_metrics(self) -> Dict[str, Any]:
         """Backward compatible performance metrics"""
         return self.compatibility_layer.get_performance_metrics()
+
+    async def generate_business_response(self, **kwargs) -> StandardLLMResponse:
+        """Provides backward compatibility for services expecting this method name."""
+        # This is a wrapper for the main generate_response method.
+        # It adapts the call to the standardized interface.
+        app_logger.info("generate_business_response called (compatibility layer)")
+
+        # Create a standard request from the provided kwargs
+        request = StandardLLMRequest(
+            messages=kwargs.get("messages", []),
+            max_tokens=kwargs.get("max_tokens"),
+            temperature=kwargs.get("temperature"),
+            context=kwargs.get("context", {}),
+            workflow_stage=kwargs.get("workflow_stage", "business_response"),
+            user_input=kwargs.get("user_input", ""),
+            metadata=kwargs.get("metadata", {}),
+        )
+
+        return await self.generate_response(request)
 
 
 # This file will be modified to remove global instance creation.

@@ -109,11 +109,11 @@ Suas características:
 - Atendimento: Segunda a sexta, 9h às 12h e 14h às 17h
 - Contato para casos complexos: (51) 99692-1999"""
 
-        # Generate response using production service
+        # Generate response using production service with standardized interface
         response_text = ""
 
         try:
-            async for chunk in production_llm_service.generate_streamed_response(
+            async for chunk in production_llm_service.generate_streamed_response_legacy(
                 user_message=user_message,
                 system_prompt=system_prompt,
                 conversation_history=conversation_history,
@@ -150,7 +150,7 @@ Suas características:
 
         # Stream response using production service
         try:
-            async for chunk in production_llm_service.generate_streamed_response(
+            async for chunk in production_llm_service.generate_streamed_response_legacy(
                 user_message=user_message,
                 system_prompt=system_prompt,
                 conversation_history=conversation_history,
@@ -276,7 +276,7 @@ Seja sempre profissional, acolhedora e focada em agendar visitas presenciais."""
         # Generate response
         response = ""
         try:
-            async for chunk in production_llm_service.generate_streamed_response(
+            async for chunk in production_llm_service.generate_streamed_response_legacy(
                 user_message=user_input,
                 system_prompt=enhanced_system_prompt,
                 conversation_history=conversation_history,
@@ -298,6 +298,59 @@ Seja sempre profissional, acolhedora e focada em agendar visitas presenciais."""
     async def get_service_health(self) -> Dict[str, Any]:
         """Get health status of the LLM service"""
         return await production_llm_service.get_health_status()
+
+
+# Factory function for secure_conversation_workflow.py compatibility
+def create_kumon_llm(
+    model: str = "gpt-4-turbo", temperature: float = 0.7, **kwargs
+) -> KumonLLMService:
+    """
+    Factory function to create KumonLLMService instances with proper encapsulation
+
+    Args:
+        model: OpenAI model name (default: gpt-4-turbo)
+        temperature: Temperature for response generation (default: 0.7)
+        **kwargs: Additional LLM parameters (max_tokens, etc.)
+
+    Returns:
+        KumonLLMService instance ready for LangChain integration
+
+    Raises:
+        ValueError: If invalid parameters provided
+        RuntimeError: If service initialization fails
+    """
+    try:
+        # Validate kwargs to prevent runtime errors
+        allowed_params = {"max_tokens", "top_p", "frequency_penalty", "presence_penalty", "stop"}
+        validated_kwargs = {k: v for k, v in kwargs.items() if k in allowed_params}
+
+        if len(validated_kwargs) < len(kwargs):
+            filtered_params = set(kwargs.keys()) - allowed_params
+            app_logger.warning(f"Filtered invalid parameters: {filtered_params}")
+
+        # Use proper constructor pattern with validated parameters
+        service = KumonLLMService()
+        service.adapter = LangGraphLLMAdapter(
+            model=model, temperature=temperature, **validated_kwargs
+        )
+
+        app_logger.info(
+            "KumonLLMService created successfully",
+            extra={
+                "model": model,
+                "temperature": temperature,
+                "additional_params": list(validated_kwargs.keys()),
+            },
+        )
+
+        return service
+
+    except Exception as e:
+        app_logger.error(
+            "Failed to create KumonLLMService",
+            extra={"error": str(e), "model": model, "temperature": temperature},
+        )
+        raise RuntimeError(f"KumonLLMService initialization failed: {str(e)}") from e
 
 
 # Global instances removed, will be initialized on startup

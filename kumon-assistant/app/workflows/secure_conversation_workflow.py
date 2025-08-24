@@ -265,7 +265,7 @@ class SecureConversationWorkflow:
 
             # Update with current message
             state["last_user_message"] = user_message
-            state["message_history"].append(
+            state["messages"].append(
                 {"role": "user", "content": user_message, "timestamp": datetime.now().isoformat()}
             )
 
@@ -692,7 +692,7 @@ Estou à disposição para esclarecer todas as suas dúvidas!"""
             final_response = response_candidate
 
             # Add assistant message to history
-            conversation_state["message_history"].append(
+            conversation_state["messages"].append(
                 {
                     "role": "assistant",
                     "content": final_response,
@@ -744,7 +744,7 @@ Estou à disposição para esclarecer todas as suas dúvidas!"""
             stage=WorkflowStage.GREETING,
             step=ConversationStep.WELCOME,
             user_message="",
-            message_history=[],
+            messages=[],
             user_context=None,  # Will be set after creation
             metrics=ConversationMetrics(),
             ai_response=None,
@@ -888,10 +888,8 @@ Estou à disposição para esclarecer todas as suas dúvidas!"""
 
         for phone_number, state in self.active_conversations.items():
             # Check if conversation is older than 2 hours
-            if state["message_history"]:
-                last_message_time = datetime.fromisoformat(
-                    state["message_history"][-1]["timestamp"]
-                )
+            if state["messages"]:
+                last_message_time = datetime.fromisoformat(state["messages"][-1]["timestamp"])
                 if (current_time - last_message_time).total_seconds() > 7200:  # 2 hours
                     expired_conversations.append(phone_number)
 

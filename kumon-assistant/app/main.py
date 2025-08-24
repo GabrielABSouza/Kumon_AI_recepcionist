@@ -13,16 +13,21 @@ logger = logging.getLogger(__name__)
 
 # Apply Railway fixes immediately - SINGLE POINT OF CONTROL
 try:
-    from app.core.railway_environment_fix import apply_railway_environment_fixes, get_execution_status
+    from app.core.railway_environment_fix import (
+        apply_railway_environment_fixes,
+        get_execution_status,
+    )
 
     logger.info("🔧 Initiating Railway environment fixes from main.py...")
     apply_railway_environment_fixes()
-    
+
     # Validate execution status
     status = get_execution_status()
     logger.info(f"✅ Railway environment fixes completed successfully")
-    logger.info(f"📊 Execution status: Applied={status['fixes_applied']}, Count={status['execution_count']}")
-    
+    logger.info(
+        f"📊 Execution status: Applied={status['fixes_applied']}, Count={status['execution_count']}"
+    )
+
 except Exception as e:
     logger.error(f"❌ Failed to apply Railway fixes: {e}")
     # Continue startup even if Railway fixes fail - application should be resilient
@@ -336,7 +341,9 @@ async def root():
 
 
 from app.core import dependencies
-from app.core.service_factory import service_factory, register_core_services
+from app.core.optimized_startup import optimized_startup_manager
+from app.core.service_factory import register_core_services, service_factory
+from app.core.service_registry import register_all_services
 
 
 # Startup event with comprehensive validation
@@ -349,34 +356,67 @@ async def startup_event():
     critical_vars = {
         "DATABASE_URL": os.getenv("DATABASE_URL"),
         "OPENAI_API_KEY": os.getenv("OPENAI_API_KEY"),
-        "EVOLUTION_API_KEY": os.getenv("EVOLUTION_API_KEY")
+        "EVOLUTION_API_KEY": os.getenv("EVOLUTION_API_KEY"),
     }
-    
+
     missing_vars = [k for k, v in critical_vars.items() if not v]
     if missing_vars:
         app_logger.error(f"❌ Missing critical environment variables: {missing_vars}")
         app_logger.info("📋 Available environment variables:")
         for key in sorted(os.environ.keys()):
-            if any(pattern in key.upper() for pattern in ["DATABASE", "POSTGRES", "OPENAI", "EVOLUTION", "RAILWAY"]):
+            if any(
+                pattern in key.upper()
+                for pattern in ["DATABASE", "POSTGRES", "OPENAI", "EVOLUTION", "RAILWAY"]
+            ):
                 app_logger.info(f"  {key}: {'[SET]' if os.getenv(key) else '[NOT SET]'}")
-    
-    # Initialize core services using service factory
-    app_logger.info("🔄 Initializing core services with service factory...")
-    
-    # Register all core services with the factory
-    register_core_services()
-    
-    # Initialize core services through factory (will populate dependencies as well)
-    await service_factory.initialize_core_services()
-    
-    # Populate dependencies for backward compatibility
-    dependencies.llm_service = await service_factory.get_service('llm_service')
-    dependencies.intent_classifier = await service_factory.get_service('intent_classifier')
-    dependencies.secure_workflow = await service_factory.get_service('secure_workflow')
-    dependencies.langchain_rag_service = await service_factory.get_service('langchain_rag_service')
-    
+
+    # Initialize Wave 5: Optimized Startup System
+    app_logger.info("🚀 Initializing Wave 5: Optimized Startup System...")
+
+    # Register all services with optimized startup system
+    register_all_services()
+
+    # Execute optimized startup sequence
+    startup_report = await optimized_startup_manager.optimized_startup()
+
+    # Log startup performance metrics
     app_logger.info(
-        "✅ Core services (LLM, Intent Classifier, Secure Workflow, RAG) initialized via service factory"
+        f"✅ Optimized startup completed in {startup_report['total_startup_time']:.2f}s"
+    )
+    app_logger.info(
+        f"📊 Services ready: {startup_report['services_ready']}/{startup_report['services_ready'] + startup_report['services_initializing'] + startup_report['services_failed']}"
+    )
+    app_logger.info(f"⚡ Critical services: {startup_report['critical_services_time']:.2f}s")
+    app_logger.info(f"🔄 Background tasks: {startup_report['background_tasks']}")
+
+    # Populate dependencies for backward compatibility
+    dependencies.llm_service = optimized_startup_manager.service_instances.get("llm_service")
+    dependencies.intent_classifier = optimized_startup_manager.service_instances.get(
+        "intent_classifier"
+    )
+    dependencies.secure_workflow = optimized_startup_manager.service_instances.get(
+        "secure_workflow"
+    )
+    dependencies.langchain_rag_service = optimized_startup_manager.service_instances.get(
+        "langchain_rag_service"
+    )
+
+    # Fallback to service factory if services not available (transition period)
+    if not dependencies.llm_service:
+        app_logger.warning(
+            "⚠️ LLM service not available from optimized startup, falling back to service factory"
+        )
+        register_core_services()
+        await service_factory.initialize_core_services()
+        dependencies.llm_service = await service_factory.get_service("llm_service")
+        dependencies.intent_classifier = await service_factory.get_service("intent_classifier")
+        dependencies.secure_workflow = await service_factory.get_service("secure_workflow")
+        dependencies.langchain_rag_service = await service_factory.get_service(
+            "langchain_rag_service"
+        )
+
+    app_logger.info(
+        "✅ Core services (LLM, Intent Classifier, Secure Workflow, RAG) initialized via optimized startup"
     )
 
     # DEBUG: Log environment variable status
@@ -700,6 +740,13 @@ async def shutdown_event():
         app_logger.info("✅ Wave 5: Health Monitoring System stopped")
     except Exception as e:
         app_logger.error(f"❌ Error stopping health monitoring: {e}")
+
+    # Cleanup Wave 5: Optimized Startup System
+    try:
+        await optimized_startup_manager.shutdown()
+        app_logger.info("✅ Wave 5: Optimized Startup System shutdown completed")
+    except Exception as e:
+        app_logger.error(f"❌ Error shutting down optimized startup system: {e}")
 
     # Performance Integration Services temporarily disabled
     # try:

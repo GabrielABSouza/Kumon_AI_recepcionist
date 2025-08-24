@@ -3,15 +3,16 @@ Wave 5: Comprehensive Health Check Endpoints
 Railway-optimized health endpoints with detailed system monitoring
 """
 
-from fastapi import APIRouter, HTTPException, BackgroundTasks
-from fastapi.responses import JSONResponse
-from typing import Dict, Any
 import time
 from datetime import datetime, timezone
+from typing import Any, Dict
 
-from ...core.health_monitor import health_monitor, HealthStatus
+from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi.responses import JSONResponse
+
+from ...core.health_monitor import health_monitor
 from ...core.logger import app_logger
-from ...core.railway_config import detect_environment, DeploymentEnvironment
+from ...core.railway_config import detect_environment
 
 router = APIRouter()
 
@@ -20,27 +21,31 @@ _health_cache: Dict[str, Any] = {}
 _cache_ttl = 30  # 30 seconds cache TTL
 _last_cache_update = 0
 
+
 def _get_cached_health() -> Dict[str, Any]:
     """Get cached health results if still valid"""
     global _health_cache, _last_cache_update
-    
+
     current_time = time.time()
-    
+
     if current_time - _last_cache_update < _cache_ttl and _health_cache:
         # Add cache info to response
         cached_response = _health_cache.copy()
         cached_response["cached"] = True
-        cached_response["cache_age"] = round(current_time - _last_cache_update, 1)
+        cache_age = current_time - _last_cache_update
+        cached_response["cache_age"] = round(cache_age, 1)
         return cached_response
-    
+
     return {}
+
 
 def _update_health_cache(health_data: Dict[str, Any]):
     """Update health check cache"""
     global _health_cache, _last_cache_update
-    
+
     _health_cache = health_data
     _last_cache_update = time.time()
+
 
 @router.get("/health", tags=["health"])
 async def basic_health_check():
@@ -49,27 +54,27 @@ async def basic_health_check():
     Fast response optimized for Railway's 5-second health check timeout
     """
     start_time = time.time()
-    
+
     try:
         # Check cached health first
         cached = _get_cached_health()
         if cached:
             response_time = time.time() - start_time
             cached["response_time"] = round(response_time * 1000, 1)  # ms
-            
+
             # Return appropriate status code based on health
             status_code = 200
             if cached["overall_status"] in ["critical", "unhealthy"]:
                 status_code = 503  # Service Unavailable
             elif cached["overall_status"] == "degraded":
                 status_code = 200  # OK but with warnings
-            
+
             return JSONResponse(content=cached, status_code=status_code)
-        
+
         # Perform quick health summary without full checks
         summary = health_monitor.get_health_summary()
         response_time = time.time() - start_time
-        
+
         response = {
             "status": "ok",
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -78,9 +83,9 @@ async def basic_health_check():
             "response_time": round(response_time * 1000, 1),  # ms
             "uptime": "healthy",
             "version": "2.0.0",
-            "cached": False
+            "cached": False,
         }
-        
+
         # Return appropriate status code
         status_code = 200
         if summary["overall_status"] in ["critical", "unhealthy"]:
@@ -88,22 +93,23 @@ async def basic_health_check():
             response["status"] = "error"
         elif summary["overall_status"] == "degraded":
             response["status"] = "degraded"
-        
+
         return JSONResponse(content=response, status_code=status_code)
-        
+
     except Exception as e:
         response_time = time.time() - start_time
         app_logger.error(f"Basic health check failed: {e}")
-        
+
         error_response = {
             "status": "error",
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "overall_status": "critical",
             "error": str(e),
-            "response_time": round(response_time * 1000, 1)
+            "response_time": round(response_time * 1000, 1),
         }
-        
+
         return JSONResponse(content=error_response, status_code=503)
+
 
 @router.get("/health/detailed", tags=["health"])
 async def detailed_health_check(background_tasks: BackgroundTasks):
@@ -117,23 +123,25 @@ async def detailed_health_check(background_tasks: BackgroundTasks):
         if cached:
             app_logger.info("Returning cached detailed health check")
             return cached
-        
+
         # Perform full health check
         app_logger.info("Performing detailed health check...")
         health_data = await health_monitor.perform_health_check()
-        
+
         # Update cache in background
         background_tasks.add_task(_update_health_cache, health_data)
-        
+
         # Add API metadata
         health_data["api_version"] = "2.0.0"
         health_data["cached"] = False
-        
+
         return health_data
-        
+
     except Exception as e:
         app_logger.error(f"Detailed health check failed: {e}")
-        raise HTTPException(status_code=503, detail=f"Health check failed: {str(e)}")
+        error_msg = f"Health check failed: {str(e)}"
+        raise HTTPException(status_code=503, detail=error_msg)
+
 
 @router.get("/health/components", tags=["health"])
 async def components_health():
@@ -143,18 +151,18 @@ async def components_health():
     """
     try:
         summary = health_monitor.get_health_summary()
-        
+
         components_detail = {}
         for name, component in health_monitor.components.items():
             components_detail[name] = {
                 "status": component.status.value,
                 "message": component.message,
-                "last_check": component.last_check.isoformat() if component.last_check else None,
+                "last_check": (component.last_check.isoformat() if component.last_check else None),
                 "error_count": component.error_count,
                 "consecutive_failures": component.consecutive_failures,
-                "response_time": round(component.response_time, 3)
+                "response_time": round(component.response_time, 3),
             }
-        
+
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "overall_status": summary["overall_status"],
@@ -162,15 +170,19 @@ async def components_health():
             "summary": {
                 "total": summary["components_count"],
                 "healthy": summary["healthy_components"],
-                "degraded": summary["degraded_components"], 
+                "degraded": summary["degraded_components"],
                 "unhealthy": summary["unhealthy_components"],
-                "critical": summary["critical_components"]
-            }
+                "critical": summary["critical_components"],
+            },
         }
-        
+
     except Exception as e:
         app_logger.error(f"Component health check failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Component health check failed: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Component health check failed: {str(e)}",
+        )
+
 
 @router.get("/health/metrics", tags=["health"])
 async def health_metrics():
@@ -180,7 +192,7 @@ async def health_metrics():
     """
     try:
         summary = health_monitor.get_health_summary()
-        
+
         # Calculate health score (0-100)
         total_components = summary["components_count"]
         if total_components == 0:
@@ -190,12 +202,14 @@ async def health_metrics():
             degraded_weight = summary["degraded_components"] * 75
             unhealthy_weight = summary["unhealthy_components"] * 25
             critical_weight = summary["critical_components"] * 0
-            
-            health_score = (healthy_weight + degraded_weight + unhealthy_weight + critical_weight) / total_components
-        
+
+            health_score = (
+                healthy_weight + degraded_weight + unhealthy_weight + critical_weight
+            ) / total_components
+
         # Get environment-specific metrics
         environment = detect_environment()
-        
+
         metrics = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "environment": environment.value,
@@ -205,26 +219,30 @@ async def health_metrics():
                 "total": total_components,
                 "healthy": summary["healthy_components"],
                 "degraded": summary["degraded_components"],
-                "unhealthy": summary["unhealthy_components"], 
-                "critical": summary["critical_components"]
+                "unhealthy": summary["unhealthy_components"],
+                "critical": summary["critical_components"],
             },
             "cache": {
                 "enabled": True,
                 "ttl_seconds": _cache_ttl,
-                "age_seconds": round(time.time() - _last_cache_update, 1) if _last_cache_update > 0 else 0
+                "age_seconds": (
+                    round(time.time() - _last_cache_update, 1) if _last_cache_update > 0 else 0
+                ),
             },
             "configuration": {
                 "check_interval": health_monitor.check_interval,
                 "timeout": health_monitor.timeout,
-                "monitoring_enabled": health_monitor.monitoring_enabled
-            }
+                "monitoring_enabled": health_monitor.monitoring_enabled,
+            },
         }
-        
+
         return metrics
-        
+
     except Exception as e:
         app_logger.error(f"Health metrics failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Health metrics failed: {str(e)}")
+        error_detail = f"Health metrics failed: {str(e)}"
+        raise HTTPException(status_code=500, detail=error_detail)
+
 
 @router.post("/health/refresh", tags=["health"])
 async def refresh_health_cache():
@@ -234,23 +252,24 @@ async def refresh_health_cache():
     """
     try:
         app_logger.info("Manually refreshing health check cache")
-        
+
         # Perform fresh health check
         health_data = await health_monitor.perform_health_check()
-        
+
         # Update cache
         _update_health_cache(health_data)
-        
+
         return {
             "message": "Health cache refreshed successfully",
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "overall_status": health_data["overall_status"],
-            "check_duration": health_data["check_duration"]
+            "check_duration": health_data["check_duration"],
         }
-        
+
     except Exception as e:
         app_logger.error(f"Health cache refresh failed: {e}")
         raise HTTPException(status_code=500, detail=f"Health cache refresh failed: {str(e)}")
+
 
 # Railway-specific endpoint (Railway checks /api/v1/health by default)
 @router.get("/health/railway", tags=["health"])
@@ -260,52 +279,100 @@ async def railway_health_check():
     Ultra-fast response designed for Railway's infrastructure
     """
     start_time = time.time()
-    
+
     try:
         # Use cached result if available for speed
         cached = _get_cached_health()
         if cached:
             response_time = time.time() - start_time
-            
+
             # Railway expects 200 for healthy, 503 for unhealthy
             if cached["overall_status"] in ["healthy", "degraded"]:
                 return JSONResponse(
                     content={
                         "status": "healthy",
-                        "response_time_ms": round(response_time * 1000, 1)
+                        "response_time_ms": round(response_time * 1000, 1),
                     },
-                    status_code=200
+                    status_code=200,
                 )
             else:
                 return JSONResponse(
                     content={
-                        "status": "unhealthy", 
+                        "status": "unhealthy",
                         "overall_status": cached["overall_status"],
-                        "response_time_ms": round(response_time * 1000, 1)
+                        "response_time_ms": round(response_time * 1000, 1),
                     },
-                    status_code=503
+                    status_code=503,
                 )
-        
+
         # If no cache, return basic OK
         response_time = time.time() - start_time
         return JSONResponse(
             content={
                 "status": "healthy",
                 "response_time_ms": round(response_time * 1000, 1),
-                "note": "basic_check"
+                "note": "basic_check",
             },
-            status_code=200
+            status_code=200,
         )
-        
+
     except Exception as e:
         response_time = time.time() - start_time
         app_logger.error(f"Railway health check failed: {e}")
-        
+
         return JSONResponse(
             content={
                 "status": "unhealthy",
                 "error": str(e),
-                "response_time_ms": round(response_time * 1000, 1)
+                "response_time_ms": round(response_time * 1000, 1),
             },
-            status_code=503
+            status_code=503,
         )
+
+
+@router.get("/health/service-interfaces", tags=["health"])
+async def service_interfaces_health():
+    """
+    Validates that critical service interfaces are compatible in real-time.
+    This provides a live check of the application's internal API contracts.
+    """
+    from ...core.service_factory import service_factory
+
+    issues = []
+
+    try:
+        # 1. Validate Intent Classifier -> LLM Service
+        intent_classifier = await service_factory.get_service("intent_classifier")
+        if (
+            not hasattr(intent_classifier, "llm_service_instance")
+            or not intent_classifier.llm_service_instance
+        ):
+            issues.append("IntentClassifier is missing 'llm_service_instance' attribute.")
+        elif not hasattr(intent_classifier.llm_service_instance, "generate_response"):
+            issues.append(
+                "llm_service_instance in IntentClassifier is missing " "'generate_response' method."
+            )
+
+        # 2. Validate RAG Service -> Adapter
+        rag_service = await service_factory.get_service("langchain_rag_service")
+        if not hasattr(rag_service, "llm") or not rag_service.llm:
+            issues.append("LangChainRAGService is missing 'llm' (adapter) attribute.")
+        elif not hasattr(rag_service.llm, "ainvoke"):
+            issues.append("Adapter in LangChainRAGService is missing 'ainvoke' method.")
+
+    except Exception as e:
+        app_logger.error(f"Error during service interface health check: {e}")
+        error_detail = f"An unexpected error occurred during health check: {e}"
+        raise HTTPException(status_code=500, detail=error_detail)
+
+    if issues:
+        return JSONResponse(
+            status_code=503,  # Service Unavailable
+            content={
+                "status": "unhealthy",
+                "message": "Service interface mismatch detected.",
+                "details": issues,
+            },
+        )
+
+    return {"status": "healthy", "message": "All critical service interfaces are compatible."}
