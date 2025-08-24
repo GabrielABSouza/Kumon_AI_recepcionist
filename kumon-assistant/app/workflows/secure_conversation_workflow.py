@@ -552,7 +552,10 @@ class SecureConversationWorkflow:
             )
 
             # Execute LLM with the prompt using Production LLM Service
-            from ..services.langgraph_llm_adapter import create_kumon_llm
+            try:
+                from ..services.langgraph_llm_adapter import create_kumon_llm
+            except ImportError:
+                from app.services.langgraph_llm_adapter import create_kumon_llm
 
             llm = create_kumon_llm(
                 model=getattr(settings, "OPENAI_MODEL", "gpt-4-turbo"), temperature=0.7

@@ -74,13 +74,24 @@ class EvolutionAPIClient:
         # Remove the conflicting Authorization header
         
         try:
+            # Ensure UTF-8 encoding for all JSON data
+            if data:
+                json_data = json.dumps(data, ensure_ascii=False).encode('utf-8')
+                headers['Content-Type'] = 'application/json; charset=utf-8'
+            
             async with httpx.AsyncClient(timeout=30.0) as client:
                 if method.upper() == "GET":
                     response = await client.get(url, headers=headers)
                 elif method.upper() == "POST":
-                    response = await client.post(url, headers=headers, json=data)
+                    if data:
+                        response = await client.post(url, headers=headers, content=json_data)
+                    else:
+                        response = await client.post(url, headers=headers)
                 elif method.upper() == "PUT":
-                    response = await client.put(url, headers=headers, json=data)
+                    if data:
+                        response = await client.put(url, headers=headers, content=json_data)
+                    else:
+                        response = await client.put(url, headers=headers)
                 elif method.upper() == "DELETE":
                     response = await client.delete(url, headers=headers)
                 else:
@@ -88,7 +99,7 @@ class EvolutionAPIClient:
                 
                 response.raise_for_status()
                 
-                # Handle different response types
+                # Handle different response types with UTF-8
                 content_type = response.headers.get("content-type", "")
                 if "application/json" in content_type:
                     return response.json()
@@ -96,13 +107,14 @@ class EvolutionAPIClient:
                     return {"content": response.text, "status_code": response.status_code}
                 
         except httpx.HTTPStatusError as e:
-            app_logger.error(f"HTTP error in Evolution API request: {e.response.status_code} - {e.response.text}")
+            error_text = e.response.text if hasattr(e.response, 'text') else str(e)
+            app_logger.error(f"HTTP error in Evolution API request: {e.response.status_code} - {error_text}")
             raise
         except httpx.RequestError as e:
-            app_logger.error(f"Request error in Evolution API: {str(e)}")
+            app_logger.error(f"Request error in Evolution API: {repr(e)}")
             raise
         except Exception as e:
-            app_logger.error(f"Unexpected error in Evolution API request: {str(e)}")
+            app_logger.error(f"Unexpected error in Evolution API request: {repr(e)}")
             raise
     
     async def create_instance(self, instance_name: str, webhook_url: Optional[str] = None) -> Dict[str, Any]:

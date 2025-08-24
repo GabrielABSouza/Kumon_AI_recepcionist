@@ -325,19 +325,47 @@ class SecurityValidationAgent:
                 )
             )
 
-            # Parse JSON result
+            # Parse JSON result with comprehensive error handling
             try:
-                validation_data = json.loads(result.content)
-            except json.JSONDecodeError:
+                # Check if result and content exist
+                if not result or not hasattr(result, 'content') or not result.content:
+                    app_logger.warning("LLM validation returned empty result")
+                    validation_data = {
+                        "is_valid": False,
+                        "quality_score": 0.0,
+                        "issues": ["LLM validation returned empty result"],
+                        "suggestions": ["Check LLM service connectivity"],
+                        "confidence": 0.0,
+                        "tone_appropriate": False,
+                        "information_accurate": False,
+                        "response_complete": False,
+                    }
+                else:
+                    validation_data = json.loads(result.content.strip())
+                    
+            except json.JSONDecodeError as e:
+                app_logger.warning(f"Failed to parse LLM validation JSON: {e}")
                 # Fallback if JSON parsing fails
                 validation_data = {
                     "is_valid": False,
                     "quality_score": 0.5,
-                    "issues": ["Failed to parse validation result"],
+                    "issues": ["Failed to parse validation result", f"JSON error: {str(e)}"],
                     "suggestions": ["Review response format"],
                     "confidence": 0.3,
                     "tone_appropriate": True,
                     "information_accurate": True,
+                    "response_complete": False,
+                }
+            except Exception as e:
+                app_logger.error(f"Unexpected error in validation parsing: {e}")
+                validation_data = {
+                    "is_valid": False,
+                    "quality_score": 0.0,
+                    "issues": ["Validation parsing error", str(e)],
+                    "suggestions": ["Check validation system"],
+                    "confidence": 0.0,
+                    "tone_appropriate": False,
+                    "information_accurate": False,
                     "response_complete": False,
                 }
 

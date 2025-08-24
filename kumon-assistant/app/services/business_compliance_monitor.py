@@ -471,6 +471,11 @@ class BusinessComplianceMonitor:
         """Monitor comprehensive business compliance for a conversation"""
         
         try:
+            # Check for null or empty session_id first
+            if not session_id:
+                app_logger.warning("Session ID is null or empty - cannot monitor compliance")
+                return {}
+                
             conversation_record = self.active_conversations.get(session_id)
             if not conversation_record:
                 app_logger.warning(f"No active conversation record for session {session_id}")
