@@ -2,22 +2,16 @@
 WhatsApp webhook routes
 """
 
-import hashlib
-import hmac
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-from app.clients.evolution_api import WhatsAppMessage as EvolutionWhatsAppMessage
 from app.core.config import settings
 from app.core.logger import app_logger
 from app.core.workflow import cecilia_workflow
 from app.models.message import MessageResponse, MessageType, WhatsAppMessage
 from app.models.webhook import WebhookResponse, WhatsAppWebhook
 from app.services.message_preprocessor import message_preprocessor
-from app.services.message_processor import MessageProcessor
-from app.services.secure_message_processor import secure_message_processor
-from app.services.streaming_message_processor import streaming_message_processor
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
 
 router = APIRouter()
@@ -262,7 +256,7 @@ async def process_incoming_message(message_data: Dict[str, Any], value: Dict[str
         message_id = message_data.get("id")
         from_number = message_data.get("from")
         message_type = message_data.get("type", "text")
-        timestamp = message_data.get("timestamp")
+        # timestamp = message_data.get("timestamp")  # Currently unused
 
         # Get phone number from metadata
         metadata = value.get("metadata", {})
@@ -284,15 +278,15 @@ async def process_incoming_message(message_data: Dict[str, Any], value: Dict[str
             },
         )
 
-        # Create WhatsApp message object
-        whatsapp_message = WhatsAppMessage(
-            message_id=message_id,
-            from_number=from_number,
-            to_number=to_number,
-            message_type=MessageType.TEXT if message_type == "text" else MessageType.TEXT,
-            content=content,
-            metadata=message_data,
-        )
+        # Create WhatsApp message object (currently unused)
+        # whatsapp_message = WhatsAppMessage(
+        #     message_id=message_id,
+        #     from_number=from_number,
+        #     to_number=to_number,
+        #     message_type=MessageType.TEXT if message_type == "text" else MessageType.TEXT,
+        #     content=content,
+        #     metadata=message_data,
+        # )
 
         # PRIMARY: Route to CeciliaWorkflow (LangGraph) - This is now the ONLY system
         app_logger.info(
@@ -439,10 +433,7 @@ async def test_preprocessor():
     """Test Message Preprocessor functionality"""
     try:
         from datetime import datetime
-
-        from app.clients.evolution_api import (
-            WhatsAppMessage as EvolutionWhatsAppMessage,
-        )
+        from app.clients.evolution_api import WhatsAppMessage as EvolutionWhatsAppMessage
 
         # Create test message
         test_message = EvolutionWhatsAppMessage(
@@ -632,8 +623,6 @@ async def security_alerts(hours: int = 24):
 async def cecilia_workflow_metrics():
     """Get CeciliaWorkflow performance metrics"""
     try:
-        from ...core.workflow import cecilia_workflow
-
         return {
             "timestamp": datetime.now().isoformat(),
             "workflow_system": "cecilia_langgraph",
@@ -796,8 +785,7 @@ async def pipeline_health_report():
                     stage_name: {
                         "total_executions": metrics.total_executions,
                         "success_rate": round(
-                            (metrics.successful_executions / max(1, metrics.total_executions))
-                            * 100,
+                            (metrics.successful_executions / max(1, metrics.total_executions)) * 100,
                             2,
                         ),
                         "error_rate": round(metrics.error_rate, 2),

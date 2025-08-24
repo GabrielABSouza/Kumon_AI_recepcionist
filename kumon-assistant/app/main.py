@@ -352,6 +352,17 @@ async def startup_event():
     """Application startup validation and initialization"""
     app_logger.info("🚀 Kumon AI Receptionist API v2.0 starting up...")
 
+    # DEBUG: Print ALL environment variables to identify the problem
+    app_logger.info("🔍 DEBUG: All environment variables:")
+    for key in sorted(os.environ.keys()):
+        value = os.getenv(key)
+        # Mask sensitive values but show if they exist
+        if any(secret in key.upper() for secret in ["API_KEY", "SECRET", "TOKEN", "PASSWORD"]):
+            masked_value = f"[SET - {len(value)} chars]" if value else "[NOT SET]"
+            app_logger.info(f"  {key}: {masked_value}")
+        else:
+            app_logger.info(f"  {key}: {value}")
+
     # Validate critical environment variables after Railway fixes
     critical_vars = {
         "DATABASE_URL": os.getenv("DATABASE_URL"),
