@@ -102,6 +102,14 @@ async def handle_evolution_webhook(request: Request):
         webhook_data = await request.json()
         headers = dict(request.headers)
 
+        # TEMPORARY DEBUG: Log all headers to debug Evolution API webhook
+        app_logger.info(f"🔍 WEBHOOK DEBUG - Headers received from Evolution API:")
+        for key, value in headers.items():
+            if any(keyword in key.lower() for keyword in ['api', 'auth', 'key', 'token']):
+                app_logger.info(f"  AUTH HEADER: {key} = {value}")
+            else:
+                app_logger.info(f"  HEADER: {key} = {value}")
+
         app_logger.info(
             "Evolution API webhook received - Phase 2 Pipeline Integration",
             extra={
@@ -120,25 +128,93 @@ async def handle_evolution_webhook(request: Request):
             app_logger.debug("No message found in webhook data")
             return {"status": "ignored", "reason": "no_message"}
 
-        # PIPELINE ORCHESTRATOR INTEGRATION - Complete End-to-End Processing
-        app_logger.info(
-            "🚀 Processing through Pipeline Orchestrator with enterprise-grade error handling"
-        )
+        # CORRECT ARCHITECTURE: MessagePreprocessor FIRST, then Pipeline
+        app_logger.info("🔧 Phase 1: Processing through MessagePreprocessor pipeline")
+        
+        # Process through MessagePreprocessor with comprehensive error handling
+        preprocessing_start = datetime.now()
+        try:
+            preprocessor_result = await message_preprocessor.process_message(
+                parsed_message, headers
+            )
+            
+            preprocessing_time = (datetime.now() - preprocessing_start).total_seconds() * 1000
+            
+            app_logger.info(
+                "MessagePreprocessor pipeline completed",
+                extra={
+                    "success": preprocessor_result.success,
+                    "processing_time_ms": preprocessing_time,
+                    "rate_limited": preprocessor_result.rate_limited,
+                    "error_code": preprocessor_result.error_code,
+                    "phone": parsed_message.phone,
+                }
+            )
 
-        # Import pipeline orchestrator
-        from app.core.pipeline_orchestrator import pipeline_orchestrator
-        from app.services.pipeline_monitor import pipeline_monitor
-        from app.services.pipeline_recovery import pipeline_recovery_system
+            # Handle preprocessing failures
+            if not preprocessor_result.success:
+                app_logger.warning(
+                    f"MessagePreprocessor failed for {parsed_message.phone}: {preprocessor_result.error_code}"
+                )
+                
+                # Return appropriate error response based on preprocessor result
+                if preprocessor_result.rate_limited:
+                    return {
+                        "status": "rate_limited",
+                        "message": "Rate limit exceeded. Please wait before sending another message.",
+                        "error_code": "RATE_LIMITED",
+                    }
+                elif preprocessor_result.error_code == "AUTH_FAILED":
+                    return {
+                        "status": "auth_failed", 
+                        "message": "Authentication failed",
+                        "error_code": "AUTH_FAILED",
+                    }
+                elif preprocessor_result.error_code == "OUTSIDE_BUSINESS_HOURS":
+                    return {
+                        "status": "outside_hours",
+                        "message": preprocessor_result.prepared_context.get("last_bot_response", 
+                            "Outside business hours"),
+                        "error_code": "OUTSIDE_BUSINESS_HOURS",
+                    }
+                else:
+                    return {
+                        "status": "preprocessing_failed",
+                        "message": preprocessor_result.error_message,
+                        "error_code": preprocessor_result.error_code,
+                    }
 
-        # Initialize pipeline orchestrator if needed
-        await pipeline_orchestrator.initialize()
+            # SUCCESS: Continue to Pipeline Orchestrator with preprocessed message
+            app_logger.info("🚀 Processing through Pipeline Orchestrator with preprocessed message")
+            
+            # Import pipeline orchestrator  
+            from app.core.pipeline_orchestrator import pipeline_orchestrator
+            from app.services.pipeline_monitor import pipeline_monitor
 
-        # Execute complete pipeline
-        pipeline_result = await pipeline_orchestrator.execute_pipeline(
-            message=parsed_message,
-            headers=headers,
-            instance_name=settings.EVOLUTION_INSTANCE_NAME or "kumonvilaa",
-        )
+            # Initialize pipeline orchestrator if needed
+            await pipeline_orchestrator.initialize()
+
+            # Execute pipeline with PREPROCESSED message and context
+            pipeline_result = await pipeline_orchestrator.execute_pipeline(
+                message=preprocessor_result.message,  # Use preprocessed message
+                headers=headers,
+                instance_name=settings.EVOLUTION_INSTANCE_NAME or "kumonvilaa",
+            )
+            
+        except Exception as e:
+            app_logger.error(f"🚨 MessagePreprocessor critical failure: {str(e)}", exc_info=True)
+            
+            # Fallback: Continue to pipeline with original message (degraded mode)
+            app_logger.warning("🔄 Fallback to Pipeline Orchestrator with original message")
+            
+            from app.core.pipeline_orchestrator import pipeline_orchestrator
+            await pipeline_orchestrator.initialize()
+            
+            pipeline_result = await pipeline_orchestrator.execute_pipeline(
+                message=parsed_message,  # Original message as fallback
+                headers=headers,
+                instance_name=settings.EVOLUTION_INSTANCE_NAME or "kumonvilaa",
+            )
 
         # Record pipeline execution for monitoring
         await pipeline_monitor.record_pipeline_execution(

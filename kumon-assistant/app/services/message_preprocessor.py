@@ -177,11 +177,18 @@ class AuthValidator:
             True if request is authenticated, False otherwise
         """
         try:
+            # Debug: Log all headers to understand what Evolution API is sending
+            app_logger.info(f"Authentication validation - Headers received: {list(headers.keys())}")
+            for key, value in headers.items():
+                if 'api' in key.lower() or 'auth' in key.lower() or 'key' in key.lower():
+                    app_logger.info(f"Potential auth header: {key} = {value[:20]}..." if len(value) > 20 else f"Potential auth header: {key} = {value}")
+            
             # Check for API key in headers
             api_key = headers.get('apikey') or headers.get('x-api-key') or headers.get('authorization')
             
             if not api_key:
                 app_logger.warning("No API key found in request headers")
+                app_logger.warning(f"Available headers: {list(headers.keys())}")
                 return False
             
             # Clean API key (remove Bearer prefix if present)
@@ -192,21 +199,28 @@ class AuthValidator:
             # Evolution API with base64=true sends encoded keys
             original_api_key = api_key
             try:
-                if len(api_key) > 20 and api_key.isalnum():  # Likely base64
+                import re
+                # Base64 pattern: alphanumeric + / + = with proper length
+                if len(api_key) > 8 and re.match(r'^[A-Za-z0-9+/]*={0,2}$', api_key):
                     decoded_key = base64.b64decode(api_key.encode()).decode('utf-8')
-                    app_logger.debug("Decoded base64 API key from Evolution webhook")
+                    app_logger.info(f"Successfully decoded base64 API key: {decoded_key[:10]}...")
                     api_key = decoded_key
-            except Exception:
+                else:
+                    app_logger.debug(f"API key doesn't match base64 pattern: {api_key[:20]}...")
+            except Exception as e:
                 # Not base64, use original key
-                app_logger.debug("API key is not base64 encoded, using as-is")
+                app_logger.debug(f"API key is not base64 encoded: {str(e)}")
                 api_key = original_api_key
             
             # Validate against known keys
+            app_logger.info(f"Validating API key: {api_key[:10]}...")
+            app_logger.info(f"Valid keys available: {[key[:10] + '...' if len(key) > 10 else key for key in self.valid_api_keys if key]}")
+            
             if api_key in self.valid_api_keys:
-                app_logger.debug("API key validation successful")
+                app_logger.info("✅ API key validation successful")
                 return True
             else:
-                app_logger.warning(f"Invalid API key provided: {api_key[:10]}...")
+                app_logger.error(f"❌ Invalid API key provided: {api_key[:10]}...")
                 return False
                 
         except Exception as e:
