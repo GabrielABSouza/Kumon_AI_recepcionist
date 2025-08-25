@@ -345,10 +345,16 @@ def apply_railway_environment_fixes():
             os.environ["QDRANT_API_KEY"] = qdrant_config["api_key"]
             logger.info("✅ Fixed QDRANT_API_KEY")
 
-        # Set production environment
-        if not os.getenv("ENVIRONMENT"):
+        # Set environment based on Railway environment
+        railway_env = os.getenv("RAILWAY_ENVIRONMENT") 
+        if railway_env:
+            # Railway sets RAILWAY_ENVIRONMENT to staging/production, use that
+            os.environ["ENVIRONMENT"] = railway_env.lower()
+            logger.info(f"✅ Set ENVIRONMENT={railway_env.lower()} based on RAILWAY_ENVIRONMENT")
+        elif not os.getenv("ENVIRONMENT"):
+            # Fallback to production if no Railway environment specified
             os.environ["ENVIRONMENT"] = "production"
-            logger.info("✅ Set ENVIRONMENT=production")
+            logger.info("✅ Set ENVIRONMENT=production (fallback)")
 
         logger.info("🎯 Railway environment fixes applied successfully")
 

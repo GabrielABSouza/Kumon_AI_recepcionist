@@ -157,6 +157,17 @@ async def _initialize_workflow_orchestrator():
     return workflow_orchestrator
 
 
+async def _initialize_intent_first_router():
+    """Initialize IntentFirstRouter service for fast template responses"""
+    from ..services.intent_first_router import IntentFirstRouter
+
+    router = IntentFirstRouter()
+    # Store service instance for dependency injection
+    optimized_startup_manager.service_instances["intent_first_router"] = router
+    app_logger.info(f"✅ IntentFirstRouter initialized successfully: {type(router).__name__}")
+    return router
+
+
 async def _health_check_llm_service() -> bool:
     """Health check for LLM service"""
     try:
@@ -279,6 +290,17 @@ def register_all_services():
             dependencies=["llm_service"],
             initialization_function=_initialize_langchain_rag,
             health_check=_health_check_rag_service,
+        )
+    )
+
+    optimized_startup_manager.register_service(
+        ServiceConfig(
+            name="intent_first_router",
+            priority=ServicePriority.HIGH,
+            strategy=InitializationStrategy.LAZY,  # Fast loading when needed
+            timeout_seconds=5.0,
+            dependencies=[],  # No dependencies for fast startup
+            initialization_function=_initialize_intent_first_router,
         )
     )
 

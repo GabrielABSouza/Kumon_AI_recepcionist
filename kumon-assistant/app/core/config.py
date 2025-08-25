@@ -14,6 +14,7 @@ from enum import Enum
 class Environment(str, Enum):
     """Application environment types"""
     DEVELOPMENT = "development"
+    STAGING = "staging"
     PRODUCTION = "production"
     TESTING = "testing"
 
@@ -258,9 +259,10 @@ class Settings(BaseSettings):
         # Skip validation if running on Railway during startup (will be validated later)
         if os.getenv('RAILWAY_ENVIRONMENT_ID') and v == '':
             return v
-        if values.get('ENVIRONMENT') == Environment.PRODUCTION and values.get('VALIDATE_API_KEYS', True):
+        env = values.get('ENVIRONMENT')
+        if env in [Environment.PRODUCTION, Environment.STAGING] and values.get('VALIDATE_API_KEYS', True):
             if not v or not v.startswith('sk-'):
-                raise ValueError("OpenAI API key is required in production and must start with 'sk-'")
+                raise ValueError(f"OpenAI API key is required in {env} and must start with 'sk-'")
         return v
     
     @validator('ANTHROPIC_API_KEY')
@@ -272,10 +274,10 @@ class Settings(BaseSettings):
     
     @validator('DEBUG')
     def validate_debug_production(cls, v, values):
-        """Ensure DEBUG is False in production"""
+        """Ensure DEBUG is False in production-like environments"""
         environment = values.get('ENVIRONMENT')
-        if environment == Environment.PRODUCTION and v:
-            raise ValueError("DEBUG must be False in production environment")
+        if environment in [Environment.PRODUCTION, Environment.STAGING] and v:
+            raise ValueError(f"DEBUG must be False in {environment} environment")
         return v
 
     @validator('FRONTEND_URL')
@@ -291,9 +293,10 @@ class Settings(BaseSettings):
         # Skip validation if running on Railway during startup (will be validated later)
         if os.getenv('RAILWAY_ENVIRONMENT_ID') and v == '':
             return v
-        if values.get('ENVIRONMENT') == Environment.PRODUCTION and values.get('VALIDATE_API_KEYS', True):
+        env = values.get('ENVIRONMENT')
+        if env in [Environment.PRODUCTION, Environment.STAGING] and values.get('VALIDATE_API_KEYS', True):
             if not v:
-                raise ValueError("Evolution API key is required in production")
+                raise ValueError(f"Evolution API key is required in {env}")
         return v
     
     @validator('DATABASE_URL')
@@ -302,9 +305,10 @@ class Settings(BaseSettings):
         # Skip validation if running on Railway during startup (will be validated later)
         if os.getenv('RAILWAY_ENVIRONMENT_ID') and v == '':
             return v
-        if values.get('ENVIRONMENT') == Environment.PRODUCTION:
+        env = values.get('ENVIRONMENT')
+        if env in [Environment.PRODUCTION, Environment.STAGING]:
             if not v or not v.startswith(('postgresql://', 'postgres://')):
-                raise ValueError("Valid PostgreSQL database URL is required in production")
+                raise ValueError(f"Valid PostgreSQL database URL is required in {env}")
         return v
     
     @validator('LLM_DAILY_BUDGET_BRL')
@@ -320,16 +324,24 @@ class Settings(BaseSettings):
         """Check if running in production environment"""
         return self.ENVIRONMENT == Environment.PRODUCTION
     
+    def is_staging(self) -> bool:
+        """Check if running in staging environment"""
+        return self.ENVIRONMENT == Environment.STAGING
+    
     def is_development(self) -> bool:
         """Check if running in development environment"""
         return self.ENVIRONMENT == Environment.DEVELOPMENT
     
+    def is_production_like(self) -> bool:
+        """Check if running in production or staging (require production settings)"""
+        return self.ENVIRONMENT in [Environment.PRODUCTION, Environment.STAGING]
+    
     def get_critical_missing_vars(self) -> List[str]:
-        """Get list of critical missing environment variables for production"""
+        """Get list of critical missing environment variables for production-like environments"""
         missing = []
         
-        if self.is_production():
-            # Critical API keys for production
+        if self.is_production_like():
+            # Critical API keys for production/staging
             if not self.OPENAI_API_KEY:
                 missing.append("OPENAI_API_KEY")
             if not self.EVOLUTION_API_KEY:
@@ -352,7 +364,7 @@ class Settings(BaseSettings):
             issues.extend([f"Missing critical environment variable: {var}" for var in missing_vars])
         
         # Check optional but recommended configurations
-        if self.is_production():
+        if self.is_production_like():
             if not self.ANTHROPIC_API_KEY:
                 warnings.append("Anthropic API key not configured - no LLM fallback available")
             if not self.TWILIO_ACCOUNT_SID or not self.TWILIO_AUTH_TOKEN:

@@ -275,6 +275,12 @@ async def get_secure_workflow():
     return await service_factory.get_service("secure_workflow")
 
 
+async def get_intent_first_router():
+    """Get IntentFirstRouter service instance"""
+    from ..core.optimized_startup import optimized_startup_manager
+    return await optimized_startup_manager.get_service_lazy("intent_first_router")
+
+
 def register_core_services():
     """Register all core application services"""
     logger = logging.getLogger(__name__)

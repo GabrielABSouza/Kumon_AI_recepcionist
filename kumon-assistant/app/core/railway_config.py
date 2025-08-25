@@ -20,6 +20,7 @@ class DeploymentEnvironment(str, Enum):
     RAILWAY = "railway"
     LOCAL = "local"
     DOCKER = "docker"
+    STAGING = "staging"
     PRODUCTION = "production"
 
 
@@ -33,9 +34,12 @@ def detect_environment() -> DeploymentEnvironment:
     if os.path.exists("/.dockerenv"):
         return DeploymentEnvironment.DOCKER
     
-    # Production detection (generic)
-    if os.getenv("ENVIRONMENT") == "production":
+    # Environment detection based on ENVIRONMENT variable
+    env = os.getenv("ENVIRONMENT")
+    if env == "production":
         return DeploymentEnvironment.PRODUCTION
+    elif env == "staging":
+        return DeploymentEnvironment.STAGING
     
     # Default to local
     return DeploymentEnvironment.LOCAL
@@ -78,6 +82,20 @@ class RailwayOptimizedConfig:
                 "webhook_timeout": 30,
                 "cache_operation_timeout": 10,
             }
+        elif self.environment == DeploymentEnvironment.STAGING:
+            return {
+                # Staging - Railway-like optimizations
+                "llm_request_timeout": 15,
+                "db_pool_timeout": 10,
+                "db_connection_timeout": 10,
+                "db_statement_timeout": 10000,
+                "memory_postgres_timeout": 10,
+                "health_check_timeout": 5,
+                "circuit_breaker_timeout": 10,
+                "redis_socket_timeout": 5,
+                "webhook_timeout": 15,
+                "cache_operation_timeout": 3,
+            }
         else:
             return {
                 # Production/Docker - balanced
@@ -117,6 +135,17 @@ class RailwayOptimizedConfig:
                 "max_workers": 4,
                 "max_concurrent_requests": 50,
             }
+        elif self.environment == DeploymentEnvironment.STAGING:
+            return {
+                # Staging - Railway-like limits
+                "db_pool_size": 5,
+                "db_max_overflow": 5,
+                "memory_postgres_min_pool": 2,
+                "memory_postgres_max_pool": 10,
+                "redis_max_connections": 10,
+                "max_workers": 2,
+                "max_concurrent_requests": 10,
+            }
         else:
             return {
                 # Production - balanced
@@ -131,9 +160,9 @@ class RailwayOptimizedConfig:
     
     def get_circuit_breaker_config(self) -> Dict[str, Any]:
         """Get environment-aware circuit breaker configuration"""
-        if self.environment == DeploymentEnvironment.RAILWAY:
+        if self.environment in [DeploymentEnvironment.RAILWAY, DeploymentEnvironment.STAGING]:
             return {
-                # Fast failure for Railway
+                # Fast failure for Railway/staging
                 "failure_threshold": 2,              # Fail fast
                 "recovery_timeout": 15,              # Quick recovery
                 "success_threshold": 1,              # Single success to close
@@ -150,9 +179,9 @@ class RailwayOptimizedConfig:
     
     def get_cache_config(self) -> Dict[str, Any]:
         """Get environment-aware cache configuration"""
-        if self.environment == DeploymentEnvironment.RAILWAY:
+        if self.environment in [DeploymentEnvironment.RAILWAY, DeploymentEnvironment.STAGING]:
             return {
-                # Reduced cache sizes for Railway
+                # Reduced cache sizes for Railway/staging
                 "l1_max_entries": 500,               # Was 1000
                 "l1_ttl": 180,                       # 3 minutes (was 5)
                 "l1_max_size_mb": 50,                # Was 100MB
@@ -171,7 +200,7 @@ class RailwayOptimizedConfig:
     
     def get_retry_config(self) -> Dict[str, Any]:
         """Get environment-aware retry configuration"""
-        if self.environment == DeploymentEnvironment.RAILWAY:
+        if self.environment in [DeploymentEnvironment.RAILWAY, DeploymentEnvironment.STAGING]:
             return {
                 "max_retries": 2,                    # Less retries
                 "retry_delay": 1,                    # 1 second
@@ -218,10 +247,11 @@ class RailwayOptimizedConfig:
     
     def get_health_check_config(self) -> Dict[str, Any]:
         """Get health check configuration"""
+        is_cloud_env = self.environment in [DeploymentEnvironment.RAILWAY, DeploymentEnvironment.STAGING]
         return {
-            "startup_timeout": 10 if self.environment == DeploymentEnvironment.RAILWAY else 30,
-            "liveness_timeout": 5 if self.environment == DeploymentEnvironment.RAILWAY else 10,
-            "readiness_timeout": 5 if self.environment == DeploymentEnvironment.RAILWAY else 10,
+            "startup_timeout": 10 if is_cloud_env else 30,
+            "liveness_timeout": 5 if is_cloud_env else 10,
+            "readiness_timeout": 5 if is_cloud_env else 10,
             "check_interval": 30,
             "failure_threshold": 3,
         }

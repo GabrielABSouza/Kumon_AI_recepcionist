@@ -1,7 +1,9 @@
 from typing import Dict, Any, List
+import time
 from ..state.models import CeciliaState, ConversationStage, ConversationStep, get_collected_field, set_collected_field, increment_metric
 from ..state.managers import StateManager
 from ...core.service_factory import get_langchain_rag_service  # FAQ Qdrant integration
+from ...services.intent_first_router import intent_first_router, IntentCategory
 import logging
 
 logger = logging.getLogger(__name__)
@@ -12,16 +14,72 @@ class InformationNode:
     """
     
     async def __call__(self, state: CeciliaState) -> Dict[str, Any]:
-        """Processa perguntas sobre metodologia Kumon usando FAQ vetorizada"""
+        """
+        Processa perguntas usando INTENT-FIRST ROUTING para performance otimizada
+        
+        NEW ARCHITECTURE (Wave 2):
+        1. INTENT-FIRST: Fast template matching (<100ms)
+        2. RAG FALLBACK: Complex queries only when templates don't match
+        3. PERFORMANCE TARGET: 80% queries answered in <1s, 70% reduction in RAG calls
+        """
         
         user_message = state["last_user_message"]
+        start_time = time.time()
         
         # Tracking é agora gerenciado pelo StateManager via metrics
         # info_gathering_count será incrementado via conversation_metrics
         
-        # ========== INTEGRAÇÃO COM FAQ QDRANT ==========
+        # ========== WAVE 2: INTENT-FIRST ROUTING ==========
         try:
-            # 1. Consultar FAQ vetorizada primeiro
+            # 1. INTENT-FIRST CLASSIFICATION (target: <50ms)
+            context = self._extract_context_for_router(state)
+            route_result = await intent_first_router.route_message(
+                message=user_message,
+                context=context,
+                phone_number=state["phone_number"]
+            )
+            
+            # 2. TEMPLATE MATCH FOUND - Use hardcoded response (target: <100ms total)
+            if route_result.matched:
+                template_time_ms = (time.time() - start_time) * 1000
+                
+                logger.info(
+                    f"Template response delivered in {template_time_ms:.0f}ms",
+                    extra={
+                        "phone_number": state["phone_number"],
+                        "template_id": route_result.template_id,
+                        "intent_category": route_result.intent_category.value,
+                        "confidence": route_result.confidence,
+                        "performance_target_met": template_time_ms < 100
+                    }
+                )
+                
+                return self._create_template_response(
+                    state, 
+                    route_result.response, 
+                    route_result.context_updates,
+                    route_result.template_id
+                )
+            
+            # 3. NO TEMPLATE MATCH - Fallback to RAG (complex queries)
+            logger.debug(
+                f"No template match - falling back to RAG for complex query",
+                extra={
+                    "phone_number": state["phone_number"], 
+                    "processing_time_ms": route_result.processing_time_ms
+                }
+            )
+            
+        except Exception as template_error:
+            logger.error(
+                f"Intent routing failed, falling back to RAG: {template_error}",
+                extra={"phone_number": state["phone_number"]},
+                exc_info=True
+            )
+        
+        # ========== RAG FALLBACK (only for unmatched or error cases) ==========
+        try:
+            # Consultar FAQ vetorizada apenas para queries complexas
             langchain_rag_service = await get_langchain_rag_service()
             rag_result = await langchain_rag_service.query(
                 question=user_message,
@@ -113,6 +171,135 @@ class InformationNode:
             updates = {}
         
         return self._create_response(state, response, updates)
+    
+    def _extract_context_for_router(self, state: CeciliaState) -> Dict[str, Any]:
+        """Extract context from CeciliaState for IntentFirstRouter personalization"""
+        collected_data = state.get("collected_data", {})
+        
+        return {
+            "parent_name": collected_data.get("parent_name", ""),
+            "child_name": collected_data.get("child_name", ""),
+            "student_age": collected_data.get("student_age"),
+            "programs_of_interest": collected_data.get("programs_of_interest", []),
+            "phone_number": state.get("phone_number", ""),
+            "conversation_stage": state.get("current_stage"),
+            "message_count": state.get("conversation_metrics", {}).get("message_count", 0),
+            "previous_templates": collected_data.get("previous_templates", [])
+        }
+    
+    def _create_template_response(
+        self, 
+        state: CeciliaState, 
+        response: str, 
+        context_updates: Dict[str, Any],
+        template_id: str
+    ) -> Dict[str, Any]:
+        """Create response for template matches with performance optimizations"""
+        
+        # Track template usage in collected_data
+        if not state["collected_data"].get("template_usage_history"):
+            state["collected_data"]["template_usage_history"] = []
+        
+        state["collected_data"]["template_usage_history"].append({
+            "template_id": template_id,
+            "timestamp": time.time(),
+            "message": state["last_user_message"]
+        })
+        
+        # Apply context updates from template router
+        for key, value in context_updates.items():
+            if key.startswith("showed_") or key.startswith("handled_") or key == "last_template_used":
+                state["collected_data"][key] = value
+        
+        # Increment message count for metrics
+        increment_metric(state, "message_count")
+        
+        # Determine if should suggest scheduling after template response
+        should_suggest = self._should_suggest_scheduling_after_template(state, template_id)
+        
+        if should_suggest:
+            # Add scheduling suggestion to template response
+            scheduling_suggestion = self._get_scheduling_suggestion(state, template_id)
+            if scheduling_suggestion:
+                response = f"{response}\n\n---\n\n{scheduling_suggestion}"
+                
+                # Check if can progress directly to scheduling
+                scheduling_check = self._can_progress_to_scheduling(state)
+                if scheduling_check["can_progress"]:
+                    updates = {
+                        "current_stage": ConversationStage.SCHEDULING,
+                        "current_step": ConversationStep.DATE_PREFERENCE
+                    }
+                else:
+                    updates = {}
+            else:
+                updates = {}
+        else:
+            updates = {}
+        
+        return self._create_response(state, response, updates)
+    
+    def _should_suggest_scheduling_after_template(self, state: CeciliaState, template_id: str) -> bool:
+        """Determine if should suggest scheduling after specific template responses"""
+        
+        # Business critical templates that often lead to scheduling
+        scheduling_trigger_templates = [
+            "pricing", "contact", "methodology", "benefits", "availability"
+        ]
+        
+        message_count = state.get("conversation_metrics", {}).get("message_count", 0)
+        template_history = state.get("collected_data", {}).get("template_usage_history", [])
+        
+        # Suggest scheduling if:
+        # 1. High engagement templates (pricing, methodology, benefits)
+        # 2. Multiple templates used (user is engaged)
+        # 3. 3+ messages exchanged
+        
+        return (
+            template_id in scheduling_trigger_templates or
+            len(template_history) >= 2 or
+            message_count >= 3
+        )
+    
+    def _get_scheduling_suggestion(self, state: CeciliaState, template_id: str) -> str:
+        """Get context-appropriate scheduling suggestion based on template used"""
+        
+        parent_name = state.get("collected_data", {}).get("parent_name", "")
+        name_prefix = f"{parent_name}, " if parent_name else ""
+        
+        if template_id == "pricing":
+            return (
+                f"{name_prefix}vejo que você está interessado no investimento! 💰\n\n"
+                "Que tal conhecer nossa unidade na prática? Na apresentação você poderá:\n"
+                "• Ver os materiais didáticos exclusivos 📚\n"
+                "• Fazer uma avaliação diagnóstica gratuita 📝\n"
+                "• Conversar com nossa equipe pedagógica 👨‍🏫\n\n"
+                "Gostaria de agendar uma visita? Qual período prefere: **manhã** ou **tarde**? 🕐"
+            )
+        
+        elif template_id == "methodology" or template_id == "benefits":
+            return (
+                f"{name_prefix}que bom saber do seu interesse na metodologia Kumon! 📚\n\n"
+                "Para ver como funciona na prática e fazer uma avaliação personalizada, "
+                "que tal agendar uma apresentação gratuita?\n\n"
+                "Qual período é melhor para você: **manhã** ou **tarde**? 🕐"
+            )
+        
+        elif template_id == "contact" or template_id == "hours":
+            return (
+                f"{name_prefix}se preferir, posso agendar uma conversa presencial! 😊\n\n"
+                "Nossa equipe pode esclarecer todas as dúvidas com muito mais detalhes. "
+                "Gostaria de agendar uma apresentação?"
+            )
+        
+        else:
+            # Generic scheduling suggestion
+            return (
+                f"{name_prefix}vejo que você está interessado! 😊\n\n"
+                "Que tal conhecer nossa unidade pessoalmente? "
+                "Posso agendar uma apresentação gratuita para você. "
+                "Qual período prefere: **manhã** ou **tarde**? 🕐"
+            )
     
     def _categorize_question_from_rag(self, user_message: str, rag_result) -> str:
         """Categoriza pergunta baseada no resultado RAG"""
