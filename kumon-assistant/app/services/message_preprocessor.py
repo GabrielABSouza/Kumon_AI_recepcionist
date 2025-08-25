@@ -5,6 +5,7 @@ Implements the complete specification from TECHNICAL_ARCHITECTURE.md
 """
 import asyncio
 import re
+import base64
 from typing import Dict, Any, Optional
 from datetime import datetime, timedelta
 import json
@@ -186,6 +187,19 @@ class AuthValidator:
             # Clean API key (remove Bearer prefix if present)
             if api_key.startswith('Bearer '):
                 api_key = api_key[7:]
+            
+            # Try to decode base64 if the key looks like base64 encoding
+            # Evolution API with base64=true sends encoded keys
+            original_api_key = api_key
+            try:
+                if len(api_key) > 20 and api_key.isalnum():  # Likely base64
+                    decoded_key = base64.b64decode(api_key.encode()).decode('utf-8')
+                    app_logger.debug("Decoded base64 API key from Evolution webhook")
+                    api_key = decoded_key
+            except Exception:
+                # Not base64, use original key
+                app_logger.debug("API key is not base64 encoded, using as-is")
+                api_key = original_api_key
             
             # Validate against known keys
             if api_key in self.valid_api_keys:

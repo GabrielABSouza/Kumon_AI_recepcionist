@@ -128,7 +128,7 @@ class EvolutionAPIClient:
             "webhook": {
                 "url": webhook_url or settings.WEBHOOK_GLOBAL_URL,
                 "by_events": True,
-                "base64": False,
+                "base64": True,
                 "events": [
                     "APPLICATION_STARTUP",
                     "QRCODE_UPDATED",
