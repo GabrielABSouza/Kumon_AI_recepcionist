@@ -1,0 +1,105 @@
+# Qdrant Configuration File
+# This file provides base configuration that can be overridden by environment variables
+# Environment variables follow the pattern: QDRANT__SECTION__KEY
+
+# Storage configuration
+storage:
+  # Path where all the data is stored
+  storage_path: /qdrant/storage
+
+  # Path where snapshots are stored
+  snapshots_path: /qdrant/snapshots
+
+  # Storage options
+  on_disk_payload: true
+
+  # Performance options
+  performance:
+    # Number of parallel workers for indexing
+    max_optimization_threads: 2
+
+    # Optimization settings
+    optimizer_config:
+      indexing_threshold: 10000
+      memmap_threshold: 50000
+      flush_interval: 5
+
+# Service configuration
+service:
+  # HTTP API settings
+  http_port: 6333
+  host: 0.0.0.0  # Listen on all interfaces for Railway
+
+  # gRPC settings
+  grpc_port: 6334
+  enable_grpc: true
+
+  # CORS settings (important for web clients)
+  enable_cors: true
+  cors_allowed_origins:
+    - "*"  # Allow all origins in development, restrict in production
+
+  # Request limits
+  max_request_size_mb: 32
+  max_workers: 0  # 0 means auto-detect based on CPU cores
+
+  # API Key authentication (optional, set via environment variable)
+  # api_key: ${QDRANT__SERVICE__API_KEY}
+
+  # TLS/SSL configuration (disabled for internal Railway network)
+  enable_tls: false
+
+# Logging configuration
+log_level: INFO
+
+# Telemetry
+telemetry_disabled: true
+
+# Collection defaults
+collections:
+  # Default parameters for new collections
+  default:
+    # Vector parameters
+    vectors:
+      size: 768  # Default size for OpenAI embeddings
+      distance: Cosine  # Best for semantic similarity
+
+    # Optimization parameters
+    optimizers_config:
+      default_segment_number: 2
+      indexing_threshold: 20000
+      memmap_threshold: 50000
+      flush_interval_sec: 5
+      max_optimization_threads: 2
+
+    # Replication factor (1 for single instance)
+    replication_factor: 1
+
+    # Write consistency (majority for production)
+    write_consistency_factor: 1
+
+# Cluster configuration (single node for Railway)
+cluster:
+  enabled: false
+
+# Performance tuning
+performance:
+  # WAL configuration
+  wal:
+    wal_capacity_mb: 32
+    wal_segments_ahead: 0
+
+  # Indexing configuration
+  indexing:
+    # HNSW index parameters (for vector similarity search)
+    hnsw_index:
+      m: 16  # Number of bi-directional links
+      ef_construct: 100  # Size of dynamic list
+      full_scan_threshold: 10000
+
+    # Quantization (reduces memory usage)
+    quantization:
+      scalar:
+        type: int8
+        quantile: 0.99
+        always_ram: false
