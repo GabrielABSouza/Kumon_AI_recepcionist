@@ -73,12 +73,12 @@ class VectorStore:
                 self.client = QdrantClient(
                     url=settings.QDRANT_URL,
                     api_key=settings.QDRANT_API_KEY,
-                    timeout=30,  # Increased timeout for Railway network
+                    timeout=60,  # Maximum timeout for Railway network
                 )
             else:
                 self.client = QdrantClient(
                     url=settings.QDRANT_URL,
-                    timeout=30,  # Increased timeout for Railway network
+                    timeout=60,  # Maximum timeout for Railway network
                 )
 
             # Ensure collection exists
