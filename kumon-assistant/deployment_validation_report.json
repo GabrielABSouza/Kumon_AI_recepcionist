@@ -1,0 +1,240 @@
+{
+  "deployment_ready": true,
+  "critical_issues": 0,
+  "warnings": 1,
+  "critical_issue_list": [],
+  "warning_list": [
+    "Evolution API webhook configuration incomplete"
+  ],
+  "validation_results": {
+    "configuration": {
+      "healthy": true,
+      "issues": [],
+      "warnings": [],
+      "missing_vars": [],
+      "environment": "development",
+      "timestamp": "2025-08-23T17:05:27.790530+00:00",
+      "business_rules_compliance": {
+        "business_hours": {
+          "start": 8,
+          "end_morning": 12,
+          "start_afternoon": 14,
+          "end": 18,
+          "days": [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          "valid_schedule": true
+        },
+        "pricing": {
+          "per_subject": 375.0,
+          "enrollment_fee": 100.0,
+          "pricing_accurate": true
+        },
+        "security": {
+          "rate_limit": 50,
+          "max_message_length": 2000,
+          "threat_threshold": 0.6,
+          "auto_escalation_threshold": 0.8,
+          "security_features_enabled": {
+            "prompt_injection_defense": true,
+            "ddos_protection": true,
+            "scope_validation": true,
+            "information_protection": true,
+            "advanced_threat_detection": true
+          }
+        },
+        "performance": {
+          "response_time_target": 5.0,
+          "response_time_warning": 4.0,
+          "llm_daily_budget_brl": 5.0,
+          "llm_cost_alert_threshold_brl": 4.0,
+          "circuit_breaker_threshold": 5,
+          "performance_targets_realistic": true
+        }
+      },
+      "database_pool_validation": {
+        "pool_config": {
+          "pool_size": 20,
+          "max_overflow": 10,
+          "pool_timeout": 30,
+          "pool_recycle": 1800,
+          "echo": false,
+          "pool_pre_ping": true,
+          "connect_args": {
+            "connect_timeout": 30,
+            "application_name": "kumon_assistant",
+            "options": "-c statement_timeout=30000"
+          }
+        },
+        "pool_settings_optimal": true
+      },
+      "memory_configuration": {
+        "memory_system_enabled": true,
+        "redis_config": {
+          "max_connections": 20,
+          "session_ttl": 604800,
+          "profile_ttl": 2592000,
+          "cache_ttl": 3600
+        },
+        "postgres_config": {
+          "min_pool_size": 5,
+          "max_pool_size": 20,
+          "command_timeout": 30
+        },
+        "memory_settings_optimal": true
+      },
+      "workflow_configuration": {
+        "langgraph_enabled": false,
+        "rollout_percentage": 0.1,
+        "enhanced_cache_enabled": true,
+        "secure_processing_enabled": true,
+        "workflow_config_valid": true
+      },
+      "compliance_score": 1.0,
+      "critical_compliance_checks": {
+        "business_schedule_valid": true,
+        "pricing_accurate": true,
+        "performance_targets_realistic": true,
+        "pool_settings_optimal": true,
+        "memory_settings_optimal": true,
+        "workflow_config_valid": true
+      }
+    },
+    "openai": {
+      "healthy": true,
+      "configured": true,
+      "timestamp": "2025-08-23T17:05:27.790571+00:00",
+      "response_time_ms": 0.01,
+      "cost_management": {
+        "daily_budget_brl": 5.0,
+        "alert_threshold_brl": 4.0,
+        "circuit_breaker_threshold": 5,
+        "request_timeout_seconds": 30,
+        "budget_utilization_safe": true,
+        "cost_monitoring_active": true
+      },
+      "circuit_breaker": {
+        "state": "closed",
+        "failure_count": 0,
+        "last_failure_time": null,
+        "threshold": 5,
+        "timeout_configured": 30,
+        "circuit_healthy": true
+      },
+      "api_configuration": {
+        "model": "gpt-4-turbo-preview",
+        "key_configured": true,
+        "key_format_valid": true,
+        "fallback_available": false,
+        "anthropic_model": null
+      },
+      "performance_metrics": {
+        "response_time_ms": 0.01,
+        "timeout_threshold_ms": 30000,
+        "response_time_acceptable": true,
+        "latency_target_met": true
+      },
+      "availability_status": {
+        "api_configured": true,
+        "key_valid_format": true,
+        "fallback_configured": false,
+        "circuit_breaker_operational": true,
+        "cost_controls_active": true
+      },
+      "health_summary": {
+        "total_checks": 4,
+        "passing_checks": 4,
+        "health_score": 1.0,
+        "minimum_score_for_healthy": 1.0
+      }
+    },
+    "evolution": {
+      "healthy": false,
+      "configured": true,
+      "timestamp": "2025-08-23T17:05:27.790594+00:00",
+      "response_time_ms": 0.0,
+      "configuration_validation": {
+        "api_key_configured": true,
+        "global_api_key_configured": false,
+        "authentication_key_configured": false,
+        "api_url": "http://localhost:8080",
+        "api_url_valid": true,
+        "webhook_url_configured": false,
+        "webhook_enabled": true
+      },
+      "webhook_configuration": {
+        "global_webhook_url": "",
+        "webhook_enabled": true,
+        "webhook_url_valid": false,
+        "session_phone_client": "Kumon Assistant",
+        "webhook_ready": false
+      },
+      "api_integration": {
+        "evolution_api_url": "http://localhost:8080",
+        "connection_ready": true,
+        "authentication_configured": false,
+        "whatsapp_integration_ready": false
+      },
+      "whatsapp_capabilities": {
+        "cost_free_integration": true,
+        "multiple_instances_supported": true,
+        "qr_code_connection": true,
+        "media_support": true,
+        "button_support": true,
+        "real_time_processing": false,
+        "business_api_fallback": false
+      },
+      "performance_metrics": {
+        "response_time_ms": 0.0,
+        "configuration_check_time": 0.0,
+        "target_response_time_ms": 1000,
+        "performance_acceptable": true
+      },
+      "failover_configuration": {
+        "primary_service": "evolution_api",
+        "fallback_available": false,
+        "redundancy_level": "single_provider",
+        "failover_strategy": "none",
+        "service_resilience": "depends_on_evolution_api"
+      },
+      "health_assessment": {
+        "critical_checks_passing": 4,
+        "critical_checks_total": 5,
+        "critical_score": 0.8,
+        "essential_checks_passing": 0,
+        "essential_checks_total": 3,
+        "essential_score": 0.0,
+        "overall_readiness": false,
+        "minimum_critical_score": 0.8,
+        "minimum_essential_score": 0.6
+      }
+    },
+    "database": {
+      "healthy": false,
+      "error": "Database URL not configured for production",
+      "timestamp": "2025-08-23T17:05:27.790600+00:00",
+      "critical": true
+    },
+    "redis": {
+      "healthy": false,
+      "error": "Redis URL not configured for production",
+      "timestamp": "2025-08-23T17:05:27.790604+00:00"
+    },
+    "performance": {
+      "config_response_time_ms": 0.02288818359375,
+      "openai_response_time_ms": 0.008344650268554688,
+      "meets_targets": true
+    },
+    "business_compliance": {
+      "pricing_correct": true,
+      "business_hours_valid": true,
+      "overall_compliant": true
+    }
+  },
+  "timestamp": "1.0.0",
+  "environment": "development"
+}

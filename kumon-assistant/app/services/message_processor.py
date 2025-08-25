@@ -1,198 +1,179 @@
 """
-Main message processor - orchestrates all WhatsApp message handling
+Enhanced Message Processing Service with Security Integration
 """
-from typing import Optional
-from datetime import datetime
+from typing import Dict, Any, Optional
+import asyncio
 
-from ..models.message import WhatsAppMessage, MessageResponse, ConversationState
-from ..models.booking_request import BookingRequest
+from ..models.message import WhatsAppMessage, MessageResponse, MessageType
+from ..services.intent_classifier import IntentClassifier
+from ..services.availability_service import AvailabilityService
+from ..services.booking_service import BookingService
+from ..core.dependencies import langchain_rag_service
+# Legacy conversation flow removed - now using CeciliaWorkflow only
+from ..services.secure_message_processor import secure_message_processor
 from ..core.logger import app_logger
-from .intent_classifier import IntentClassifier
-from .availability_service import AvailabilityService
-from .booking_service import BookingService
-from .rag_engine import RAGEngine
-from .lead_collector import LeadCollector
+from ..core.config import settings
 
 
 class MessageProcessor:
-    """Main orchestrator for processing WhatsApp messages"""
+    """
+    Enhanced message processing orchestrator with security integration
+    
+    Supports both legacy mode and secure mode (Fase 5) with feature flags.
+    """
     
     def __init__(self):
+        # Legacy components (for backward compatibility)
         self.intent_classifier = IntentClassifier()
         self.availability_service = AvailabilityService()
         self.booking_service = BookingService()
-        self.rag_engine = RAGEngine()
-        self.lead_collector = LeadCollector()
+        # Legacy conversation flow removed - using CeciliaWorkflow instead
         
-        # In-memory conversation state (in production, use Redis or database)
-        self.conversation_states = {}
+        # Security components (Fase 5)
+        self.secure_processor = secure_message_processor
+        
+        # Feature flags for gradual rollout
+        self.use_secure_processing = getattr(settings, 'USE_SECURE_PROCESSING', True)
+        self.secure_rollout_percentage = getattr(settings, 'SECURE_ROLLOUT_PERCENTAGE', 100.0)
+        
+        app_logger.info(f"MessageProcessor initialized - Secure mode: {self.use_secure_processing}")
     
     async def process_message(self, message: WhatsAppMessage) -> MessageResponse:
-        """Process incoming WhatsApp message and return appropriate response"""
-        
-        app_logger.info(
-            "Processing message",
-            extra={
-                "user_id": message.from_number,
-                "message_id": message.message_id,
-                "action": "process_message"
-            }
-        )
+        """Process incoming WhatsApp message and generate response"""
         
         try:
-            # Get or create conversation state
-            conversation_state = self._get_conversation_state(message.from_number)
+            app_logger.info("Processing message", extra={
+                "message_id": message.message_id,
+                "from_number": message.from_number,
+                "content_length": len(message.content),
+                "secure_mode": self.use_secure_processing
+            })
             
-            # Update last interaction time
-            conversation_state.last_message_time = datetime.utcnow()
-            
-            # Check if we're in the middle of a booking process
-            if conversation_state.booking_in_progress:
-                return await self._handle_booking_flow(message, conversation_state)
-            
-            # Classify intent for new messages
-            intent = await self.intent_classifier.classify_intent(message.content)
-            conversation_state.current_intent = intent
-            
-            # Route to appropriate handler based on intent
-            if intent == "schedule_appointment":
-                return await self._handle_scheduling_request(message, conversation_state)
-            elif intent == "ask_question":
-                return await self._handle_question(message, conversation_state)
-            elif intent == "provide_info":
-                return await self._handle_lead_collection(message, conversation_state)
+            # Route to appropriate processor based on feature flags
+            if self.use_secure_processing and self._should_use_secure_mode(message):
+                # Use Fase 5 secure processing
+                app_logger.info(f"Routing to secure processor: {message.from_number}")
+                return await self.secure_processor.process_message(message)
             else:
-                return await self._handle_general_inquiry(message, conversation_state)
+                # Use legacy processing (backward compatibility)
+                app_logger.info(f"Routing to legacy processor: {message.from_number}")
+                return await self._process_message_legacy(message)
                 
         except Exception as e:
-            app_logger.error(
-                f"Error processing message: {str(e)}",
-                extra={
-                    "user_id": message.from_number,
-                    "message_id": message.message_id,
-                    "action": "process_message_error"
-                }
-            )
+            app_logger.error(f"Message processing failed: {e}", extra={
+                "message_id": message.message_id,
+                "from_number": message.from_number
+            })
+            
+            # Fallback response
             return MessageResponse(
-                to_number=message.from_number,
-                content="Desculpe, ocorreu um erro. Por favor, tente novamente em alguns minutos."
+                content="Desculpe, ocorreu um problema técnico. Entre em contato conosco pelo telefone (51) 99692-1999.",
+                message_type=MessageType.TEXT,
+                metadata={"error": True, "fallback": True}
             )
     
-    def _get_conversation_state(self, phone_number: str) -> ConversationState:
-        """Get or create conversation state for user"""
-        if phone_number not in self.conversation_states:
-            self.conversation_states[phone_number] = ConversationState(
-                phone_number=phone_number
-            )
-        return self.conversation_states[phone_number]
+    def _should_use_secure_mode(self, message: WhatsAppMessage) -> bool:
+        """Determine if message should use secure processing"""
+        
+        # Always use secure mode if enabled and rollout is 100%
+        if self.secure_rollout_percentage >= 100.0:
+            return True
+        
+        # Gradual rollout based on phone number hash
+        if self.secure_rollout_percentage > 0:
+            import hashlib
+            phone_hash = hashlib.md5(message.from_number.encode()).hexdigest()
+            hash_value = int(phone_hash[:8], 16) % 100
+            return hash_value < self.secure_rollout_percentage
+        
+        return False
     
-    async def _handle_scheduling_request(
-        self, 
-        message: WhatsAppMessage, 
-        state: ConversationState
-    ) -> MessageResponse:
-        """Handle appointment scheduling requests"""
+    async def _process_message_legacy(self, message: WhatsAppMessage) -> MessageResponse:
+        """Legacy message processing (backward compatibility)"""
         
-        state.booking_in_progress = True
-        
-        # Start the booking process
-        booking_request = await self.booking_service.initiate_booking(message.from_number)
-        
-        # Get available slots for suggestion
-        available_slots = await self.availability_service.get_available_slots(days_ahead=7)
-        
-        if not available_slots:
+        try:
+            # Extract unit context if available
+            unit_context = self._extract_unit_context(message)
+            
+            # Legacy conversation flow has been removed - this processor should not be used
+            app_logger.warning("MessageProcessor.process_message_legacy called - this should use CeciliaWorkflow instead")
+            
+            # Return a message directing to the new system
             return MessageResponse(
-                to_number=message.from_number,
-                content="No momento não temos horários disponíveis. Por favor, entre em contato diretamente conosco."
+                content="Sistema atualizado! Agora estou usando o novo CeciliaWorkflow. 😊",
+                message_type=MessageType.TEXT,
+                metadata={"system": "legacy_deprecated", "recommendation": "use_cecilia_workflow"}
             )
-        
-        # Suggest some time slots
-        suggestion_text = "Ótimo! Vou ajudar você a agendar uma consulta. Temos os seguintes horários disponíveis:\n\n"
-        for i, slot in enumerate(available_slots[:3], 1):
-            suggestion_text += f"{i}. {slot.date} às {slot.time}\n"
-        
-        suggestion_text += "\nPor favor, me informe:\n1. Qual horário prefere?\n2. Nome do aluno(a)\n3. Nome do responsável"
-        
-        return MessageResponse(
-            to_number=message.from_number,
-            content=suggestion_text
-        )
-    
-    async def _handle_booking_flow(
-        self, 
-        message: WhatsAppMessage, 
-        state: ConversationState
-    ) -> MessageResponse:
-        """Handle ongoing booking conversation"""
-        
-        # Continue booking process with user's response
-        result = await self.booking_service.process_booking_response(
-            message.from_number,
-            message.content
-        )
-        
-        if result.get("completed"):
-            state.booking_in_progress = False
-            # Collect lead information
-            await self.lead_collector.update_lead_from_booking(
-                message.from_number,
-                result.get("booking_request")
+            
+        except Exception as e:
+            app_logger.error(f"Error processing message: {str(e)}", extra={
+                "message_id": message.message_id,
+                "from_number": message.from_number
+            })
+            
+            # Send error response
+            error_response = MessageResponse(
+                content="Desculpe, ocorreu um erro ao processar sua mensagem. Tente novamente em alguns minutos.",
+                message_type=MessageType.TEXT,
+                metadata={"error": True}
             )
-        
-        return MessageResponse(
-            to_number=message.from_number,
-            content=result.get("response", "Entendi. Continue...")
-        )
+            
+            return error_response
     
-    async def _handle_question(
-        self, 
-        message: WhatsAppMessage, 
-        state: ConversationState
-    ) -> MessageResponse:
-        """Handle questions using RAG"""
+    def _should_use_rag(self, message_content: str) -> bool:
+        """Determine if message should be handled by RAG instead of conversation flow"""
         
-        answer = await self.rag_engine.get_answer(message.content)
+        # Keywords that indicate specific questions
+        rag_keywords = [
+            "como funciona", "o que é", "qual", "quanto custa", "preço", "valor",
+            "horário", "endereço", "onde fica", "telefone", "email",
+            "método kumon", "disciplinas", "matemática", "português", "inglês",
+            "kumon connect", "material", "aula", "professor", "orientador"
+        ]
         
-        # Add scheduling suggestion at the end
-        answer += "\n\n💡 Gostaria de agendar uma consulta? É só me avisar!"
+        message_lower = message_content.lower()
         
-        return MessageResponse(
-            to_number=message.from_number,
-            content=answer
-        )
+        # Check for question words
+        if any(word in message_lower for word in ["?", "como", "o que", "qual", "onde", "quando", "quanto", "por que"]):
+            return True
+        
+        # Check for specific keywords
+        if any(keyword in message_lower for keyword in rag_keywords):
+            return True
+        
+        return False
     
-    async def _handle_lead_collection(
-        self, 
-        message: WhatsAppMessage, 
-        state: ConversationState
-    ) -> MessageResponse:
-        """Handle lead information collection"""
+    def _extract_unit_context(self, message: WhatsAppMessage) -> Optional[Dict[str, Any]]:
+        """Extract unit context from message metadata"""
+        if not message.metadata:
+            return None
         
-        await self.lead_collector.collect_lead_info(message.from_number, message.content)
+        unit_context = message.metadata.get("unit_context")
+        if unit_context:
+            return {
+                "user_id": message.metadata.get("user_id"),
+                **unit_context
+            }
         
-        return MessageResponse(
-            to_number=message.from_number,
-            content="Obrigado pelas informações! Nosso time entrará em contato em breve. \n\nEnquanto isso, posso responder alguma dúvida sobre o Kumon ou agendar uma consulta?"
-        )
+        return None
     
-    async def _handle_general_inquiry(
-        self, 
-        message: WhatsAppMessage, 
-        state: ConversationState
-    ) -> MessageResponse:
-        """Handle general inquiries and provide helpful response"""
-        
-        response = """Olá! Sou a assistente virtual do Kumon. 
+    def _get_business_info(self, unit_context: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
+        """Get business information with optional unit context"""
+        return {
+            "name": unit_context.get("username", settings.BUSINESS_NAME),
+            "email": unit_context.get("email", settings.BUSINESS_EMAIL),
+            "hours": unit_context.get("operating_hours", settings.BUSINESS_HOURS),
+            "phone": unit_context.get("phone", ""),
+            "address": unit_context.get("address", ""),
+            "timezone": unit_context.get("timezone", settings.TIMEZONE)
+        }
 
-Posso te ajudar com:
-📚 Informações sobre nossos programas
-📅 Agendamento de consultas
-❓ Dúvidas sobre metodologia
-
-Como posso te ajudar hoje?"""
-        
-        return MessageResponse(
-            to_number=message.from_number,
-            content=response
-        ) 
+    async def get_conversation_status(self, phone_number: str) -> Dict[str, Any]:
+        """Get conversation status - deprecated, use CeciliaWorkflow instead"""
+        app_logger.warning("MessageProcessor.get_conversation_status called - use CeciliaWorkflow instead")
+        return {"status": "deprecated", "use": "cecilia_workflow"}
+    
+    async def reset_conversation(self, phone_number: str) -> bool:
+        """Reset conversation state - deprecated, use CeciliaWorkflow instead"""
+        app_logger.warning("MessageProcessor.reset_conversation called - use CeciliaWorkflow instead")
+        return False 

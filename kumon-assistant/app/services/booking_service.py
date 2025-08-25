@@ -16,7 +16,50 @@ class BookingService:
     """Handle booking workflow with state management"""
     
     def __init__(self):
-        pass
+        self.availability_service = AvailabilityService()
+        self.calendar_client = GoogleCalendarClient()
+        
+        # In-memory storage for active bookings (use database in production)
+        self.active_bookings = {}
+    
+    async def start_booking(self, phone_number: str, initial_message: str = "") -> str:
+        """Start a new booking process"""
+        
+        try:
+            # Check if user already has an active booking
+            if phone_number in self.active_bookings:
+                return "Você já tem um agendamento em andamento. Continue fornecendo as informações solicitadas ou digite 'cancelar' para reiniciar."
+            
+            # Create new booking request
+            booking = BookingRequest(
+                id=str(uuid.uuid4()),
+                phone_number=phone_number,
+                student_name="",
+                parent_name="",
+                status=BookingStatus.INITIATED
+            )
+            
+            self.active_bookings[phone_number] = booking
+            
+            # Get available slots to suggest
+            available_slots = await self.availability_service.get_available_slots(days_ahead=7)
+            
+            if available_slots:
+                suggestion = self.availability_service.format_availability_message(available_slots)
+                response = f"Ótimo! Vou ajudar você a agendar uma consulta. 📅\n\n{suggestion}"
+            else:
+                response = "Gostaria de agendar uma consulta! No momento não temos horários disponíveis online. Por favor, entre em contato conosco pelo telefone para verificar a disponibilidade."
+            
+            app_logger.info("Booking process started", extra={
+                "phone_number": phone_number,
+                "booking_id": booking.id
+            })
+            
+            return response
+            
+        except Exception as e:
+            app_logger.error(f"Error starting booking: {str(e)}")
+            return "Desculpe, ocorreu um erro ao iniciar o agendamento. Tente novamente em alguns minutos."
     
     async def initiate_booking(self, phone_number: str):
         """Start a new booking process"""
