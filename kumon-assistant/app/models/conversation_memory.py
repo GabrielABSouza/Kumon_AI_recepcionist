@@ -385,6 +385,76 @@ class ConversationSession:
             data['ended_at'] = self.ended_at.isoformat()
             
         return data
+    
+    def to_workflow_state(self):
+        """Convert ConversationSession to WorkflowState for integration"""
+        from ..services.workflow_state_repository import WorkflowState
+        
+        # Convert messages to conversation history format
+        conversation_history = []
+        for message in self.messages:
+            conversation_history.append({
+                "role": "user" if message.is_from_user else "assistant",
+                "content": message.content,
+                "timestamp": message.created_at.isoformat(),
+                "message_type": message.message_type
+            })
+        
+        # Map conversation stages to workflow stages
+        stage_mapping = {
+            ConversationStage.GREETING.value: "greeting",
+            ConversationStage.QUALIFICATION.value: "qualification",
+            ConversationStage.INFORMATION_GATHERING.value: "information_gathering", 
+            ConversationStage.SCHEDULING.value: "scheduling",
+            ConversationStage.CONFIRMATION.value: "confirmation",
+            ConversationStage.FOLLOW_UP.value: "follow_up",
+            ConversationStage.COMPLETED.value: "completed",
+            ConversationStage.ABANDONED.value: "abandoned"
+        }
+        
+        # Map conversation steps to workflow steps
+        step_mapping = {
+            ConversationStep.WELCOME.value: "welcome",
+            ConversationStep.PARENT_NAME_COLLECTION.value: "parent_name_collection",
+            ConversationStep.INITIAL_RESPONSE.value: "initial_response",
+            ConversationStep.CHILD_NAME_COLLECTION.value: "child_name_collection",
+            ConversationStep.CHILD_AGE_COLLECTION.value: "child_age_collection",
+            ConversationStep.PROGRAM_INTEREST_DETECTION.value: "program_interest_detection"
+        }
+        
+        # Extract user profile data
+        user_profile = {}
+        if hasattr(self.user_profile, 'user_name') and self.user_profile.user_name:
+            user_profile['user_name'] = self.user_profile.user_name
+        if hasattr(self.user_profile, 'child_name') and self.user_profile.child_name:
+            user_profile['child_name'] = self.user_profile.child_name
+        if hasattr(self.user_profile, 'child_age') and self.user_profile.child_age:
+            user_profile['child_age'] = self.user_profile.child_age
+        if hasattr(self.user_profile, 'interests') and self.user_profile.interests:
+            user_profile['interests'] = self.user_profile.interests
+            
+        return WorkflowState(
+            id=self.session_id,
+            phone_number=self.phone_number,
+            thread_id=f"thread_{self.phone_number}",
+            current_stage=stage_mapping.get(self.current_stage.value, "greeting"),
+            current_step=step_mapping.get(self.current_step.value, "welcome"),
+            state_data={
+                "phone_number": self.phone_number,
+                "session_id": self.session_id,
+                "status": self.status.value,
+                "lead_score": self.lead_score_category.value,
+                "scheduling_context": self.scheduling_context,
+                "metrics": asdict(self.metrics)
+            },
+            conversation_history=conversation_history,
+            user_profile=user_profile,
+            detected_intent=None,  # Could be mapped from latest message intent
+            scheduling_data=self.scheduling_context,
+            created_at=self.created_at,
+            updated_at=self.updated_at,
+            last_activity=self.last_activity
+        )
 
 # ============================================================================
 # PYDANTIC MODELS FOR API VALIDATION

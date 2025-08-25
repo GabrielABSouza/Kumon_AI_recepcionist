@@ -22,32 +22,36 @@ from ..core.logger import app_logger
 def _get_production_llm_service():
     """
     CRITICAL FIX: Lazy dependency resolution for production LLM service
-    
+
     This prevents import-time circular dependencies by resolving the service
     at runtime through multiple fallback strategies.
     """
     try:
         # Strategy 1: Try optimized startup manager first (primary)
         from ..core.optimized_startup import optimized_startup_manager
+
         service = optimized_startup_manager.service_instances.get("llm_service")
         if service:
             app_logger.debug("LLM service resolved from optimized startup manager")
             return service
-            
+
         # Strategy 2: Fallback to dependencies module
         from ..core import dependencies
+
         service = dependencies.llm_service
         if service:
             app_logger.debug("LLM service resolved from dependencies module")
             return service
-            
+
         # Strategy 3: Manual service creation as last resort
         app_logger.warning("Creating emergency LLM service instance - startup may have failed")
         from ..services.production_llm_service import ProductionLLMService
+
         emergency_service = ProductionLLMService()
-        
+
         # Try to initialize it synchronously (best effort)
         import asyncio
+
         try:
             loop = asyncio.get_event_loop()
             if not loop.is_running():
@@ -60,7 +64,7 @@ def _get_production_llm_service():
         except Exception as init_error:
             app_logger.error(f"Emergency LLM service initialization failed: {init_error}")
             return emergency_service  # Return uninitialized service anyway
-            
+
     except Exception as e:
         app_logger.error(f"All LLM service resolution strategies failed: {e}")
         return None
@@ -160,7 +164,9 @@ Suas características:
         production_llm_service = _get_production_llm_service()
         if not production_llm_service:
             app_logger.error("Production LLM service not available - returning emergency response")
-            return AIMessage(content="Desculpe, houve um problema técnico. Para atendimento imediato, entre em contato: (51) 99692-1999")
+            return AIMessage(
+                content="Desculpe, houve um problema técnico. Para atendimento imediato, entre em contato: (51) 99692-1999"
+            )
 
         # Generate response using production service with standardized interface
         response_text = ""
@@ -367,7 +373,7 @@ Seja sempre profissional, acolhedora e focada em agendar visitas presenciais."""
         production_llm_service = _get_production_llm_service()
         if not production_llm_service:
             return {"status": "unavailable", "error": "Production LLM service not available"}
-        
+
         return await production_llm_service.get_health_status()
 
 

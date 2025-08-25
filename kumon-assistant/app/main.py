@@ -403,14 +403,16 @@ async def startup_event():
 
     # CRITICAL FIX: Enhanced service instance debugging and population
     app_logger.info("🔍 DEBUG: Service instance availability check")
-    
+
     # Log all available service instances
     available_instances = list(optimized_startup_manager.service_instances.keys())
     app_logger.info(f"Available service instances: {available_instances}")
-    
+
     for service_name, instance in optimized_startup_manager.service_instances.items():
-        app_logger.info(f"Service '{service_name}': {type(instance).__name__ if instance else 'None'}")
-    
+        app_logger.info(
+            f"Service '{service_name}': {type(instance).__name__ if instance else 'None'}"
+        )
+
     # Populate dependencies for backward compatibility with validation
     dependencies.llm_service = optimized_startup_manager.service_instances.get("llm_service")
     dependencies.intent_classifier = optimized_startup_manager.service_instances.get(
@@ -422,7 +424,7 @@ async def startup_event():
     dependencies.langchain_rag_service = optimized_startup_manager.service_instances.get(
         "langchain_rag_service"
     )
-    
+
     # Validate critical service availability
     critical_services = {
         "llm_service": dependencies.llm_service,
@@ -430,17 +432,21 @@ async def startup_event():
         "secure_workflow": dependencies.secure_workflow,
         "langchain_rag_service": dependencies.langchain_rag_service,
     }
-    
+
     for service_name, service_instance in critical_services.items():
         if service_instance:
-            app_logger.info(f"✅ {service_name} successfully populated: {type(service_instance).__name__}")
+            app_logger.info(
+                f"✅ {service_name} successfully populated: {type(service_instance).__name__}"
+            )
         else:
             app_logger.error(f"❌ {service_name} not available in dependencies!")
-    
+
     # Count successful service injections
     successful_injections = sum(1 for instance in critical_services.values() if instance)
     total_services = len(critical_services)
-    app_logger.info(f"Service injection success rate: {successful_injections}/{total_services} ({(successful_injections/total_services)*100:.1f}%)")
+    app_logger.info(
+        f"Service injection success rate: {successful_injections}/{total_services} ({(successful_injections/total_services)*100:.1f}%)"
+    )
 
     # Fallback to service factory if services not available (transition period)
     if not dependencies.llm_service:
@@ -459,18 +465,22 @@ async def startup_event():
     app_logger.info(
         "✅ Core services (LLM, Intent Classifier, Secure Workflow, RAG) initialized via optimized startup"
     )
-    
+
     # Initialize and validate Unified Service Resolver
     app_logger.info("🔗 Validating Unified Service Resolver...")
     resolver_health = await unified_service_resolver.health_check()
-    
+
     if resolver_health["status"] == "healthy":
-        app_logger.info(f"✅ Unified Service Resolver operational - {resolver_health['cached_services']} services cached")
-        app_logger.info(f"📊 Resolution sources: SF={resolver_health['resolution_sources']['service_factory']}, "
-                       f"OSM={resolver_health['resolution_sources']['optimized_startup']}")
+        app_logger.info(
+            f"✅ Unified Service Resolver operational - {resolver_health['cached_services']} services cached"
+        )
+        app_logger.info(
+            f"📊 Resolution sources: SF={resolver_health['resolution_sources']['service_factory']}, "
+            f"OSM={resolver_health['resolution_sources']['optimized_startup']}"
+        )
     else:
         app_logger.warning(f"⚠️ Unified Service Resolver status: {resolver_health['status']}")
-    
+
     # Test critical service resolution via unified resolver
     try:
         test_secure_workflow = await unified_service_resolver.get_service("secure_workflow")

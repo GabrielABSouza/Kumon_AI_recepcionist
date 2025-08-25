@@ -280,14 +280,20 @@ class OptimizedStartupManager:
 
             # Initialize service
             if config.initialization_function:
-                service_instance = await asyncio.wait_for(config.initialization_function(), timeout=timeout)
-                
+                service_instance = await asyncio.wait_for(
+                    config.initialization_function(), timeout=timeout
+                )
+
                 # CRITICAL FIX: Validate service instance was stored properly
                 if service_name not in self.service_instances:
-                    app_logger.error(f"Service '{service_name}' initialized but instance not stored!")
+                    app_logger.error(
+                        f"Service '{service_name}' initialized but instance not stored!"
+                    )
                     if service_instance:
                         self.service_instances[service_name] = service_instance
-                        app_logger.info(f"✅ FIXED: Manually stored service instance for '{service_name}'")
+                        app_logger.info(
+                            f"✅ FIXED: Manually stored service instance for '{service_name}'"
+                        )
                 else:
                     app_logger.debug(f"✅ Service '{service_name}' instance properly stored")
             else:

@@ -470,7 +470,39 @@ class CeciliaWorkflow:
             
             # Wave 3: Check for existing state and attempt recovery if needed
             existing_state = None
-            if self.use_postgres_persistence:
+            session_id = None
+            active_session = None
+            
+            # CRITICAL FIX: Check Redis for existing session first
+            try:
+                from ..services.conversation_memory_service import conversation_memory_service
+                active_session = await conversation_memory_service.get_active_session_by_phone(phone_number)
+                
+                if active_session:
+                    # Load existing conversation state from Redis
+                    existing_state = active_session.to_workflow_state()
+                    session_id = active_session.session_id
+                    logger.info(f"✅ Loaded existing Redis session for {phone_number}: {session_id}")
+                else:
+                    # Create new session for first-time users
+                    logger.info(f"🆕 Creating new session for phone: {phone_number}")
+                    session = await conversation_memory_service.create_session(
+                        phone_number=phone_number,
+                        user_name=None,  # Will be extracted from conversation
+                        initial_message=user_message
+                    )
+                    session_id = session.session_id
+                    active_session = session
+                    logger.info(f"✅ Created new Redis session: {session_id}")
+                    
+            except Exception as redis_error:
+                logger.error(f"🚨 Redis integration error for {phone_number}: {redis_error}")
+                # Fallback to PostgreSQL persistence if Redis fails
+                active_session = None
+                session_id = None
+            
+            # Fallback to PostgreSQL if Redis not available or disabled
+            if not active_session and self.use_postgres_persistence:
                 existing_state = await self.state_repository.get_workflow_state(thread_id)
                 
                 # If no existing state, create initial state
@@ -538,15 +570,63 @@ class CeciliaWorkflow:
                     "last_activity": datetime.now()
                 }
                 
-                # Update state in repository
-                update_success = await self.state_repository.update_workflow_state(
-                    thread_id, 
-                    state_updates, 
-                    processing_time
-                )
+                # CRITICAL FIX: Update Redis session if active
+                if active_session and session_id:
+                    try:
+                        # Add user message to session
+                        await conversation_memory_service.add_message_to_session(
+                            session_id=session_id,
+                            content=user_message,
+                            is_from_user=True
+                        )
+                        
+                        # Add assistant response to session
+                        await conversation_memory_service.add_message_to_session(
+                            session_id=session_id,
+                            content=response,
+                            is_from_user=False
+                        )
+                        
+                        # Update session state - map workflow stages to conversation stages
+                        stage_mapping = {
+                            "greeting": "greeting",
+                            "qualification": "qualification", 
+                            "information_gathering": "information_gathering",
+                            "scheduling": "scheduling",
+                            "confirmation": "confirmation",
+                            "follow_up": "follow_up"
+                        }
+                        
+                        step_mapping = {
+                            "welcome": "welcome",
+                            "parent_name_collection": "parent_name_collection",
+                            "initial_response": "initial_response",
+                            "child_name_collection": "child_name_collection",
+                            "child_age_collection": "child_age_collection",
+                            "program_interest_detection": "program_interest_detection"
+                        }
+                        
+                        # Update session with current workflow state
+                        active_session.current_stage = stage_mapping.get(current_stage, current_stage)
+                        active_session.current_step = step_mapping.get(current_step, current_step) if current_step else "welcome"
+                        active_session.last_activity = datetime.now()
+                        
+                        await conversation_memory_service.update_session(active_session)
+                        logger.info(f"✅ Updated Redis session {session_id}: stage={current_stage}, step={current_step}")
+                        
+                    except Exception as redis_update_error:
+                        logger.error(f"🚨 Failed to update Redis session {session_id}: {redis_update_error}")
                 
-                if not update_success:
-                    logger.warning(f"Failed to update workflow state for {thread_id}")
+                # Update PostgreSQL state if enabled and no Redis session
+                if self.use_postgres_persistence and not active_session:
+                    update_success = await self.state_repository.update_workflow_state(
+                        thread_id, 
+                        state_updates, 
+                        processing_time
+                    )
+                    
+                    if not update_success:
+                        logger.warning(f"Failed to update workflow state for {thread_id}")
             
             return {
                 "response": response,
@@ -556,12 +636,22 @@ class CeciliaWorkflow:
                 "processing_time_ms": processing_time,
                 "persistence_enabled": self.use_postgres_persistence,
                 "coordination_method": "direct_langgraph",
+                "redis_session_id": session_id,
+                "redis_enabled": active_session is not None,
                 "success": True
             }
             
         except Exception as e:
             processing_time = (time.time() - start_time) * 1000
-            logger.error(f"Error processing message for {phone_number}: {str(e)}")
+            error_details = {
+                "phone_number": phone_number,
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+                "processing_time_ms": processing_time,
+                "session_id": session_id if 'session_id' in locals() else None,
+                "redis_enabled": active_session is not None if 'active_session' in locals() else False
+            }
+            logger.error(f"🚨 Error processing message: {error_details}")
             
             # Wave 3: Attempt recovery from checkpoint
             recovery_attempted = False
