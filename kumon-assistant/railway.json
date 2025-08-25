@@ -49,6 +49,39 @@
         "targetCPU": 70,
         "targetMemory": 80
       }
+    },
+    "staging": {
+      "variables": {
+        "ENVIRONMENT": "staging",
+        "DEBUG": "true",
+        "REQUIRE_HTTPS": "false",
+        "VALIDATE_API_KEYS": "false",
+        "ENABLE_HEALTH_CHECKS": "true",
+        "DB_POOL_SIZE": "1",
+        "DB_MAX_OVERFLOW": "2",
+        "DB_POOL_TIMEOUT": "30",
+        "DB_POOL_RECYCLE": "1800",
+        "DB_ECHO": "true",
+        "DB_POOL_PRE_PING": "true",
+        "MEMORY_REDIS_MAX_CONNECTIONS": "10",
+        "MEMORY_ACTIVE_SESSION_TTL": "3600",
+        "MEMORY_USER_PROFILE_TTL": "7200",
+        "MEMORY_ANALYTICS_CACHE_TTL": "1800",
+        "LLM_DAILY_BUDGET_BRL": "1.0",
+        "LLM_COST_ALERT_THRESHOLD_BRL": "0.8",
+        "LLM_CIRCUIT_BREAKER_THRESHOLD": "3",
+        "LLM_REQUEST_TIMEOUT_SECONDS": "45",
+        "RESPONSE_TIME_TARGET": "10.0",
+        "RESPONSE_TIME_WARNING": "8.0",
+        "RAILWAY_ENVIRONMENT": "1",
+        "FORCE_RAILWAY_DETECTION": "1"
+      },
+      "scaling": {
+        "minReplicas": 1,
+        "maxReplicas": 1,
+        "targetCPU": 80,
+        "targetMemory": 85
+      }
     }
   }
 }
