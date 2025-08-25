@@ -73,7 +73,7 @@
         "LLM_REQUEST_TIMEOUT_SECONDS": "45",
         "RESPONSE_TIME_TARGET": "10.0",
         "RESPONSE_TIME_WARNING": "8.0",
-        "RAILWAY_ENVIRONMENT": "1",
+        "RAILWAY_ENVIRONMENT": "staging",
         "FORCE_RAILWAY_DETECTION": "1"
       },
       "scaling": {
