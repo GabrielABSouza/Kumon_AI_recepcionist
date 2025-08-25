@@ -7,7 +7,7 @@ Maintains backward compatibility while adding failover and cost monitoring
 import asyncio
 from typing import Any, AsyncIterator, Dict, List, Optional
 
-from app.core.dependencies import llm_service as production_llm_service
+# CRITICAL FIX: Remove import-time dependency injection - use lazy resolution instead
 from langchain.callbacks.manager import (
     AsyncCallbackManagerForLLMRun,
     CallbackManagerForLLMRun,
@@ -17,6 +17,53 @@ from langchain.schema import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.messages import BaseMessage as CoreBaseMessage
 
 from ..core.logger import app_logger
+
+
+def _get_production_llm_service():
+    """
+    CRITICAL FIX: Lazy dependency resolution for production LLM service
+    
+    This prevents import-time circular dependencies by resolving the service
+    at runtime through multiple fallback strategies.
+    """
+    try:
+        # Strategy 1: Try optimized startup manager first (primary)
+        from ..core.optimized_startup import optimized_startup_manager
+        service = optimized_startup_manager.service_instances.get("llm_service")
+        if service:
+            app_logger.debug("LLM service resolved from optimized startup manager")
+            return service
+            
+        # Strategy 2: Fallback to dependencies module
+        from ..core import dependencies
+        service = dependencies.llm_service
+        if service:
+            app_logger.debug("LLM service resolved from dependencies module")
+            return service
+            
+        # Strategy 3: Manual service creation as last resort
+        app_logger.warning("Creating emergency LLM service instance - startup may have failed")
+        from ..services.production_llm_service import ProductionLLMService
+        emergency_service = ProductionLLMService()
+        
+        # Try to initialize it synchronously (best effort)
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+            if not loop.is_running():
+                loop.run_until_complete(emergency_service.initialize())
+                app_logger.info("Emergency LLM service initialized successfully")
+                return emergency_service
+            else:
+                app_logger.warning("Cannot initialize emergency service in async context")
+                return emergency_service  # Return uninitialized service
+        except Exception as init_error:
+            app_logger.error(f"Emergency LLM service initialization failed: {init_error}")
+            return emergency_service  # Return uninitialized service anyway
+            
+    except Exception as e:
+        app_logger.error(f"All LLM service resolution strategies failed: {e}")
+        return None
 
 
 class LangGraphLLMAdapter:
@@ -109,6 +156,12 @@ Suas características:
 - Atendimento: Segunda a sexta, 9h às 12h e 14h às 17h
 - Contato para casos complexos: (51) 99692-1999"""
 
+        # CRITICAL FIX: Use lazy dependency resolution
+        production_llm_service = _get_production_llm_service()
+        if not production_llm_service:
+            app_logger.error("Production LLM service not available - returning emergency response")
+            return AIMessage(content="Desculpe, houve um problema técnico. Para atendimento imediato, entre em contato: (51) 99692-1999")
+
         # Generate response using production service with standardized interface
         response_text = ""
 
@@ -147,6 +200,13 @@ Suas características:
 - Preços: R$ 375,00 por matéria + R$ 100,00 taxa de matrícula
 - Atendimento: Segunda a sexta, 9h às 12h e 14h às 17h
 - Contato para casos complexos: (51) 99692-1999"""
+
+        # CRITICAL FIX: Use lazy dependency resolution
+        production_llm_service = _get_production_llm_service()
+        if not production_llm_service:
+            app_logger.error("Production LLM service not available - returning emergency response")
+            yield "Desculpe, houve um problema técnico. Para atendimento imediato, entre em contato: (51) 99692-1999"
+            return
 
         # Stream response using production service
         try:
@@ -273,6 +333,12 @@ Seja sempre profissional, acolhedora e focada em agendar visitas presenciais."""
         # Build conversation history
         conversation_history = conversation_context.get("messages", [])
 
+        # CRITICAL FIX: Use lazy dependency resolution
+        production_llm_service = _get_production_llm_service()
+        if not production_llm_service:
+            app_logger.error("Production LLM service not available for business response")
+            return f"Desculpe, estou enfrentando dificuldades técnicas. Para atendimento imediato, entre em contato: {self.business_context['phone']}"
+
         # Generate response
         response = ""
         try:
@@ -297,6 +363,11 @@ Seja sempre profissional, acolhedora e focada em agendar visitas presenciais."""
 
     async def get_service_health(self) -> Dict[str, Any]:
         """Get health status of the LLM service"""
+        # CRITICAL FIX: Use lazy dependency resolution
+        production_llm_service = _get_production_llm_service()
+        if not production_llm_service:
+            return {"status": "unavailable", "error": "Production LLM service not available"}
+        
         return await production_llm_service.get_health_status()
 
 

@@ -22,7 +22,9 @@ async def _initialize_llm_service():
 
     service = ProductionLLMService()
     await service.initialize()
+    # CRITICAL FIX: Ensure service instance is stored for dependency injection
     optimized_startup_manager.service_instances["llm_service"] = service
+    app_logger.info(f"✅ LLM service instance stored: {type(service).__name__}")
     return service
 
 
@@ -35,7 +37,9 @@ async def _initialize_intent_classifier():
         llm_service = await optimized_startup_manager.get_service_lazy("llm_service")
 
     classifier = IntentClassifier(llm_service)
+    # CRITICAL FIX: Ensure service instance is stored for dependency injection
     optimized_startup_manager.service_instances["intent_classifier"] = classifier
+    app_logger.info(f"✅ Intent classifier instance stored: {type(classifier).__name__}")
     return classifier
 
 
@@ -44,7 +48,9 @@ async def _initialize_secure_workflow():
     from ..workflows.secure_conversation_workflow import SecureConversationWorkflow
 
     workflow = SecureConversationWorkflow()
+    # CRITICAL FIX: Ensure service instance is stored for dependency injection
     optimized_startup_manager.service_instances["secure_workflow"] = workflow
+    app_logger.info(f"✅ Secure workflow instance stored: {type(workflow).__name__}")
     return workflow
 
 
@@ -60,7 +66,9 @@ async def _initialize_langchain_rag():
     adapter = create_langchain_adapter(llm_service, adapter_type="runnable")
     rag_service = LangChainRAGService(adapter)
     await rag_service.initialize()
+    # CRITICAL FIX: Ensure service instance is stored for dependency injection
     optimized_startup_manager.service_instances["langchain_rag_service"] = rag_service
+    app_logger.info(f"✅ LangChain RAG service instance stored: {type(rag_service).__name__}")
     return rag_service
 
 

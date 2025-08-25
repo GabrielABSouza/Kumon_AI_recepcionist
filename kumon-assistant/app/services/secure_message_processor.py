@@ -77,9 +77,9 @@ class SecureMessageProcessor:
         app_logger.info("Secure Message Processor initialized (Fase 5 Complete)")
     
     async def _get_secure_workflow(self):
-        """Get secure workflow instance using service factory"""
+        """Get secure workflow instance using unified service resolver"""
         if self.secure_workflow is None:
-            from ..core.service_factory import get_secure_workflow
+            from ..core.unified_service_resolver import get_secure_workflow
             self.secure_workflow = await get_secure_workflow()
         return self.secure_workflow
     

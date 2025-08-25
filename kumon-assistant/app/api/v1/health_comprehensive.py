@@ -376,3 +376,91 @@ async def service_interfaces_health():
         )
 
     return {"status": "healthy", "message": "All critical service interfaces are compatible."}
+
+
+@router.get("/health/service-resolver", tags=["health"])
+async def service_resolver_health():
+    """
+    Unified Service Resolver health check and diagnostics.
+    Validates service resolution across dual service systems and provides metrics.
+    """
+    try:
+        from ...core.unified_service_resolver import unified_service_resolver
+        
+        # Get comprehensive health check
+        resolver_health = await unified_service_resolver.health_check()
+        
+        # Get resolution metrics
+        metrics = unified_service_resolver.get_resolution_metrics()
+        
+        # Test critical service resolution
+        critical_services_status = {}
+        critical_services = ["secure_workflow", "llm_service", "intent_classifier", "langchain_rag_service"]
+        
+        for service_name in critical_services:
+            try:
+                service_instance = await unified_service_resolver.get_service(service_name)
+                critical_services_status[service_name] = {
+                    "resolvable": True,
+                    "resolution_source": unified_service_resolver.resolution_history.get(service_name, "unknown"),
+                    "cached": service_name in unified_service_resolver.service_cache
+                }
+            except Exception as e:
+                critical_services_status[service_name] = {
+                    "resolvable": False,
+                    "error": str(e),
+                    "cached": False
+                }
+        
+        # Determine overall status
+        overall_healthy = resolver_health["status"] == "healthy"
+        critical_services_healthy = all(
+            status.get("resolvable", False) for status in critical_services_status.values()
+        )
+        
+        if overall_healthy and critical_services_healthy:
+            status_code = 200
+            status = "healthy"
+        elif critical_services_healthy:
+            status_code = 200
+            status = "degraded"
+        else:
+            status_code = 503
+            status = "unhealthy"
+        
+        response_data = {
+            "status": status,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "unified_resolver_health": resolver_health,
+            "resolution_metrics": metrics,
+            "critical_services": critical_services_status,
+            "performance_summary": {
+                "avg_resolution_time_ms": round(metrics["avg_resolution_time_ms"], 2),
+                "success_rate": round(metrics["success_rate"] * 100, 2),
+                "cache_hit_rate": round(
+                    (metrics["resolution_sources"]["cache_hits"] / max(1, metrics["total_requests"])) * 100, 2
+                )
+            },
+            "system_integration": {
+                "service_factory_available": len(resolver_health["available_services"]["service_factory"]) > 0,
+                "optimized_startup_available": len(resolver_health["available_services"]["optimized_startup"]) > 0,
+                "dual_system_operational": (
+                    len(resolver_health["available_services"]["service_factory"]) > 0 and
+                    len(resolver_health["available_services"]["optimized_startup"]) > 0
+                )
+            }
+        }
+        
+        return JSONResponse(content=response_data, status_code=status_code)
+        
+    except Exception as e:
+        app_logger.error(f"Service resolver health check failed: {e}")
+        return JSONResponse(
+            content={
+                "status": "error",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "error": str(e),
+                "message": "Service resolver health check failed"
+            },
+            status_code=500
+        )
