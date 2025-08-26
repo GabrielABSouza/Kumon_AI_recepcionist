@@ -258,23 +258,37 @@ class SecureConversationWorkflow:
                 conversation_state["user_message"] = sanitized_message
             conversation_state["last_user_message"] = sanitized_message
 
-            # Run workflow components in parallel for efficiency
-            workflow_results = await asyncio.gather(
-                self._classify_intent(conversation_state),
-                self._resolve_context_references(conversation_state),
-                self._generate_rag_context(sanitized_message),
-                return_exceptions=True,
-            )
-
-            intent_result, context_result, rag_result = workflow_results
-
-            # Update conversation state with results
+            # First classify intent to determine if we need RAG
+            intent_result = await self._classify_intent(conversation_state)
+            
+            # Update conversation state with intent
             if hasattr(intent_result, "category"):
                 conversation_state["detected_intent"] = intent_result.category.value
                 conversation_state["intent_confidence"] = intent_result.confidence
             elif isinstance(intent_result, dict):
                 conversation_state["detected_intent"] = intent_result.get("intent")
                 conversation_state["intent_confidence"] = intent_result.get("confidence", 0.0)
+            
+            # Determine if RAG is needed based on intent
+            detected_intent = conversation_state.get("detected_intent", "unknown")
+            intent_confidence = conversation_state.get("intent_confidence", 0.0)
+            skip_rag_intents = ["greeting", "goodbye", "thanks", "confirmation", "positive_feedback"]
+            
+            should_use_rag = not (detected_intent in skip_rag_intents and intent_confidence >= 0.9)
+            
+            # Run remaining components (conditionally include RAG)
+            if should_use_rag:
+                app_logger.info(f"Using RAG for intent={detected_intent} confidence={intent_confidence}")
+                workflow_results = await asyncio.gather(
+                    self._resolve_context_references(conversation_state),
+                    self._generate_rag_context(sanitized_message),
+                    return_exceptions=True,
+                )
+                context_result, rag_result = workflow_results
+            else:
+                app_logger.info(f"Skipping RAG for intent={detected_intent} confidence={intent_confidence}")
+                context_result = await self._resolve_context_references(conversation_state)
+                rag_result = {"documents": [], "context": "", "sources": []}
 
             if isinstance(context_result, dict):
                 conversation_state["resolved_references"] = context_result.get(
