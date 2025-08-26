@@ -179,9 +179,9 @@ class AuthValidator:
         try:
             # Debug: Log all headers to understand what Evolution API is sending
             app_logger.info(f"Authentication validation - Headers received: {list(headers.keys())}")
-            for key, value in headers.items():
-                if 'api' in key.lower() or 'auth' in key.lower() or 'key' in key.lower():
-                    app_logger.info(f"Potential auth header: {key} = {value[:20]}..." if len(value) > 20 else f"Potential auth header: {key} = {value}")
+            # Security-safe authentication header logging
+            auth_headers_count = len([k for k in headers.keys() if any(kw in k.lower() for kw in ['api', 'auth', 'key'])])
+            app_logger.debug(f"Authentication headers detected: {auth_headers_count}")
             
             # Check for API key in headers
             api_key = headers.get('apikey') or headers.get('x-api-key') or headers.get('authorization')
@@ -203,7 +203,7 @@ class AuthValidator:
                 # Base64 pattern: alphanumeric + / + = with proper length
                 if len(api_key) > 8 and re.match(r'^[A-Za-z0-9+/]*={0,2}$', api_key):
                     decoded_key = base64.b64decode(api_key.encode()).decode('utf-8')
-                    app_logger.info(f"Successfully decoded base64 API key: {decoded_key[:10]}...")
+                    app_logger.debug("Base64 API key successfully decoded")
                     api_key = decoded_key
                 else:
                     app_logger.debug(f"API key doesn't match base64 pattern: {api_key[:20]}...")
@@ -212,15 +212,15 @@ class AuthValidator:
                 app_logger.debug(f"API key is not base64 encoded: {str(e)}")
                 api_key = original_api_key
             
-            # Validate against known keys
-            app_logger.info(f"Validating API key: {api_key[:10]}...")
-            app_logger.info(f"Valid keys available: {[key[:10] + '...' if len(key) > 10 else key for key in self.valid_api_keys if key]}")
+            # Validate against known keys - security-safe logging
+            app_logger.debug(f"API key validation in progress")
+            app_logger.debug(f"Valid API keys configured: {len([k for k in self.valid_api_keys if k])}")
             
             if api_key in self.valid_api_keys:
                 app_logger.info("✅ API key validation successful")
                 return True
             else:
-                app_logger.error(f"❌ Invalid API key provided: {api_key[:10]}...")
+                app_logger.error("❌ Authentication failed - invalid API key provided")
                 return False
                 
         except Exception as e:

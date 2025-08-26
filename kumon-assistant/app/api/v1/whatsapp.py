@@ -102,13 +102,9 @@ async def handle_evolution_webhook(request: Request):
         webhook_data = await request.json()
         headers = dict(request.headers)
 
-        # TEMPORARY DEBUG: Log all headers to debug Evolution API webhook
-        app_logger.info(f"🔍 WEBHOOK DEBUG - Headers received from Evolution API:")
-        for key, value in headers.items():
-            if any(keyword in key.lower() for keyword in ['api', 'auth', 'key', 'token']):
-                app_logger.info(f"  AUTH HEADER: {key} = {value}")
-            else:
-                app_logger.info(f"  HEADER: {key} = {value}")
+        # Security-safe webhook logging
+        app_logger.info(f"🔍 Evolution API webhook received from {headers.get('host', 'unknown')}")
+        app_logger.debug(f"Request contains {len(headers)} headers, {len([k for k in headers.keys() if any(kw in k.lower() for kw in ['auth', 'api', 'key'])])} auth-related")
 
         app_logger.info(
             "Evolution API webhook received - Phase 2 Pipeline Integration",

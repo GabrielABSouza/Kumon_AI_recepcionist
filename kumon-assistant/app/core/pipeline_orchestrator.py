@@ -388,18 +388,17 @@ class PipelineOrchestrator:
             else:
                 metrics.cache_misses += 1
                 
-                # Execute preprocessing
-                preprocessor_response = await message_preprocessor.process_message(message, headers)
-                
+                # Skip preprocessing - message already preprocessed by webhook handler
+                # Direct business rules processing instead of double preprocessing
                 result = {
-                    "success": preprocessor_response.success,
-                    "sanitized_message": preprocessor_response.message,
-                    "prepared_context": preprocessor_response.prepared_context,
-                    "error_code": preprocessor_response.error_code,
-                    "error_message": preprocessor_response.error_message,
-                    "rate_limited": preprocessor_response.rate_limited,
-                    "processing_time_ms": preprocessor_response.processing_time_ms,
-                    "business_hours_response": preprocessor_response.error_code == "OUTSIDE_BUSINESS_HOURS"
+                    "success": True,
+                    "sanitized_message": message,
+                    "prepared_context": {"last_user_message": message.message, "phone_number": message.phone},
+                    "error_code": None,
+                    "error_message": None,
+                    "rate_limited": False,
+                    "processing_time_ms": 0,
+                    "business_hours_response": False
                 }
                 
                 # Cache successful preprocessing results
