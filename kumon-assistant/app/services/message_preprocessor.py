@@ -4,7 +4,6 @@ Message Preprocessor - Input sanitization, rate limiting, authentication validat
 Implements the complete specification from TECHNICAL_ARCHITECTURE.md
 """
 
-import asyncio
 import base64
 import json
 import re
@@ -206,20 +205,27 @@ class AuthValidator:
                 user_agent = headers.get("user-agent", "")
                 x_forwarded_host = headers.get("x-forwarded-host", "")
                 x_railway_edge = headers.get("x-railway-edge", "")
-                
+
                 # Evolution API webhook patterns for Railway deployment
                 is_evolution_webhook = (
-                    ("railway.app" in host or "railway.app" in x_forwarded_host) and
-                    ("okhttp" in user_agent.lower() or "evolution" in user_agent.lower() or 
-                     any(header.startswith("x-railway") for header in headers.keys())) and
-                    x_railway_edge  # Railway-specific header
+                    ("railway.app" in host or "railway.app" in x_forwarded_host)
+                    and (
+                        "okhttp" in user_agent.lower()
+                        or "evolution" in user_agent.lower()
+                        or any(header.startswith("x-railway") for header in headers.keys())
+                    )
+                    and x_railway_edge  # Railway-specific header
                 )
-                
+
                 if is_evolution_webhook:
-                    app_logger.info("✅ Evolution API webhook detected via Railway infrastructure - authentication bypassed")
-                    app_logger.debug(f"Host: {host}, User-Agent: {user_agent}, Railway Edge: {bool(x_railway_edge)}")
+                    app_logger.info(
+                        "✅ Evolution API webhook detected via Railway infrastructure - authentication bypassed"
+                    )
+                    app_logger.debug(
+                        f"Host: {host}, User-Agent: {user_agent}, Railway Edge: {bool(x_railway_edge)}"
+                    )
                     return True
-                
+
                 app_logger.warning("No API key found in request headers")
                 app_logger.warning(f"Available headers: {list(headers.keys())}")
                 return False
@@ -247,7 +253,7 @@ class AuthValidator:
                 api_key = original_api_key
 
             # Validate against known keys - security-safe logging
-            app_logger.debug(f"API key validation in progress")
+            app_logger.debug("API key validation in progress")
             app_logger.debug(
                 f"Valid API keys configured: {len([k for k in self.valid_api_keys if k])}"
             )
@@ -280,8 +286,6 @@ class SessionPreparator:
             Prepared CeciliaState for LangGraph workflow
         """
         try:
-            thread_id = f"thread_{message.phone}"
-
             # Check for existing session context
             cache_key = f"session:{message.phone}"
             existing_context = await enhanced_cache_service.get(cache_key, CacheLayer.L2)
@@ -308,7 +312,7 @@ class SessionPreparator:
                         context_data["conversation_metrics"]["created_at"] = datetime.fromisoformat(
                             context_data["conversation_metrics"]["created_at"]
                         )
-                    except:
+                    except Exception:
                         context_data["conversation_metrics"]["created_at"] = datetime.now()
 
                 # Increment message count
@@ -562,38 +566,7 @@ class MessagePreprocessor:
                     processing_time_ms=self._get_processing_time(start_time),
                 )
 
-            # Step 2: Business hours validation
-            if not self.business_hours_validator.is_business_hours(message.timestamp):
-                next_business_time = self.business_hours_validator.get_next_business_time()
-                app_logger.info(f"Message received outside business hours from {message.phone}")
-
-                # Create business hours response context
-                business_hours_context = await self.session_preparator.prepare_context(message)
-
-                # Add business hours auto-response message
-                business_hours_response = (
-                    f"Olá! Sou Cecília do Kumon Vila A. 😊\n\n"
-                    f"Obrigada pela sua mensagem! No momento estamos fora do horário de atendimento.\n\n"
-                    f"📅 **Horário de funcionamento:**\n"
-                    f"Segunda a sexta-feira\n"
-                    f"• Manhã: 9h às 12h\n"
-                    f"• Tarde: 14h às 17h\n\n"
-                    f"🕐 Retornaremos {next_business_time}\n\n"
-                    f"Para urgências, entre em contato pelo telefone (51) 99692-1999. 📞"
-                )
-
-                return PreprocessorResponse(
-                    success=True,  # Success but with business hours message
-                    message=message,
-                    prepared_context={
-                        **business_hours_context,
-                        "last_bot_response": business_hours_response,
-                    },
-                    preprocessed=True,  # Message was preprocessed (includes session preparation)
-                    error_code="OUTSIDE_BUSINESS_HOURS",
-                    error_message=f"Outside business hours, next available: {next_business_time}",
-                    processing_time_ms=self._get_processing_time(start_time),
-                )
+            # Step 2: Business hours validation (REMOVED as per user request to allow 24/7 service)
 
             # Step 3: Rate limiting check
             if not await self.rate_limiter.check_rate_limit(message.phone):
