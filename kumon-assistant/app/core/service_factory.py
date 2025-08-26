@@ -137,7 +137,8 @@ class ServiceFactory:
 
             # Handle different initialization patterns
             if name == "intent_classifier":
-                instance = service_class(llm_service_instance=dependencies.get("llm_service"))
+                # Intent classifier can work without LLM (uses pattern matching as fallback)
+                instance = service_class(llm_service_instance=dependencies.get("llm_service", None))
             elif name == "langchain_rag_service":
                 # Special case: Create LangChain adapter for RAG service
                 from ..adapters.langchain_adapter import create_langchain_adapter
@@ -278,6 +279,7 @@ async def get_secure_workflow():
 async def get_intent_first_router():
     """Get IntentFirstRouter service instance"""
     from ..core.optimized_startup import optimized_startup_manager
+
     return await optimized_startup_manager.get_service_lazy("intent_first_router")
 
 
@@ -300,14 +302,12 @@ def register_core_services():
         async_init=True,
     )
 
-    # Register intent classifier (depends on LLM service)
+    # Register intent classifier (LLM is optional - works with pattern matching)
     service_factory.register_service(
         name="intent_classifier",
         service_class=AdvancedIntentClassifier,
-        dependencies=["llm_service"],
-        initialization_args={
-            "llm_service_instance": None  # Will be replaced with actual dependency
-        },
+        dependencies=[],  # No hard dependencies - LLM is optional
+        initialization_args={"llm_service_instance": None},  # Optional - will be added if available
         async_init=False,
     )
 
