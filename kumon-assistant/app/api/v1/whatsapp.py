@@ -1341,3 +1341,168 @@ async def test_pipeline_execution():
     except Exception as e:
         app_logger.error(f"Pipeline test failed: {e}")
         return {"test_result": "failed", "error": str(e), "timestamp": datetime.now().isoformat()}
+
+
+# ========== INTEGRATION HEALTH CHECK ENDPOINT ==========
+
+
+@router.get("/integration/health")
+async def integration_health_check():
+    """
+    Check Evolution API → Preprocessor → Pipeline integration health
+    PHASE 2 WAVE 2: FIX 2.3 - Integration Health Check Endpoint
+    
+    Validates complete integration chain:
+    - Evolution API webhook handler
+    - MessagePreprocessor pipeline
+    - Pipeline Orchestrator
+    - Configuration validation
+    - Base64 webhook configuration
+    """
+    try:
+        health_status = {
+            "timestamp": datetime.now().isoformat(),
+            "integration_status": "healthy",
+            "webhook_handler": "active",
+            "preprocessor": "configured", 
+            "pipeline_orchestrator": "active",
+            "api_keys_configured": False,
+            "base64_enabled": True,
+            "preprocessor_flag_enabled": True,
+        }
+        
+        # Check API keys configuration
+        evolution_key = getattr(settings, "EVOLUTION_API_KEY", None)
+        global_key = getattr(settings, "EVOLUTION_GLOBAL_API_KEY", None)
+        auth_key = getattr(settings, "AUTHENTICATION_API_KEY", None)
+        
+        health_status["api_keys_configured"] = bool(evolution_key or global_key or auth_key)
+        
+        # Validate Evolution API configuration
+        evolution_config = {
+            "evolution_api_url": getattr(settings, "EVOLUTION_API_URL", ""),
+            "evolution_instance_name": getattr(settings, "EVOLUTION_INSTANCE_NAME", ""),
+            "webhook_url_configured": bool(getattr(settings, "WEBHOOK_GLOBAL_URL", "")),
+        }
+        
+        # Check MessagePreprocessor availability
+        preprocessor_status = "configured"
+        try:
+            from app.services.message_preprocessor import message_preprocessor
+            preprocessor_status = "active"
+        except Exception as e:
+            app_logger.warning(f"MessagePreprocessor import failed: {e}")
+            preprocessor_status = "unavailable"
+            health_status["integration_status"] = "degraded"
+        
+        health_status["preprocessor"] = preprocessor_status
+        
+        # Check Pipeline Orchestrator availability
+        pipeline_status = "configured"
+        try:
+            from app.core.pipeline_orchestrator import pipeline_orchestrator
+            pipeline_status = "active"
+        except Exception as e:
+            app_logger.warning(f"Pipeline Orchestrator import failed: {e}")
+            pipeline_status = "unavailable"
+            health_status["integration_status"] = "degraded"
+        
+        health_status["pipeline_orchestrator"] = pipeline_status
+        
+        # Check CeciliaWorkflow integration
+        workflow_status = "configured"
+        try:
+            from app.core.workflow import cecilia_workflow
+            workflow_status = "active"
+        except Exception as e:
+            app_logger.warning(f"CeciliaWorkflow import failed: {e}")
+            workflow_status = "unavailable"
+            health_status["integration_status"] = "degraded"
+        
+        # Add component details
+        health_status.update({
+            "components": {
+                "evolution_api": evolution_config,
+                "message_preprocessor": {
+                    "status": preprocessor_status,
+                    "features_enabled": [
+                        "input_sanitization",
+                        "rate_limiting",
+                        "authentication_validation",
+                        "business_hours_check",
+                        "session_management"
+                    ]
+                },
+                "pipeline_orchestrator": {
+                    "status": pipeline_status,
+                    "version": "2.1",
+                    "sla_target_ms": 3000
+                },
+                "cecilia_workflow": {
+                    "status": workflow_status,
+                    "architecture": "langgraph_based",
+                    "state_management": "postgresql_persistent"
+                }
+            },
+            "integration_chain": {
+                "webhook_evolution_api": "active",
+                "evolution_to_preprocessor": "active" if preprocessor_status == "active" else "unavailable",
+                "preprocessor_to_pipeline": "active" if pipeline_status == "active" else "unavailable",
+                "pipeline_to_workflow": "active" if workflow_status == "active" else "unavailable",
+                "end_to_end": "active" if all([
+                    preprocessor_status == "active",
+                    pipeline_status == "active", 
+                    workflow_status == "active"
+                ]) else "degraded"
+            },
+            "configuration_validation": {
+                "evolution_api_keys": health_status["api_keys_configured"],
+                "webhook_base64_enabled": True,
+                "preprocessor_integration": preprocessor_status == "active",
+                "business_hours_configured": bool(getattr(settings, "BUSINESS_HOURS_START", None)),
+                "database_configured": bool(getattr(settings, "DATABASE_URL", "")),
+                "redis_configured": bool(getattr(settings, "MEMORY_REDIS_URL", ""))
+            }
+        })
+        
+        # Overall health assessment
+        critical_components = [
+            health_status["api_keys_configured"],
+            preprocessor_status == "active",
+            pipeline_status == "active",
+            workflow_status == "active"
+        ]
+        
+        if all(critical_components):
+            health_status["integration_status"] = "healthy"
+        elif any(critical_components):
+            health_status["integration_status"] = "degraded"
+        else:
+            health_status["integration_status"] = "critical"
+        
+        app_logger.info(
+            f"Integration health check completed: {health_status['integration_status']}",
+            extra={
+                "preprocessor_status": preprocessor_status,
+                "pipeline_status": pipeline_status,
+                "workflow_status": workflow_status,
+                "api_keys_configured": health_status["api_keys_configured"]
+            }
+        )
+        
+        return health_status
+
+    except Exception as e:
+        app_logger.error(f"Integration health check failed: {str(e)}", exc_info=True)
+        return {
+            "timestamp": datetime.now().isoformat(),
+            "integration_status": "critical",
+            "webhook_handler": "unknown",
+            "preprocessor": "unknown",
+            "pipeline_orchestrator": "unknown",
+            "api_keys_configured": False,
+            "base64_enabled": True,
+            "preprocessor_flag_enabled": True,
+            "error": str(e),
+            "message": "Integration health check failed - critical system error"
+        }

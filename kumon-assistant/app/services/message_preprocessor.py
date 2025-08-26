@@ -25,6 +25,7 @@ class PreprocessorResponse:
     success: bool
     message: Optional[WhatsAppMessage]
     prepared_context: Optional[CeciliaState]
+    preprocessed: bool = True  # Flag to mark if message has been preprocessed
     error_code: Optional[str] = None
     error_message: Optional[str] = None
     rate_limited: bool = False
@@ -532,6 +533,7 @@ class MessagePreprocessor:
                     success=False,
                     message=None,
                     prepared_context=None,
+                    preprocessed=False,  # Failed authentication - no preprocessing
                     error_code="AUTH_FAILED",
                     error_message="Authentication validation failed",
                     processing_time_ms=self._get_processing_time(start_time)
@@ -561,6 +563,7 @@ class MessagePreprocessor:
                     success=True,  # Success but with business hours message
                     message=message,
                     prepared_context={**business_hours_context, "last_bot_response": business_hours_response},
+                    preprocessed=True,  # Message was preprocessed (includes session preparation)
                     error_code="OUTSIDE_BUSINESS_HOURS",
                     error_message=f"Outside business hours, next available: {next_business_time}",
                     processing_time_ms=self._get_processing_time(start_time)
@@ -572,6 +575,7 @@ class MessagePreprocessor:
                     success=False,
                     message=None,
                     prepared_context=None,
+                    preprocessed=False,  # Rate limited - no preprocessing completed
                     error_code="RATE_LIMITED",
                     error_message="Rate limit exceeded",
                     rate_limited=True,
@@ -613,6 +617,7 @@ class MessagePreprocessor:
                 success=True,
                 message=sanitized_whatsapp_message,
                 prepared_context=prepared_context,
+                preprocessed=True,  # Full preprocessing pipeline completed successfully
                 processing_time_ms=processing_time
             )
             
@@ -622,6 +627,7 @@ class MessagePreprocessor:
                 success=False,
                 message=None,
                 prepared_context=None,
+                preprocessed=False,  # Processing failed - no preprocessing completed
                 error_code="PROCESSING_ERROR",
                 error_message=f"Internal preprocessing error: {str(e)}",
                 processing_time_ms=self._get_processing_time(start_time)
