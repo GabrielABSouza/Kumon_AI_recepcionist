@@ -347,10 +347,16 @@ class AdvancedIntentClassifier:
             confidence = 0.0
             matched_patterns = []
 
-            # Check patterns
+            # Check patterns with intelligent confidence scoring
             for pattern in config["patterns"]:
-                if re.search(pattern, message_lower):
-                    confidence += 0.3
+                match = re.search(pattern, message_lower)
+                if match:
+                    # Calculate confidence based on match quality
+                    matched_text = match.group(0)
+                    pattern_confidence = self._calculate_pattern_confidence(
+                        message_lower, matched_text, pattern
+                    )
+                    confidence += pattern_confidence
                     matched_patterns.append(pattern)
 
             # Context boost
@@ -379,8 +385,8 @@ class AdvancedIntentClassifier:
                     context_continuation=config.get("context_continuation", False),
                 )
 
-        # Default fallback
-        if not best_match or best_confidence < 0.3:
+        # Default fallback - only if really no good match found
+        if not best_match or best_confidence < 0.2:
             best_match = IntentResult(
                 category=IntentCategory.CLARIFICATION,
                 subcategory=IntentSubcategory.GENERAL_CONFUSION,
@@ -389,6 +395,47 @@ class AdvancedIntentClassifier:
             )
 
         return best_match
+
+    def _calculate_pattern_confidence(self, message: str, matched_text: str, pattern: str) -> float:
+        """
+        Calculate confidence score based on match quality
+
+        Args:
+            message: Full user message (lowercase)
+            matched_text: The text that matched the pattern
+            pattern: The regex pattern that matched
+
+        Returns:
+            Confidence score between 0.0 and 1.0
+        """
+        # Remove extra whitespace for comparison
+        message_clean = message.strip()
+        matched_clean = matched_text.strip()
+
+        # Perfect exact matches get maximum confidence
+        exact_words = ["oi", "olá", "hi", "hello", "tchau", "obrigado", "obrigada", "valeu"]
+        if message_clean in exact_words:
+            return 1.0
+
+        # Strong direct matches (message is essentially just the matched part)
+        message_words = message_clean.split()
+        matched_words = matched_clean.split()
+
+        # If matched text covers most/all of the message
+        if len(matched_words) == len(message_words):
+            return 0.95
+
+        # If matched text is significant portion of message
+        word_ratio = len(matched_words) / len(message_words) if message_words else 0
+        if word_ratio >= 0.8:
+            return 0.9
+        elif word_ratio >= 0.6:
+            return 0.8
+        elif word_ratio >= 0.4:
+            return 0.7
+        else:
+            # Partial match but still relevant
+            return 0.6
 
     def _extract_entities(self, message: str) -> Dict[str, List[str]]:
         """Extract entities from message"""
