@@ -145,8 +145,11 @@ class SecureMessageProcessor:
 
             # Phase 3: Secure Workflow Execution
             workflow_result = await self._execute_secure_workflow(
-                phone_number, sanitized_content, processing_metadata,
-                security_pre_check, sanitized_content
+                phone_number,
+                sanitized_content,
+                processing_metadata,
+                security_pre_check,
+                sanitized_content,
             )
 
             # Phase 4: Post-processing Validation and Delivery
@@ -277,8 +280,12 @@ class SecureMessageProcessor:
             return message_content
 
     async def _execute_secure_workflow(
-        self, phone_number: str, message_content: str, metadata: Dict[str, Any], 
-        security_context: Dict[str, Any], sanitized_content: str
+        self,
+        phone_number: str,
+        message_content: str,
+        metadata: Dict[str, Any],
+        security_context: Dict[str, Any],
+        sanitized_content: str,
     ):
         """Execute the secure conversation workflow with pre-validated security context"""
 
@@ -286,9 +293,11 @@ class SecureMessageProcessor:
             # Execute workflow with timeout, passing security context and sanitized message
             secure_workflow_instance = await self._get_secure_workflow()
             workflow_task = secure_workflow_instance.process_secure_message(
-                phone_number, message_content, metadata,
+                phone_number,
+                message_content,
+                metadata,
                 security_context=security_context,
-                sanitized_message=sanitized_content
+                sanitized_message=sanitized_content,
             )
 
             workflow_result = await asyncio.wait_for(

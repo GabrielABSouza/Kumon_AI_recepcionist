@@ -153,7 +153,7 @@ class SecureConversationWorkflow:
 
             # Use sanitized message if provided, otherwise use original
             processed_message = sanitized_message or user_message
-            
+
             # Use provided security context or create default
             security_result = {
                 "action": "allow",
@@ -204,7 +204,6 @@ class SecureConversationWorkflow:
                 security_incidents=[f"Workflow error: {str(e)}"],
                 recommendations=["Technical issue - contact support"],
             )
-
 
     async def _get_or_create_conversation_state(
         self, phone_number: str, user_message: str, metadata: Optional[Dict[str, Any]]
@@ -737,13 +736,49 @@ Estou à disposição para esclarecer todas as suas dúvidas!"""
         # Add edges with business rule integration
         workflow.add_edge("security_check", "intent_classification")
         workflow.add_edge("intent_classification", "business_rules_validation")
-        workflow.add_edge("business_rules_validation", "rag_business_validation")
+        
+        # Conditional edge: Skip RAG for high-confidence simple intents
+        workflow.add_conditional_edges(
+            "business_rules_validation",
+            self._should_use_rag,
+            {
+                "rag_needed": "rag_business_validation",
+                "skip_rag": "response_generation",
+            }
+        )
+        
         workflow.add_edge("rag_business_validation", "response_generation")
         workflow.add_edge("response_generation", "final_validation")
         workflow.add_edge("final_validation", END)
 
         return workflow.compile()
 
+    def _should_use_rag(self, state: ConversationState) -> str:
+        """Decide whether to use RAG based on intent and confidence"""
+        
+        # Get intent from state (can be stored in different keys)
+        intent = state.get("detected_intent") or state.get("intent", "unknown")
+        confidence = state.get("intent_confidence", 0.0)
+        
+        # Skip RAG for high-confidence simple intents
+        skip_rag_intents = ["greeting", "goodbye", "thanks", "confirmation", "positive_feedback"]
+        
+        if intent in skip_rag_intents and confidence >= 0.9:
+            app_logger.info(f"Skipping RAG for {intent} with confidence {confidence}")
+            state["skip_rag"] = True
+            return "skip_rag"
+        
+        # Skip RAG if we already have a direct template response
+        if state.get("has_direct_template", False):
+            app_logger.info("Skipping RAG - direct template available")
+            state["skip_rag"] = True
+            return "skip_rag"
+        
+        # Use RAG for information requests or low confidence
+        app_logger.info(f"Using RAG for {intent} with confidence {confidence}")
+        state["skip_rag"] = False
+        return "rag_needed"
+    
     async def _security_node(self, state: ConversationState) -> ConversationState:
         """Security validation node"""
         # Implementation would go here
