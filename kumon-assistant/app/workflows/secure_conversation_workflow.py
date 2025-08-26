@@ -128,6 +128,8 @@ class SecureConversationWorkflow:
         phone_number: str,
         user_message: str,
         message_metadata: Optional[Dict[str, Any]] = None,
+        security_context: Optional[Dict[str, Any]] = None,
+        sanitized_message: Optional[str] = None,
     ) -> SecureWorkflowResult:
         """
         Process user message through secure workflow
@@ -136,6 +138,8 @@ class SecureConversationWorkflow:
             phone_number: User identifier
             user_message: User's message content
             message_metadata: Additional message context
+            security_context: Pre-validated security context from secure_message_processor
+            sanitized_message: Pre-sanitized message from secure_message_processor
 
         Returns:
             Complete workflow result with security assessment
@@ -147,35 +151,28 @@ class SecureConversationWorkflow:
         try:
             app_logger.info(f"Processing secure message from {phone_number}")
 
-            # Phase 1: Pre-processing Security Check
-            security_result = await self._pre_processing_security_check(
-                phone_number, user_message, message_metadata
-            )
+            # Use sanitized message if provided, otherwise use original
+            processed_message = sanitized_message or user_message
+            
+            # Use provided security context or create default
+            security_result = {
+                "action": "allow",
+                "sanitized_message": processed_message,
+                "security_context": security_context or {},
+                "incidents": [],
+            }
 
-            if security_result["action"] == "block":
-                self.security_metrics["blocked_requests"] += 1
-                return SecureWorkflowResult(
-                    final_response=security_result["response"],
-                    action_taken=SecureWorkflowAction.BLOCK,
-                    security_status="BLOCKED",
-                    validation_passed=False,
-                    quality_score=0.0,
-                    conversation_state=self._get_conversation_state(phone_number),
-                    security_incidents=security_result.get("incidents", []),
-                    recommendations=["Source blocked due to security threat"],
-                )
-
-            # Phase 2: Get or Create Conversation State
+            # Phase 1: Get or Create Conversation State (using processed message)
             conversation_state = await self._get_or_create_conversation_state(
-                phone_number, user_message, message_metadata
+                phone_number, processed_message, message_metadata
             )
 
-            # Phase 3: Execute Secure Workflow
+            # Phase 2: Execute Secure Workflow
             workflow_result = await self._execute_secure_workflow(
                 conversation_state, security_result
             )
 
-            # Phase 4: Final Security and Quality Validation
+            # Phase 3: Final Security and Quality Validation
             final_validation = await self._final_validation_check(
                 workflow_result, conversation_state, phone_number
             )
@@ -208,51 +205,6 @@ class SecureConversationWorkflow:
                 recommendations=["Technical issue - contact support"],
             )
 
-    async def _pre_processing_security_check(
-        self, phone_number: str, user_message: str, metadata: Optional[Dict[str, Any]]
-    ) -> Dict[str, Any]:
-        """Comprehensive pre-processing security evaluation"""
-
-        try:
-            # Use integrated security manager for threat assessment
-            security_action, security_context = await security_manager.evaluate_security_threat(
-                phone_number, user_message, metadata
-            )
-
-            if security_action.value in ["block_permanent", "block_temporary"]:
-                return {
-                    "action": "block",
-                    "response": "Por questões de segurança, não posso prosseguir com essa conversa.",
-                    "security_context": security_context,
-                    "incidents": ["Security threat detected"],
-                }
-
-            elif security_action.value == "rate_limit":
-                return {
-                    "action": "rate_limit",
-                    "response": "Você está enviando mensagens muito rapidamente. Aguarde um momento antes de continuar.",
-                    "security_context": security_context,
-                    "incidents": ["Rate limit exceeded"],
-                }
-
-            else:
-                # Clean input for safe processing
-                sanitized_message = await security_manager.sanitize_user_input(user_message)
-                return {
-                    "action": "allow",
-                    "sanitized_message": sanitized_message,
-                    "security_context": security_context,
-                    "incidents": [],
-                }
-
-        except Exception as e:
-            app_logger.error(f"Pre-processing security error: {e}")
-            # Fail secure on security check errors
-            return {
-                "action": "block",
-                "response": "Por questões de segurança, não posso prosseguir no momento.",
-                "incidents": [f"Security check failed: {str(e)}"],
-            }
 
     async def _get_or_create_conversation_state(
         self, phone_number: str, user_message: str, metadata: Optional[Dict[str, Any]]
