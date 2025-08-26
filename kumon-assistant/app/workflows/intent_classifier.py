@@ -105,8 +105,9 @@ class AdvancedIntentClassifier:
     user intent in the context of the ongoing conversation.
     """
 
-    def __init__(self, llm_service_instance):
-        self.llm_service_instance = llm_service_instance  # Correctly assign the dependency
+    def __init__(self, llm_service_instance=None):
+        # LLM service is optional - classifier works with pattern matching even without LLM
+        self.llm_service_instance = llm_service_instance
         self.llm = llm_service_instance
 
         # Intent patterns with context awareness
@@ -118,7 +119,10 @@ class AdvancedIntentClassifier:
         # Context tracking
         self.active_contexts: Dict[str, ConversationContext] = {}
 
-        app_logger.info("Advanced Intent Classifier initialized")
+        if llm_service_instance:
+            app_logger.info("Advanced Intent Classifier initialized with LLM support")
+        else:
+            app_logger.info("Advanced Intent Classifier initialized (pattern matching only)")
 
     def _build_intent_patterns(self) -> Dict[IntentCategory, Dict]:
         """Build comprehensive intent patterns with context"""
@@ -447,6 +451,26 @@ class AdvancedIntentClassifier:
         """Enhance classification using LLM for complex cases"""
         # Only use LLM for ambiguous cases or low confidence
         if rule_result.confidence >= 0.7:
+            return rule_result
+
+        # Check if LLM service is available
+        if not self.llm:
+            # Try to get LLM service lazily if not initialized
+            try:
+                from ..core.unified_service_resolver import unified_service_resolver
+
+                self.llm = await unified_service_resolver.get_service("llm_service")
+                self.llm_service_instance = self.llm
+                if self.llm:
+                    app_logger.info("LLM service acquired dynamically for intent enhancement")
+            except Exception as e:
+                app_logger.debug(f"LLM service not available for enhancement: {e}")
+
+        # If still no LLM, return pattern matching result
+        if not self.llm:
+            app_logger.debug(
+                f"Returning pattern-based classification (confidence: {rule_result.confidence})"
+            )
             return rule_result
 
         try:

@@ -241,7 +241,8 @@ class PipelineOrchestrator:
         self,
         message: WhatsAppMessage,
         headers: Dict[str, str],
-        instance_name: str = "kumonvilaa"
+        instance_name: str = "kumonvilaa",
+        skip_preprocessing: bool = False
     ) -> PipelineResult:
         """
         Execute complete message processing pipeline
@@ -250,6 +251,7 @@ class PipelineOrchestrator:
             message: Incoming WhatsApp message
             headers: Request headers
             instance_name: Evolution API instance name
+            skip_preprocessing: Skip preprocessing stage if message already preprocessed
             
         Returns:
             PipelineResult with execution details and response
@@ -285,7 +287,7 @@ class PipelineOrchestrator:
             })
             
             # Stage 1: Message Preprocessing
-            preprocessing_result = await self._execute_preprocessing_stage(message, headers, metrics)
+            preprocessing_result = await self._execute_preprocessing_stage(message, headers, metrics, skip_preprocessing)
             result.stage_results["preprocessing"] = preprocessing_result
             
             if not preprocessing_result.get("success", False):
@@ -358,7 +360,8 @@ class PipelineOrchestrator:
         self,
         message: WhatsAppMessage,
         headers: Dict[str, str],
-        metrics: PipelineMetrics
+        metrics: PipelineMetrics,
+        skip_preprocessing: bool = False
     ) -> Dict[str, Any]:
         """Execute message preprocessing stage with circuit breaker protection"""
         stage_start = time.time()
@@ -377,37 +380,50 @@ class PipelineOrchestrator:
             
             app_logger.debug(f"Executing preprocessing stage for {message.phone}")
             
-            # Check cache for similar preprocessing
-            cache_key = f"preprocessing:{hashlib.md5(f'{message.phone}:{message.message}'.encode()).hexdigest()}"
-            cached_result = await enhanced_cache_service.get(cache_key, CacheLayer.L1)
-            
-            if cached_result:
-                metrics.cache_hits += 1
-                app_logger.debug("Preprocessing cache hit")
-                result = json.loads(cached_result)
-            else:
-                metrics.cache_misses += 1
-                
-                # Execute preprocessing
-                preprocessor_response = await message_preprocessor.process_message(message, headers)
-                
+            if skip_preprocessing:
+                app_logger.debug("Skipping preprocessing stage - message already preprocessed by webhook")
+                # Skip preprocessing stage entirely - message already processed by MessagePreprocessor
                 result = {
-                    "success": preprocessor_response.success,
-                    "sanitized_message": preprocessor_response.message,
-                    "prepared_context": preprocessor_response.prepared_context,
-                    "error_code": preprocessor_response.error_code,
-                    "error_message": preprocessor_response.error_message,
-                    "rate_limited": preprocessor_response.rate_limited,
-                    "processing_time_ms": preprocessor_response.processing_time_ms,
-                    "business_hours_response": preprocessor_response.error_code == "OUTSIDE_BUSINESS_HOURS"
+                    "success": True,
+                    "sanitized_message": message,
+                    "prepared_context": {"last_user_message": message.message, "phone_number": message.phone},
+                    "error_code": None,
+                    "error_message": None,
+                    "rate_limited": False,
+                    "processing_time_ms": 0.0,
+                    "business_hours_response": False
                 }
+            else:
+                # Check cache for similar preprocessing
+                cache_key = f"preprocessing:{hashlib.md5(f'{message.phone}:{message.message}'.encode()).hexdigest()}"
+                cached_result = await enhanced_cache_service.get(cache_key, CacheLayer.L1)
                 
-                # Cache successful preprocessing results
-                if result["success"] or result["business_hours_response"]:
-                    await enhanced_cache_service.set(
-                        cache_key, json.dumps(result, default=str), 
-                        CacheLayer.L1, ttl=300
-                    )
+                if cached_result:
+                    metrics.cache_hits += 1
+                    app_logger.debug("Preprocessing cache hit")
+                    result = json.loads(cached_result)
+                else:
+                    metrics.cache_misses += 1
+                    
+                    # Execute full preprocessing pipeline
+                    preprocessor_response = await message_preprocessor.process_message(message, headers)
+                    result = {
+                        "success": preprocessor_response.success,
+                        "sanitized_message": preprocessor_response.message,
+                        "prepared_context": preprocessor_response.prepared_context.__dict__ if preprocessor_response.prepared_context else {"last_user_message": message.message, "phone_number": message.phone},
+                        "error_code": preprocessor_response.error_code,
+                        "error_message": preprocessor_response.error_message,
+                        "rate_limited": preprocessor_response.rate_limited,
+                        "processing_time_ms": preprocessor_response.processing_time_ms,
+                        "business_hours_response": preprocessor_response.business_hours_response
+                    }
+                    
+                    # Cache successful preprocessing results
+                    if result["success"] or result["business_hours_response"]:
+                        await enhanced_cache_service.set(
+                            cache_key, json.dumps(result, default=str), 
+                            CacheLayer.L1, ttl=300
+                        )
             
             # Record success
             await circuit_breaker.record_success()

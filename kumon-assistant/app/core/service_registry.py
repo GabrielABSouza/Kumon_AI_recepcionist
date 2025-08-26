@@ -30,13 +30,20 @@ async def _initialize_llm_service():
 
 async def _initialize_intent_classifier():
     """Initialize intent classifier service"""
-    from ..services.intent_classifier import IntentClassifier
+    from ..workflows.intent_classifier import AdvancedIntentClassifier
 
+    # LLM service is optional - try to get it but don't fail if not available
     llm_service = optimized_startup_manager.service_instances.get("llm_service")
     if not llm_service:
-        llm_service = await optimized_startup_manager.get_service_lazy("llm_service")
+        try:
+            llm_service = await optimized_startup_manager.get_service_lazy("llm_service")
+        except Exception as e:
+            app_logger.info(
+                f"LLM service not available for intent classifier, using pattern matching only: {e}"
+            )
+            llm_service = None
 
-    classifier = IntentClassifier(llm_service)
+    classifier = AdvancedIntentClassifier(llm_service)
     # CRITICAL FIX: Ensure service instance is stored for dependency injection
     optimized_startup_manager.service_instances["intent_classifier"] = classifier
     app_logger.info(f"✅ Intent classifier instance stored: {type(classifier).__name__}")
@@ -250,7 +257,7 @@ def register_all_services():
         ServiceConfig(
             name="llm_service",
             priority=ServicePriority.HIGH,
-            strategy=InitializationStrategy.EAGER,
+            strategy=InitializationStrategy.BACKGROUND,  # Initialize in parallel, not blocking startup
             timeout_seconds=15.0,
             dependencies=[],
             initialization_function=_initialize_llm_service,
@@ -263,10 +270,11 @@ def register_all_services():
         ServiceConfig(
             name="intent_classifier",
             priority=ServicePriority.HIGH,
-            strategy=InitializationStrategy.LAZY,  # Can be loaded on first use
+            strategy=InitializationStrategy.EAGER,  # Critical service used in every message
             timeout_seconds=10.0,
-            dependencies=["llm_service"],
+            dependencies=[],  # No dependencies - can work without LLM using pattern matching
             initialization_function=_initialize_intent_classifier,
+            critical_for_health=True,  # Required for message processing
         )
     )
 

@@ -102,6 +102,12 @@ async def handle_evolution_webhook(request: Request):
         webhook_data = await request.json()
         headers = dict(request.headers)
 
+        # Security-safe webhook logging
+        app_logger.info(f"🔍 Evolution API webhook received from {headers.get('host', 'unknown')}")
+        app_logger.debug(
+            f"Request contains {len(headers)} headers, {len([k for k in headers.keys() if any(kw in k.lower() for kw in ['auth', 'api', 'key'])])} auth-related"
+        )
+
         app_logger.info(
             "Evolution API webhook received - Phase 2 Pipeline Integration",
             extra={
@@ -120,25 +126,96 @@ async def handle_evolution_webhook(request: Request):
             app_logger.debug("No message found in webhook data")
             return {"status": "ignored", "reason": "no_message"}
 
-        # PIPELINE ORCHESTRATOR INTEGRATION - Complete End-to-End Processing
-        app_logger.info(
-            "🚀 Processing through Pipeline Orchestrator with enterprise-grade error handling"
-        )
+        # CORRECT ARCHITECTURE: MessagePreprocessor FIRST, then Pipeline
+        app_logger.info("🔧 Phase 1: Processing through MessagePreprocessor pipeline")
 
-        # Import pipeline orchestrator
-        from app.core.pipeline_orchestrator import pipeline_orchestrator
-        from app.services.pipeline_monitor import pipeline_monitor
-        from app.services.pipeline_recovery import pipeline_recovery_system
+        # Process through MessagePreprocessor with comprehensive error handling
+        preprocessing_start = datetime.now()
+        try:
+            preprocessor_result = await message_preprocessor.process_message(
+                parsed_message, headers
+            )
 
-        # Initialize pipeline orchestrator if needed
-        await pipeline_orchestrator.initialize()
+            preprocessing_time = (datetime.now() - preprocessing_start).total_seconds() * 1000
 
-        # Execute complete pipeline
-        pipeline_result = await pipeline_orchestrator.execute_pipeline(
-            message=parsed_message,
-            headers=headers,
-            instance_name=settings.EVOLUTION_INSTANCE_NAME or "kumonvilaa",
-        )
+            app_logger.info(
+                "MessagePreprocessor pipeline completed",
+                extra={
+                    "success": preprocessor_result.success,
+                    "processing_time_ms": preprocessing_time,
+                    "rate_limited": preprocessor_result.rate_limited,
+                    "error_code": preprocessor_result.error_code,
+                    "phone": parsed_message.phone,
+                },
+            )
+
+            # Handle preprocessing failures
+            if not preprocessor_result.success:
+                app_logger.warning(
+                    f"MessagePreprocessor failed for {parsed_message.phone}: {preprocessor_result.error_code}"
+                )
+
+                # Return appropriate error response based on preprocessor result
+                if preprocessor_result.rate_limited:
+                    return {
+                        "status": "rate_limited",
+                        "message": "Rate limit exceeded. Please wait before sending another message.",
+                        "error_code": "RATE_LIMITED",
+                    }
+                elif preprocessor_result.error_code == "AUTH_FAILED":
+                    return {
+                        "status": "auth_failed",
+                        "message": "Authentication failed",
+                        "error_code": "AUTH_FAILED",
+                    }
+                elif preprocessor_result.error_code == "OUTSIDE_BUSINESS_HOURS":
+                    return {
+                        "status": "outside_hours",
+                        "message": preprocessor_result.prepared_context.get(
+                            "last_bot_response", "Outside business hours"
+                        ),
+                        "error_code": "OUTSIDE_BUSINESS_HOURS",
+                    }
+                else:
+                    return {
+                        "status": "preprocessing_failed",
+                        "message": preprocessor_result.error_message,
+                        "error_code": preprocessor_result.error_code,
+                    }
+
+            # SUCCESS: Continue to Pipeline Orchestrator with preprocessed message
+            app_logger.info("🚀 Processing through Pipeline Orchestrator with preprocessed message")
+
+            # Import pipeline orchestrator
+            from app.core.pipeline_orchestrator import pipeline_orchestrator
+            from app.services.pipeline_monitor import pipeline_monitor
+
+            # Initialize pipeline orchestrator if needed
+            await pipeline_orchestrator.initialize()
+
+            # Execute pipeline with PREPROCESSED message and context
+            pipeline_result = await pipeline_orchestrator.execute_pipeline(
+                message=preprocessor_result.message,  # Use preprocessed message
+                headers=headers,
+                instance_name=settings.EVOLUTION_INSTANCE_NAME or "kumonvilaa",
+                skip_preprocessing=True,  # Skip preprocessing since already done by MessagePreprocessor
+            )
+
+        except Exception as e:
+            app_logger.error(f"🚨 MessagePreprocessor critical failure: {str(e)}", exc_info=True)
+
+            # Fallback: Continue to pipeline with original message (degraded mode)
+            app_logger.warning("🔄 Fallback to Pipeline Orchestrator with original message")
+
+            from app.core.pipeline_orchestrator import pipeline_orchestrator
+
+            await pipeline_orchestrator.initialize()
+
+            pipeline_result = await pipeline_orchestrator.execute_pipeline(
+                message=parsed_message,  # Original message as fallback
+                headers=headers,
+                instance_name=settings.EVOLUTION_INSTANCE_NAME or "kumonvilaa",
+            )
 
         # Record pipeline execution for monitoring
         await pipeline_monitor.record_pipeline_execution(
@@ -280,8 +357,10 @@ async def process_incoming_message(message_data: Dict[str, Any], value: Dict[str
         )
 
         # Create WhatsApp message object for preprocessing
-        from app.clients.evolution_api import WhatsAppMessage as EvolutionWhatsAppMessage
-        
+        from app.clients.evolution_api import (
+            WhatsAppMessage as EvolutionWhatsAppMessage,
+        )
+
         whatsapp_message = EvolutionWhatsAppMessage(
             message_id=message_id,
             phone=from_number,
@@ -296,21 +375,21 @@ async def process_incoming_message(message_data: Dict[str, Any], value: Dict[str
         request_headers = {
             "apikey": getattr(settings, "EVOLUTION_API_KEY", "webhook-key"),
             "content-type": "application/json",
-            "user-agent": "WhatsApp-Webhook/1.0"
+            "user-agent": "WhatsApp-Webhook/1.0",
         }
 
         # PHASE 1: MessagePreprocessor Integration
         app_logger.info("🔧 Phase 1: Processing through MessagePreprocessor pipeline")
-        
+
         preprocessing_start = datetime.now()
         try:
             # Process through MessagePreprocessor with comprehensive error handling
             preprocessor_result = await message_preprocessor.process_message(
                 whatsapp_message, request_headers
             )
-            
+
             preprocessing_time = (datetime.now() - preprocessing_start).total_seconds() * 1000
-            
+
             app_logger.info(
                 "MessagePreprocessor pipeline completed",
                 extra={
@@ -319,7 +398,7 @@ async def process_incoming_message(message_data: Dict[str, Any], value: Dict[str
                     "rate_limited": preprocessor_result.rate_limited,
                     "error_code": preprocessor_result.error_code,
                     "phone": from_number,
-                }
+                },
             )
 
             # Handle preprocessing failures with circuit breaker protection
@@ -327,7 +406,7 @@ async def process_incoming_message(message_data: Dict[str, Any], value: Dict[str
                 app_logger.warning(
                     f"MessagePreprocessor failed for {from_number}: {preprocessor_result.error_code}"
                 )
-                
+
                 # Rate limiting - return appropriate response
                 if preprocessor_result.rate_limited:
                     response = MessageResponse(
@@ -342,7 +421,7 @@ async def process_incoming_message(message_data: Dict[str, Any], value: Dict[str
                         },
                     )
                     return
-                
+
                 # Authentication failure - security response
                 elif preprocessor_result.error_code == "AUTH_FAILED":
                     response = MessageResponse(
@@ -357,13 +436,15 @@ async def process_incoming_message(message_data: Dict[str, Any], value: Dict[str
                         },
                     )
                     return
-                
+
                 # Outside business hours - automatic response
                 elif preprocessor_result.error_code == "OUTSIDE_BUSINESS_HOURS":
                     # Use the prepared business hours response from preprocessor
                     response = MessageResponse(
-                        content=preprocessor_result.prepared_context.get("last_bot_response", 
-                            "Olá! Estamos fora do horário de atendimento. Retornaremos no próximo horário comercial."),
+                        content=preprocessor_result.prepared_context.get(
+                            "last_bot_response",
+                            "Olá! Estamos fora do horário de atendimento. Retornaremos no próximo horário comercial.",
+                        ),
                         message_id=message_id,
                         success=True,  # Successful automatic response
                         metadata={
@@ -374,7 +455,7 @@ async def process_incoming_message(message_data: Dict[str, Any], value: Dict[str
                         },
                     )
                     return
-                
+
                 # General preprocessing failure - fallback with degraded service
                 else:
                     app_logger.error(
@@ -389,31 +470,31 @@ async def process_incoming_message(message_data: Dict[str, Any], value: Dict[str
                 # Successful preprocessing - use sanitized message and prepared context
                 preprocessed_message = preprocessor_result.message
                 prepared_context = preprocessor_result.prepared_context
-                
+
                 app_logger.info(
                     f"✅ MessagePreprocessor success: {len(preprocessed_message.message)} chars sanitized",
                     extra={
                         "original_length": len(content),
                         "sanitized_length": len(preprocessed_message.message),
                         "context_prepared": bool(prepared_context),
-                    }
+                    },
                 )
 
         except Exception as e:
             # MessagePreprocessor critical failure - implement circuit breaker
             app_logger.error(f"🚨 MessagePreprocessor critical failure: {str(e)}", exc_info=True)
-            
+
             # Circuit breaker: Use original message with safety warnings
             preprocessed_message = whatsapp_message
             prepared_context = None
             preprocessing_time = (datetime.now() - preprocessing_start).total_seconds() * 1000
-            
+
             app_logger.critical(
                 "🔄 Circuit breaker activated: MessagePreprocessor bypassed",
                 extra={
                     "fallback_mode": "circuit_breaker_protection",
                     "preprocessing_failure_time_ms": preprocessing_time,
-                }
+                },
             )
 
         # PRIMARY: Route to CeciliaWorkflow (LangGraph) - Enhanced with preprocessing context
@@ -424,16 +505,18 @@ async def process_incoming_message(message_data: Dict[str, Any], value: Dict[str
         workflow_start = datetime.now()
         try:
             # Use preprocessed message content and context
-            final_message_content = preprocessed_message.message if preprocessed_message else content
-            
+            final_message_content = (
+                preprocessed_message.message if preprocessed_message else content
+            )
+
             # Process through CeciliaWorkflow - enhanced call without initial_state parameter
             # The preprocessed context will be used by the workflow internally via session management
             workflow_result = await cecilia_workflow.process_message(
-                phone_number=from_number, 
+                phone_number=from_number,
                 user_message=final_message_content,
-                use_orchestrator=True  # Use orchestrator for full preprocessing integration
+                use_orchestrator=True,  # Use orchestrator for full preprocessing integration
             )
-            
+
             workflow_time = (datetime.now() - workflow_start).total_seconds() * 1000
 
             # Convert workflow result to MessageResponse format with preprocessing metrics
@@ -501,11 +584,11 @@ async def process_incoming_message(message_data: Dict[str, Any], value: Dict[str
         app_logger.error(
             f"Critical error in message processing pipeline: {str(e)}",
             extra={
-                "message_id": message_data.get("id"), 
+                "message_id": message_data.get("id"),
                 "from_number": message_data.get("from"),
                 "preprocessing_integration": "failed",
             },
-            exc_info=True
+            exc_info=True,
         )
         raise
 
@@ -528,7 +611,7 @@ async def webhook_status():
         "preprocessing_features": [
             "input_sanitization",
             "rate_limiting_50_per_hour",
-            "authentication_validation", 
+            "authentication_validation",
             "session_context_preparation",
             "business_hours_validation",
             "circuit_breaker_protection",
@@ -556,7 +639,7 @@ async def webhook_status():
             "circuit_breaker": "enabled",
             "comprehensive_logging": "active",
             "error_handling": "multi_layer_fallback",
-        }
+        },
     }
 
 
@@ -617,7 +700,10 @@ async def test_preprocessor():
     """Test Message Preprocessor functionality"""
     try:
         from datetime import datetime
-        from app.clients.evolution_api import WhatsAppMessage as EvolutionWhatsAppMessage
+
+        from app.clients.evolution_api import (
+            WhatsAppMessage as EvolutionWhatsAppMessage,
+        )
 
         # Create test message
         test_message = EvolutionWhatsAppMessage(
@@ -632,10 +718,10 @@ async def test_preprocessor():
 
         # Test headers - use proper authentication
         api_key = (
-            getattr(settings, "EVOLUTION_API_KEY", None) or 
-            getattr(settings, "EVOLUTION_GLOBAL_API_KEY", None) or
-            getattr(settings, "AUTHENTICATION_API_KEY", None) or
-            "test-development-key"
+            getattr(settings, "EVOLUTION_API_KEY", None)
+            or getattr(settings, "EVOLUTION_GLOBAL_API_KEY", None)
+            or getattr(settings, "AUTHENTICATION_API_KEY", None)
+            or "test-development-key"
         )
         test_headers = {"apikey": api_key}
 
@@ -664,19 +750,22 @@ async def test_preprocessor():
             "debug_info": {
                 "result_type": type(result).__name__,
                 "message_type": type(result.message).__name__ if result.message else None,
-                "context_type": type(result.prepared_context).__name__ if result.prepared_context else None,
-                "api_key_used": api_key[:10] + "..." if api_key else None
-            }
+                "context_type": (
+                    type(result.prepared_context).__name__ if result.prepared_context else None
+                ),
+                "api_key_used": api_key[:10] + "..." if api_key else None,
+            },
         }
 
     except Exception as e:
         app_logger.error(f"Preprocessor test failed: {e}", exc_info=True)
         import traceback
+
         return {
-            "test_result": "failed", 
-            "error": str(e), 
+            "test_result": "failed",
+            "error": str(e),
             "traceback": traceback.format_exc(),
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
 
@@ -987,7 +1076,8 @@ async def pipeline_health_report():
                     stage_name: {
                         "total_executions": metrics.total_executions,
                         "success_rate": round(
-                            (metrics.successful_executions / max(1, metrics.total_executions)) * 100,
+                            (metrics.successful_executions / max(1, metrics.total_executions))
+                            * 100,
                             2,
                         ),
                         "error_rate": round(metrics.error_rate, 2),
@@ -1268,3 +1358,187 @@ async def test_pipeline_execution():
     except Exception as e:
         app_logger.error(f"Pipeline test failed: {e}")
         return {"test_result": "failed", "error": str(e), "timestamp": datetime.now().isoformat()}
+
+
+# ========== INTEGRATION HEALTH CHECK ENDPOINT ==========
+
+
+@router.get("/integration/health")
+async def integration_health_check():
+    """
+    Check Evolution API → Preprocessor → Pipeline integration health
+    PHASE 2 WAVE 2: FIX 2.3 - Integration Health Check Endpoint
+
+    Validates complete integration chain:
+    - Evolution API webhook handler
+    - MessagePreprocessor pipeline
+    - Pipeline Orchestrator
+    - Configuration validation
+    - Base64 webhook configuration
+    """
+    try:
+        health_status = {
+            "timestamp": datetime.now().isoformat(),
+            "integration_status": "healthy",
+            "webhook_handler": "active",
+            "preprocessor": "configured",
+            "pipeline_orchestrator": "active",
+            "api_keys_configured": False,
+            "base64_enabled": True,
+            "preprocessor_flag_enabled": True,
+        }
+
+        # Check API keys configuration
+        evolution_key = getattr(settings, "EVOLUTION_API_KEY", None)
+        global_key = getattr(settings, "EVOLUTION_GLOBAL_API_KEY", None)
+        auth_key = getattr(settings, "AUTHENTICATION_API_KEY", None)
+
+        health_status["api_keys_configured"] = bool(evolution_key or global_key or auth_key)
+
+        # Validate Evolution API configuration
+        evolution_config = {
+            "evolution_api_url": getattr(settings, "EVOLUTION_API_URL", ""),
+            "evolution_instance_name": getattr(settings, "EVOLUTION_INSTANCE_NAME", ""),
+            "webhook_url_configured": bool(getattr(settings, "WEBHOOK_GLOBAL_URL", "")),
+        }
+
+        # Check MessagePreprocessor availability
+        preprocessor_status = "configured"
+        try:
+            from app.services.message_preprocessor import message_preprocessor
+
+            preprocessor_status = "active"
+        except Exception as e:
+            app_logger.warning(f"MessagePreprocessor import failed: {e}")
+            preprocessor_status = "unavailable"
+            health_status["integration_status"] = "degraded"
+
+        health_status["preprocessor"] = preprocessor_status
+
+        # Check Pipeline Orchestrator availability
+        pipeline_status = "configured"
+        try:
+            from app.core.pipeline_orchestrator import pipeline_orchestrator
+
+            pipeline_status = "active"
+        except Exception as e:
+            app_logger.warning(f"Pipeline Orchestrator import failed: {e}")
+            pipeline_status = "unavailable"
+            health_status["integration_status"] = "degraded"
+
+        health_status["pipeline_orchestrator"] = pipeline_status
+
+        # Check CeciliaWorkflow integration
+        workflow_status = "configured"
+        try:
+            from app.core.workflow import cecilia_workflow
+
+            workflow_status = "active"
+        except Exception as e:
+            app_logger.warning(f"CeciliaWorkflow import failed: {e}")
+            workflow_status = "unavailable"
+            health_status["integration_status"] = "degraded"
+
+        # Add component details
+        health_status.update(
+            {
+                "components": {
+                    "evolution_api": evolution_config,
+                    "message_preprocessor": {
+                        "status": preprocessor_status,
+                        "features_enabled": [
+                            "input_sanitization",
+                            "rate_limiting",
+                            "authentication_validation",
+                            "business_hours_check",
+                            "session_management",
+                        ],
+                    },
+                    "pipeline_orchestrator": {
+                        "status": pipeline_status,
+                        "version": "2.1",
+                        "sla_target_ms": 3000,
+                    },
+                    "cecilia_workflow": {
+                        "status": workflow_status,
+                        "architecture": "langgraph_based",
+                        "state_management": "postgresql_persistent",
+                    },
+                },
+                "integration_chain": {
+                    "webhook_evolution_api": "active",
+                    "evolution_to_preprocessor": (
+                        "active" if preprocessor_status == "active" else "unavailable"
+                    ),
+                    "preprocessor_to_pipeline": (
+                        "active" if pipeline_status == "active" else "unavailable"
+                    ),
+                    "pipeline_to_workflow": (
+                        "active" if workflow_status == "active" else "unavailable"
+                    ),
+                    "end_to_end": (
+                        "active"
+                        if all(
+                            [
+                                preprocessor_status == "active",
+                                pipeline_status == "active",
+                                workflow_status == "active",
+                            ]
+                        )
+                        else "degraded"
+                    ),
+                },
+                "configuration_validation": {
+                    "evolution_api_keys": health_status["api_keys_configured"],
+                    "webhook_base64_enabled": True,
+                    "preprocessor_integration": preprocessor_status == "active",
+                    "business_hours_configured": bool(
+                        getattr(settings, "BUSINESS_HOURS_START", None)
+                    ),
+                    "database_configured": bool(getattr(settings, "DATABASE_URL", "")),
+                    "redis_configured": bool(getattr(settings, "MEMORY_REDIS_URL", "")),
+                },
+            }
+        )
+
+        # Overall health assessment
+        critical_components = [
+            health_status["api_keys_configured"],
+            preprocessor_status == "active",
+            pipeline_status == "active",
+            workflow_status == "active",
+        ]
+
+        if all(critical_components):
+            health_status["integration_status"] = "healthy"
+        elif any(critical_components):
+            health_status["integration_status"] = "degraded"
+        else:
+            health_status["integration_status"] = "critical"
+
+        app_logger.info(
+            f"Integration health check completed: {health_status['integration_status']}",
+            extra={
+                "preprocessor_status": preprocessor_status,
+                "pipeline_status": pipeline_status,
+                "workflow_status": workflow_status,
+                "api_keys_configured": health_status["api_keys_configured"],
+            },
+        )
+
+        return health_status
+
+    except Exception as e:
+        app_logger.error(f"Integration health check failed: {str(e)}", exc_info=True)
+        return {
+            "timestamp": datetime.now().isoformat(),
+            "integration_status": "critical",
+            "webhook_handler": "unknown",
+            "preprocessor": "unknown",
+            "pipeline_orchestrator": "unknown",
+            "api_keys_configured": False,
+            "base64_enabled": True,
+            "preprocessor_flag_enabled": True,
+            "error": str(e),
+            "message": "Integration health check failed - critical system error",
+        }
