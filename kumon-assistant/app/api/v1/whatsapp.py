@@ -195,6 +195,7 @@ async def handle_evolution_webhook(request: Request):
                 message=preprocessor_result.message,  # Use preprocessed message
                 headers=headers,
                 instance_name=settings.EVOLUTION_INSTANCE_NAME or "kumonvilaa",
+                skip_preprocessing=True  # Skip preprocessing since already done by MessagePreprocessor
             )
             
         except Exception as e:
