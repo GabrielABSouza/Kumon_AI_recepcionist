@@ -131,14 +131,15 @@ class AdvancedIntentClassifier:
                 "patterns": [
                     r"\b(oi|olá|hello|hi|bom\s+dia|boa\s+tarde|boa\s+noite)\b",
                     r"\b(me\s+chamo|meu\s+nome\s+[éeE]|sou\s+o?a?)\s+([A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,})",
-                    r"\b(primeira\s+vez|primeiro\s+contato|conhecer\s+o\s+kumon)\b",
-                    r"\b(gostaria\s+de\s+saber|quero\s+informações)\b",
+                    r"\b(primeira\s+vez|primeiro\s+contato)\b",
                 ],
                 "context_indicators": ["new_conversation", "name_exchange"],
                 "confidence_boost": 0.2,
             },
             IntentCategory.INFORMATION_REQUEST: {
                 "patterns": [
+                    r"\b(gostaria\s+de\s+saber|quero\s+informações|quero\s+conhecer)\b",
+                    r"\b(conhecer\s+o\s+kumon|saber\s+mais|informações\s+sobre)\b",
                     r"\b(matemática|math|cálculo|números?|conta)\b",
                     r"\b(português|port|leitura|escrita|redação|texto)\b",
                     r"\b(inglês|english|idioma)\b",
