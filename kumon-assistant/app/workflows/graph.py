@@ -20,7 +20,13 @@ from .edges import (
     should_end_conversation,
     smart_route_conversation,
 )
-from .nodes import fallback_node, greeting_node, information_node, scheduling_node
+from .nodes import (
+    entry_point_node,
+    fallback_node,
+    greeting_node,
+    information_node,
+    scheduling_node,
+)
 from .states import (
     ConversationState,
     ConversationStep,
@@ -62,6 +68,7 @@ class KumonWorkflow:
         workflow = StateGraph(ConversationState)
 
         # Add nodes
+        workflow.add_node("entry_point", entry_point_node)
         workflow.add_node("greeting", greeting_node)
         workflow.add_node("information", information_node)
         workflow.add_node("scheduling", scheduling_node)
@@ -69,8 +76,22 @@ class KumonWorkflow:
         workflow.add_node("human_handoff", self._human_handoff_node)
         workflow.add_node("completed", self._completion_node)
 
-        # Set entry point
-        workflow.set_entry_point("greeting")
+        # Set entry point to the new intelligent router
+        workflow.set_entry_point("entry_point")
+
+        # Add the primary routing edge from the entry point
+        workflow.add_conditional_edges(
+            "entry_point",
+            smart_route_conversation,
+            {
+                "information": "information",
+                "scheduling": "scheduling",
+                "fallback": "fallback",
+                "greeting": "greeting",
+                "completed": "completed",
+                "human_handoff": "human_handoff",
+            },
+        )
 
         # Phase 4: Add smart routing as primary routing mechanism
         workflow.add_conditional_edges(

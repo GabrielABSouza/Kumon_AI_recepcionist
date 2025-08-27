@@ -34,14 +34,6 @@ from ..security.security_manager import security_manager
 from ..services.business_compliance_monitor import business_compliance_monitor
 from ..services.rag_business_validator import rag_business_validator
 from ..workflows.context_manager import ConversationContextManager
-from ..workflows.nodes.business_rules_nodes import (
-    BusinessRuleNodeResult,
-    business_compliance_node,
-    handoff_decision_node,
-    lead_qualification_node,
-    pricing_validation_node,
-    scheduling_constraint_node,
-)
 from ..workflows.states.compliance_state import (
     enhance_cecilia_state_with_compliance,
     get_compliance_summary,
@@ -299,64 +291,9 @@ class SecureConversationWorkflow:
                 conversation_state["rag_context"] = rag_result.get("context", "")
                 conversation_state["rag_confidence"] = rag_result.get("confidence", 0.0)
 
-            # Execute business rules validation nodes
-            app_logger.info("Executing business rules validation nodes")
-            business_rule_results = await business_compliance_node.execute(
-                conversation_state,
-                {"security_context": security_result.get("security_context", {})},
-            )
-
-            # Process business rule results
-            business_compliance_passed = True
-            handoff_required = False
-            business_actions = []
-
-            for rule_type, rule_result in business_rule_results.items():
-                if isinstance(rule_result, BusinessRuleNodeResult):
-                    # Update conversation state with business rule results
-                    conversation_state.update(rule_result.updated_state)
-
-                    if not rule_result.compliance_passed:
-                        business_compliance_passed = False
-                        app_logger.warning(
-                            f"Business rule violation: {rule_type.value} - {rule_result.enforcement_message}"
-                        )
-
-                    if rule_result.action_required == "handoff":
-                        handoff_required = True
-                        conversation_state["requires_human"] = True
-                        conversation_state["handoff_reason"] = f"business_rule_{rule_type.value}"
-
-                    business_actions.append(
-                        {
-                            "rule_type": rule_type.value,
-                            "action": rule_result.action_required,
-                            "message": rule_result.enforcement_message,
-                        }
-                    )
-
-            # Store business compliance information
-            conversation_state["business_rule_results"] = business_rule_results
-            conversation_state["business_compliance_passed"] = business_compliance_passed
-            conversation_state["business_actions"] = business_actions
-
-            # Update conversation state with compliance tracking
-            conversation_state = update_compliance_state(conversation_state, business_rule_results)
-
-            # Monitor business compliance
-            await business_compliance_monitor.monitor_business_compliance(
-                conversation_state.get("session_id"), business_rule_results
-            )
-
-            # Handle mandatory handoff
-            if handoff_required:
-                app_logger.info("Business rule mandated handoff detected")
-                return {
-                    "response_candidate": "Vou transferir você para nosso consultor educacional que poderá atendê-lo melhor. Entre em contato através do WhatsApp (51) 99692-1999.",
-                    "conversation_state": conversation_state,
-                    "security_context": security_result.get("security_context", {}),
-                    "business_handoff_required": True,
-                }
+            # Business rules are now handled through template selection and few-shot examples
+            # No separate business compliance node needed
+            app_logger.info("Business rules handled via template resolution")
 
             # Smart routing decision
             app_logger.info("DEBUG: About to call make_routing_decision")
@@ -593,18 +530,6 @@ Estou à disposição para esclarecer todas as suas dúvidas!"""
 
         response_candidate = workflow_result["response_candidate"]
 
-        # Handle business rule mandated handoff
-        if workflow_result.get("business_handoff_required", False):
-            return SecureWorkflowResult(
-                final_response=response_candidate,
-                action_taken=SecureWorkflowAction.ESCALATE,
-                security_status="BUSINESS_HANDOFF",
-                validation_passed=True,  # Business handoff is a valid action
-                quality_score=1.0,
-                conversation_state=conversation_state,
-                security_incidents=[],
-                recommendations=["Business rule mandated handoff"],
-            )
 
         try:
             # Multi-layer validation using security validation agent
@@ -739,7 +664,6 @@ Estou à disposição para esclarecer todas as suas dúvidas!"""
         # Add workflow nodes including business rules
         workflow.add_node("security_check", self._security_node)
         workflow.add_node("intent_classification", self._intent_node)
-        workflow.add_node("business_rules_validation", self._business_rules_node)
         workflow.add_node("rag_business_validation", self._rag_business_node)
         workflow.add_node("response_generation", self._response_node)
         workflow.add_node("final_validation", self._validation_node)
@@ -749,11 +673,9 @@ Estou à disposição para esclarecer todas as suas dúvidas!"""
 
         # Add edges with business rule integration
         workflow.add_edge("security_check", "intent_classification")
-        workflow.add_edge("intent_classification", "business_rules_validation")
-        
         # Conditional edge: Skip RAG for high-confidence simple intents
         workflow.add_conditional_edges(
-            "business_rules_validation",
+            "intent_classification",
             self._should_use_rag,
             {
                 "rag_needed": "rag_business_validation",
@@ -808,29 +730,6 @@ Estou à disposição para esclarecer todas as suas dúvidas!"""
         # Implementation would go here
         return state
 
-    async def _business_rules_node(self, state: ConversationState) -> ConversationState:
-        """Business rules validation node"""
-        try:
-            # Execute comprehensive business rules validation
-            business_rule_results = await business_compliance_node.execute(
-                state, {"workflow_context": "langgraph_node"}
-            )
-
-            # Update state with business rule results
-            business_compliance_passed = True
-            for rule_type, rule_result in business_rule_results.items():
-                if isinstance(rule_result, BusinessRuleNodeResult):
-                    state.update(rule_result.updated_state)
-                    if not rule_result.compliance_passed:
-                        business_compliance_passed = False
-
-            state["business_compliance_passed"] = business_compliance_passed
-            state["business_rule_results"] = business_rule_results
-
-            return state
-        except Exception as e:
-            app_logger.error(f"Business rules node error: {e}")
-            return state
 
     async def _rag_business_node(self, state: ConversationState) -> ConversationState:
         """RAG business validation node"""

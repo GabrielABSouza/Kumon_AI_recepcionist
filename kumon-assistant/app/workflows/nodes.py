@@ -17,14 +17,13 @@ from ..core.config import settings
 from ..core.logger import app_logger
 from ..prompts.manager import prompt_manager
 from ..core.service_factory import get_langchain_rag_service
-from ..services.langgraph_llm_adapter import langgraph_llm_adapter, kumon_llm_service
+from ..services.langgraph_llm_adapter import KumonLLMService
 from ..clients.google_calendar import GoogleCalendarClient
 from .states import (
     ConversationState, 
     WorkflowStage, 
     ConversationStep, 
-    UserContext,
-    update_state_metrics
+    UserContext
 )
 from .context_manager import context_manager
 # Legacy intelligent_fallback removed - now integrated in threshold handlers
@@ -37,135 +36,140 @@ from ..services.business_metrics_service import (
 
 
 # Initialize LLM with new Production LLM Service
-llm = langgraph_llm_adapter
+llm = KumonLLMService()
 
 # Initialize calendar client
 calendar_client = GoogleCalendarClient()
 
 
+async def entry_point_node(state: ConversationState) -> ConversationState:
+    """
+    A simple passthrough node that serves as the graph's entry point
+    before intelligent routing.
+    """
+    app_logger.info(f"Entering workflow for {state['phone_number']}. Routing...")
+    return state
+
+
 async def greeting_node(state: ConversationState) -> ConversationState:
     """
-    Handle greeting stage conversations
+    Handle greeting stage conversations using confidence-based routing.
     
-    This node manages the initial welcome, name collection, and interest identification.
-    It uses LangSmith prompts with Cecília personality.
+    This node checks the routing action determined by the smart_router.
+    - For high-confidence greetings ("proceed"), it uses a static template and skips the LLM.
+    - For lower confidence messages, it prepares a prompt for the LLM to handle.
     """
     app_logger.info(f"Processing greeting for {state['phone_number']}")
     start_time = datetime.now()
     
     try:
-        user_message = state["user_message"].lower().strip()
+        # Get the routing action determined by the smart_router in the previous step
+        routing_action = state.get("routing_info", {}).get("threshold_action", "enhance_with_llm")
         user_context = state["user_context"]
-        step = state["step"]
         phone_number = state["phone_number"]
-        
-        # Determine which greeting prompt to use based on conversation step
-        if step == ConversationStep.WELCOME and not user_context.parent_name:
-            # Initial welcome message - track as new lead
-            await track_lead(phone_number, metadata={
-                "source": "whatsapp",
-                "stage": "welcome",
-                "timestamp": start_time.isoformat()
-            })
-            
+        prompt_name = "kumon:greeting:unknown" # Default prompt name
+
+        if routing_action == "proceed":
+            # FAST PATH: High confidence greeting, skip LLM
+            app_logger.info("High confidence greeting. Using static template and skipping LLM.")
             prompt_name = "kumon:greeting:welcome:initial"
-            prompt = await prompt_manager.get_prompt(prompt_name)
-            
-            response = prompt
+            response = await prompt_manager.get_prompt(prompt_name)
             next_step = ConversationStep.COLLECT_NAME
             
-        elif step == ConversationStep.COLLECT_NAME or not user_context.parent_name:
-            # Extract name from user message
-            name_match = re.search(r'(?:me chamo|meu nome é|sou|eu sou)\s+([a-záêéôõâîçü\s]+)', user_message, re.IGNORECASE)
-            if not name_match:
-                # Try simpler patterns
-                name_match = re.search(r'\b([A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,}(?:\s+[A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,})*)\b', state["user_message"])
+            # Set final response and skip LLM
+            updated_state = {
+                **state,
+                "ai_response": response,
+                "skip_llm": True,  # IMPORTANT: Signal to bypass LLM call
+                "step": next_step,
+                "validation_passed": True,
+                "prompt_used": prompt_name,
+            }
+        
+        else:
+            # DEFAULT PATH: Low confidence or complex message, use LLM (existing logic)
+            app_logger.info(f"Lower confidence action '{routing_action}'. Using LLM-based logic.")
+            user_message = state["user_message"].lower().strip()
+            step = state["step"]
+
+            # This logic remains for multi-turn greetings after the initial message
+            if step == ConversationStep.COLLECT_NAME or not user_context.parent_name:
+                # Extract name from user message
+                name_match = re.search(r'(?:me chamo|meu nome é|sou|eu sou)\s+([a-záêéôõâîçü\s]+)', user_message, re.IGNORECASE)
+                if not name_match:
+                    name_match = re.search(r'\b([A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,}(?:\s+[A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,})*)\b', state["user_message"])
+                
+                if name_match:
+                    user_context.parent_name = name_match.group(1).strip().title()
+                    prompt_name = "kumon:greeting:collection:parent_name"
+                    response = await prompt_manager.get_prompt(
+                        prompt_name, 
+                        variables={"parent_name": user_context.parent_name}
+                    )
+                    next_step = ConversationStep.IDENTIFY_INTEREST
+                else:
+                    prompt_name = "kumon:greeting:error:name_not_found"
+                    response = await prompt_manager.get_prompt(prompt_name)
+                    next_step = ConversationStep.COLLECT_NAME
             
-            if name_match:
-                user_context.parent_name = name_match.group(1).strip().title()
-                
-                # Ask about interest type
-                prompt_name = "kumon:greeting:collection:parent_name"
-                prompt = await prompt_manager.get_prompt(
-                    prompt_name, 
-                    variables={"parent_name": user_context.parent_name}
-                )
-                response = prompt
-                next_step = ConversationStep.IDENTIFY_INTEREST
+            elif step == ConversationStep.IDENTIFY_INTEREST:
+                # Determine if it's for child or self
+                if any(word in user_message for word in ["filho", "filha", "criança", "child"]):
+                    user_context.interest_type = "child"
+                    await track_qualified_lead(phone_number, metadata={"interest_type": "child", "parent_name": user_context.parent_name})
+                    prompt_name = "kumon:greeting:response:child_interest"
+                    next_stage = WorkflowStage.INFORMATION
+                    next_step = ConversationStep.PROVIDE_PROGRAM_INFO
+                elif any(word in user_message for word in ["eu", "mim", "para mim", "myself", "me"]):
+                    user_context.interest_type = "self"
+                    await track_qualified_lead(phone_number, metadata={"interest_type": "self", "parent_name": user_context.parent_name})
+                    prompt_name = "kumon:greeting:response:self_interest"
+                    next_stage = WorkflowStage.INFORMATION  
+                    next_step = ConversationStep.PROVIDE_PROGRAM_INFO
+                else:
+                    prompt_name = "kumon:greeting:clarification:interest_type"
+                    response = await prompt_manager.get_prompt(prompt_name)
+                    next_stage = WorkflowStage.GREETING
+                    next_step = ConversationStep.IDENTIFY_INTEREST
+                    
+                if 'prompt_name' in locals() and 'response' not in locals():
+                    response = await prompt_manager.get_prompt(
+                        prompt_name,
+                        variables={"parent_name": user_context.parent_name}
+                    )
             else:
-                # Ask for name again
-                response = "Desculpe, não consegui entender seu nome. Pode me dizer novamente? 😊"
-                next_step = ConversationStep.COLLECT_NAME
-                
-        elif step == ConversationStep.IDENTIFY_INTEREST:
-            # Determine if it's for child or self
-            if any(word in user_message for word in ["filho", "filha", "criança", "child"]):
-                user_context.interest_type = "child"
-                # Track as qualified lead - they showed specific interest
-                await track_qualified_lead(phone_number, metadata={
-                    "interest_type": "child",
-                    "parent_name": user_context.parent_name,
-                    "stage": "interest_identification"
-                })
-                prompt_name = "kumon:greeting:response:child_interest"
+                # Fallback for any other step within greeting
+                prompt_name = "kumon:greeting:clarification:general"
+                response = await prompt_manager.get_prompt(prompt_name)
                 next_stage = WorkflowStage.INFORMATION
                 next_step = ConversationStep.PROVIDE_PROGRAM_INFO
-            elif any(word in user_message for word in ["eu", "mim", "para mim", "myself", "me"]):
-                user_context.interest_type = "self"
-                # Track as qualified lead - they showed specific interest
-                await track_qualified_lead(phone_number, metadata={
-                    "interest_type": "self",
-                    "parent_name": user_context.parent_name,
-                    "stage": "interest_identification"
-                })
-                prompt_name = "kumon:greeting:response:self_interest"
-                next_stage = WorkflowStage.INFORMATION  
-                next_step = ConversationStep.PROVIDE_PROGRAM_INFO
-            else:
-                # Unclear intent, ask for clarification
-                response = "Você está interessado no Kumon para você mesmo ou para seu filho(a)? 🤔"
-                next_stage = WorkflowStage.GREETING
-                next_step = ConversationStep.IDENTIFY_INTEREST
-                
-            if 'prompt_name' in locals():
-                prompt = await prompt_manager.get_prompt(
-                    prompt_name,
-                    variables={"parent_name": user_context.parent_name}
-                )
-                response = prompt
-        else:
-            # Fallback
-            response = "Vamos para a próxima etapa! Como posso ajudá-lo com informações sobre o Kumon? 😊"
-            next_stage = WorkflowStage.INFORMATION
-            next_step = ConversationStep.PROVIDE_PROGRAM_INFO
-        
-        # Update state
-        updated_state = {
-            **state,
-            "ai_response": response,
-            "user_context": user_context,
-            "validation_passed": True,
-            "prompt_used": locals().get('prompt_name', 'hardcoded'),
-        }
-        
-        # Update stage/step if needed
-        if 'next_stage' in locals():
-            updated_state["stage"] = next_stage
-        if 'next_step' in locals():
-            updated_state["step"] = next_step
-        
+
+            # Set prompt for LLM and ensure skip_llm is False
+            updated_state = {
+                **state,
+                "ai_response": response,
+                "skip_llm": False,
+                "user_context": user_context,
+                "validation_passed": True,
+                "prompt_used": prompt_name,
+            }
+            if 'next_stage' in locals():
+                updated_state["stage"] = next_stage
+            if 'next_step' in locals():
+                updated_state["step"] = next_step
+
         # Track response time
         response_time_ms = (datetime.now() - start_time).total_seconds() * 1000
         await track_response_time(response_time_ms, {
             "node": "greeting",
-            "step": step.value,
-            "phone_number": phone_number[-4:] if len(phone_number) > 4 else "****"
+            "step": state["step"].value,
+            "phone_number": phone_number[-4:]
         })
             
-        return update_state_metrics(updated_state, stage_transition=f"greeting_{step.value}")
+        return updated_state
         
     except Exception as e:
-        app_logger.error(f"Error in greeting_node: {e}")
+        app_logger.error(f"Error in greeting_node: {e}", exc_info=True)
         return {
             **state,
             "ai_response": "Desculpe, tive um problema técnico. Pode repetir sua mensagem? 😊",
@@ -254,14 +258,14 @@ Sobre qual tema você gostaria de saber mais? 😊"""
             "phone_number": phone_number[-4:] if len(phone_number) > 4 else "****"
         })
         
-        return update_state_metrics({
+        return {
             **state,
             "ai_response": response,
             "user_context": user_context,
             "validation_passed": True,
             "prompt_used": prompt_name,
             "step": ConversationStep.PROVIDE_PROGRAM_INFO
-        }, stage_transition="information_provided")
+        }
         
     except Exception as e:
         app_logger.error(f"Error in information_node: {e}")
@@ -383,14 +387,14 @@ async def scheduling_node(state: ConversationState) -> ConversationState:
             "phone_number": phone_number[-4:] if len(phone_number) > 4 else "****"
         })
         
-        return update_state_metrics({
+        return {
             **state,
             "ai_response": response,
             "user_context": user_context,
             "step": next_step if 'next_step' in locals() else step,
             "validation_passed": True,
             "prompt_used": locals().get('prompt_name', 'scheduling_default')
-        }, stage_transition=f"scheduling_{step.value}")
+        }
         
     except Exception as e:
         app_logger.error(f"Error in scheduling_node: {e}")
@@ -448,7 +452,7 @@ async def fallback_node(state: ConversationState) -> ConversationState:
         
         app_logger.info(f"Applied simple fallback recovery")
         
-        return update_state_metrics(updated_state)
+        return updated_state
         
     except Exception as e:
         app_logger.error(f"Error in intelligent fallback_node: {e}")

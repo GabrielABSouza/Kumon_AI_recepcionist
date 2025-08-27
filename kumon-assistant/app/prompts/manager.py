@@ -200,29 +200,77 @@ class PromptManager:
             app_logger.error(f"Failed to load fallback template: {name} - {e}")
             return None
     
+    def _calculate_template_score(self, name: str, template_config: dict) -> float:
+        """Calculate score for template matching based on keywords and requirements"""
+        name_lower = name.lower()
+        score = 0.0
+        
+        required = template_config.get("required", [])
+        keywords = template_config.get("keywords", [])
+        priority = template_config.get("priority", 1)
+        
+        # Required keywords (must have ALL) - disqualifies if missing any
+        if required:
+            if not all(req.lower() in name_lower for req in required):
+                return 0.0  # Disqualified
+            score += 100  # Base score for meeting requirements
+        
+        # Bonus for optional keywords
+        for keyword in keywords:
+            if keyword.lower() in name_lower:
+                score += 10
+        
+        # Priority multiplier
+        score *= priority
+        
+        # Length bonus (more specific prompts get slight preference)
+        specificity_bonus = len(name.split(":")) * 2
+        score += specificity_bonus
+        
+        return score
+
     async def _get_cecilia_template(self, name: str) -> str:
-        """Get appropriate Cecília template based on prompt name"""
+        """Get appropriate Cecília template using intelligent score-based resolution"""
         try:
-            # Map prompt names to Cecília templates
-            template_map = {
-                "cecilia_greeting": "cecilia_greeting.txt",
-                "greeting": "cecilia_greeting.txt",
-                "welcome": "cecilia_greeting.txt",
-                "conversation": "cecilia_conversation.txt",
-                "chat": "cecilia_conversation.txt",
-                "response": "cecilia_conversation.txt"
+            # Template configuration with scoring criteria
+            template_configs = {
+                "information/cecilia_pricing.txt": {
+                    "required": ["pricing"],
+                    "keywords": ["information", "response", "value", "cost"],
+                    "priority": 10
+                },
+                "cecilia_greeting.txt": {
+                    "required": ["greeting"],
+                    "keywords": ["initial", "welcome", "first"],
+                    "priority": 8
+                },
+                "cecilia_conversation.txt": {
+                    "required": [],  # No requirements = always eligible
+                    "keywords": ["conversation", "response", "chat"],
+                    "priority": 1  # Lowest priority = fallback
+                }
             }
             
-            # Find matching template
-            template_file = None
-            for key, file in template_map.items():
-                if key.lower() in name.lower():
-                    template_file = file
-                    break
+            # Calculate scores for all templates
+            scored_templates = []
+            for template_file, config in template_configs.items():
+                score = self._calculate_template_score(name, config)
+                if score > 0:  # Only include eligible templates
+                    scored_templates.append((score, template_file, config))
             
-            if not template_file:
-                template_file = "cecilia_conversation.txt"  # Default
+            # Sort by score (highest first)
+            scored_templates.sort(key=lambda x: x[0], reverse=True)
             
+            # Get the best match
+            if scored_templates:
+                best_score, template_file, config = scored_templates[0]
+                app_logger.info(f"Best template match: {template_file} (score: {best_score:.1f}) for prompt: {name}")
+            else:
+                # Ultimate fallback
+                template_file = "cecilia_conversation.txt"
+                app_logger.warning(f"No template match found, using fallback: {template_file}")
+            
+            # Load the selected template
             filepath = self.fallback_dir / template_file
             
             if filepath.exists():
@@ -231,6 +279,7 @@ class PromptManager:
                     app_logger.info(f"Using CECÍLIA template: {template_file}")
                     return content.strip()
             else:
+                app_logger.warning(f"Template file not found: {filepath}, using base template")
                 return await self._get_base_cecilia_template()
                 
         except Exception as e:
