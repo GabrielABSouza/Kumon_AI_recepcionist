@@ -143,11 +143,6 @@ async def _initialize_vector_store():
     return vector_store
 
 
-async def _initialize_business_compliance():
-    """Initialize business compliance monitoring"""
-    from ..services.business_compliance_monitor import business_compliance_monitor
-
-    return business_compliance_monitor
 
 
 async def _initialize_security_manager():
@@ -362,16 +357,6 @@ def register_all_services():
         )
     )
 
-    optimized_startup_manager.register_service(
-        ServiceConfig(
-            name="business_compliance",
-            priority=ServicePriority.LOW,
-            strategy=InitializationStrategy.BACKGROUND,
-            timeout_seconds=10.0,
-            dependencies=[],
-            initialization_function=_initialize_business_compliance,
-        )
-    )
 
     optimized_startup_manager.register_service(
         ServiceConfig(

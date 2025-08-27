@@ -31,14 +31,8 @@ from ..core.state.models import ConversationStage as WorkflowStage
 from ..core.state.models import ConversationStep
 from ..prompts.manager import PromptManager
 from ..security.security_manager import security_manager
-from ..services.business_compliance_monitor import business_compliance_monitor
 from ..services.rag_business_validator import rag_business_validator
 from ..workflows.context_manager import ConversationContextManager
-from ..workflows.states.compliance_state import (
-    enhance_cecilia_state_with_compliance,
-    get_compliance_summary,
-    update_compliance_state,
-)
 from ..workflows.validators import ValidationResult, get_validation_agent
 
 
@@ -224,11 +218,7 @@ class SecureConversationWorkflow:
 
         new_state = create_initial_cecilia_state(phone_number, user_message)
 
-        # Enhance state with business compliance tracking
-        new_state = enhance_cecilia_state_with_compliance(new_state)
-
-        # Start compliance monitoring
-        await business_compliance_monitor.start_conversation_monitoring(phone_number, session_id)
+        # Business compliance now handled via template resolution system
 
         return new_state
 
