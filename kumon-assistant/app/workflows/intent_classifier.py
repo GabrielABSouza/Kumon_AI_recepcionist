@@ -331,6 +331,9 @@ class AdvancedIntentClassifier:
             action, rule, initial_result, conversation_state
         )
         
+        # Add threshold action to result for workflow usage
+        enhanced_result.threshold_action = action
+        
         app_logger.info(
             f"Applied threshold rule: {rule.name} -> {action} "
             f"(confidence: {initial_result.confidence:.2f} -> {enhanced_result.confidence:.2f})"

@@ -243,13 +243,16 @@ class SecureConversationWorkflow:
             # First classify intent to determine if we need RAG
             intent_result = await self._classify_intent(conversation_state)
             
-            # Update conversation state with intent
+            # Update conversation state with intent AND threshold action
             if hasattr(intent_result, "category"):
                 conversation_state["detected_intent"] = intent_result.category.value
                 conversation_state["intent_confidence"] = intent_result.confidence
+                # Extract threshold action if available
+                conversation_state["threshold_action"] = getattr(intent_result, "threshold_action", None)
             elif isinstance(intent_result, dict):
                 conversation_state["detected_intent"] = intent_result.get("intent")
                 conversation_state["intent_confidence"] = intent_result.get("confidence", 0.0)
+                conversation_state["threshold_action"] = intent_result.get("threshold_action", None)
             
             # Determine if RAG is needed based on intent
             detected_intent = conversation_state.get("detected_intent", "unknown")
@@ -303,8 +306,16 @@ class SecureConversationWorkflow:
             conversation_state["next_stage"] = routing_decision.target_stage
             conversation_state["routing_confidence"] = routing_decision.confidence
 
-            # Generate response using appropriate prompt
-            response_candidate = await self._generate_response_candidate(conversation_state)
+            # Check if we should bypass LLM for high-confidence patterns
+            threshold_action = conversation_state.get("threshold_action")
+            if threshold_action == "proceed":
+                # HIGH CONFIDENCE PATH: Use template directly, skip LLM
+                app_logger.info("High confidence threshold action: proceed - bypassing LLM")
+                response_candidate = await self._get_template_response(conversation_state)
+            else:
+                # DEFAULT PATH: Generate response using LLM
+                app_logger.info(f"Threshold action: {threshold_action} - using LLM generation")
+                response_candidate = await self._generate_response_candidate(conversation_state)
 
             return {
                 "response_candidate": response_candidate,
@@ -471,6 +482,77 @@ Primeiro, me conta qual é o seu nome? Assim nossa conversa fica mais pessoal!
 E como posso ajudá-lo hoje? Gostaria de:
 • 📚 Conhecer o método Kumon
 • 🎓 Informações sobre nossos programas
+• 📅 Agendar uma avaliação gratuita
+• 📍 Horários e localização da unidade
+
+Estou à disposição para esclarecer todas as suas dúvidas!"""
+
+    async def _get_template_response(self, conversation_state: ConversationState) -> str:
+        """
+        Get template response directly without LLM processing
+        Used for high-confidence patterns that don't need AI enhancement
+        """
+        try:
+            # Determine appropriate prompt based on stage and intent
+            prompt_name = self._select_prompt_name(conversation_state)
+
+            # Prepare prompt variables for template substitution
+            prompt_variables = {
+                "user_name": conversation_state.get("user_name", ""),
+                "user_message": conversation_state.get(
+                    "user_message", conversation_state.get("last_user_message", "")
+                ),
+                "detected_intent": conversation_state.get("detected_intent", ""),
+                "rag_context": conversation_state.get("rag_context", ""),
+                "conversation_stage": (
+                    conversation_state.get(
+                        "stage", conversation_state.get("current_stage", "")
+                    ).value
+                    if hasattr(
+                        conversation_state.get(
+                            "stage", conversation_state.get("current_stage", "")
+                        ),
+                        "value",
+                    )
+                    else str(
+                        conversation_state.get("stage", conversation_state.get("current_stage", ""))
+                    )
+                ),
+                "current_step": (
+                    conversation_state.get("step", conversation_state.get("current_step", "")).value
+                    if hasattr(
+                        conversation_state.get("step", conversation_state.get("current_step", "")),
+                        "value",
+                    )
+                    else str(
+                        conversation_state.get("step", conversation_state.get("current_step", ""))
+                    )
+                ),
+                "business_name": "Kumon Vila A",
+                "current_time": datetime.now().strftime("%H:%M"),
+                "current_day": datetime.now().strftime("%A"),
+            }
+
+            # Get template directly without LLM processing
+            template_response = await self.prompt_manager.get_prompt(
+                prompt_name, variables=prompt_variables
+            )
+
+            app_logger.info(f"Using direct template response for {prompt_name}")
+            return template_response
+
+        except Exception as e:
+            app_logger.error(f"Template response error: {e}")
+            # Fallback to static response
+            return """Olá! Sou Cecília do Kumon Vila A! 😊
+
+Fico muito feliz em falar com você!
+
+Primeiro, me conta qual é o seu nome? Assim nossa conversa fica mais pessoal!
+
+E como posso ajudá-lo hoje? Gostaria de:
+• 📚 Conhecer o método Kumon
+• 🎓 Informações sobre nossos programas  
 • 📅 Agendar uma avaliação gratuita
 • 📍 Horários e localização da unidade
 
