@@ -242,28 +242,38 @@ class SecureConversationWorkflow:
 
             # First classify intent to determine if we need RAG
             intent_result = await self._classify_intent(conversation_state)
-            
+
             # Update conversation state with intent AND threshold action
             if hasattr(intent_result, "category"):
                 conversation_state["detected_intent"] = intent_result.category.value
                 conversation_state["intent_confidence"] = intent_result.confidence
                 # Extract threshold action if available
-                conversation_state["threshold_action"] = getattr(intent_result, "threshold_action", None)
+                conversation_state["threshold_action"] = getattr(
+                    intent_result, "threshold_action", None
+                )
             elif isinstance(intent_result, dict):
                 conversation_state["detected_intent"] = intent_result.get("intent")
                 conversation_state["intent_confidence"] = intent_result.get("confidence", 0.0)
                 conversation_state["threshold_action"] = intent_result.get("threshold_action", None)
-            
+
             # Determine if RAG is needed based on intent
             detected_intent = conversation_state.get("detected_intent", "unknown")
             intent_confidence = conversation_state.get("intent_confidence", 0.0)
-            skip_rag_intents = ["greeting", "goodbye", "thanks", "confirmation", "positive_feedback"]
-            
+            skip_rag_intents = [
+                "greeting",
+                "goodbye",
+                "thanks",
+                "confirmation",
+                "positive_feedback",
+            ]
+
             should_use_rag = not (detected_intent in skip_rag_intents and intent_confidence >= 0.9)
-            
+
             # Run remaining components (conditionally include RAG)
             if should_use_rag:
-                app_logger.info(f"Using RAG for intent={detected_intent} confidence={intent_confidence}")
+                app_logger.info(
+                    f"Using RAG for intent={detected_intent} confidence={intent_confidence}"
+                )
                 workflow_results = await asyncio.gather(
                     self._resolve_context_references(conversation_state),
                     self._generate_rag_context(sanitized_message),
@@ -271,7 +281,9 @@ class SecureConversationWorkflow:
                 )
                 context_result, rag_result = workflow_results
             else:
-                app_logger.info(f"Skipping RAG for intent={detected_intent} confidence={intent_confidence}")
+                app_logger.info(
+                    f"Skipping RAG for intent={detected_intent} confidence={intent_confidence}"
+                )
                 context_result = await self._resolve_context_references(conversation_state)
                 rag_result = {"documents": [], "context": "", "sources": []}
 
@@ -538,8 +550,11 @@ Estou à disposição para esclarecer todas as suas dúvidas!"""
                 prompt_name, variables=prompt_variables
             )
 
+            # Extract only the response part (not system instructions)
+            response_content = self._extract_response_from_template(template_response)
+
             app_logger.info(f"Using direct template response for {prompt_name}")
-            return template_response
+            return response_content
 
         except Exception as e:
             app_logger.error(f"Template response error: {e}")
@@ -552,11 +567,76 @@ Primeiro, me conta qual é o seu nome? Assim nossa conversa fica mais pessoal!
 
 E como posso ajudá-lo hoje? Gostaria de:
 • 📚 Conhecer o método Kumon
-• 🎓 Informações sobre nossos programas  
+• 🎓 Informações sobre nossos programas
 • 📅 Agendar uma avaliação gratuita
 • 📍 Horários e localização da unidade
 
 Estou à disposição para esclarecer todas as suas dúvidas!"""
+
+    def _extract_response_from_template(self, template_content: str) -> str:
+        """
+        Extract only the user-facing response from template content
+
+        Templates may contain system instructions + user response.
+        This method extracts only the part that should be sent to the user.
+
+        Args:
+            template_content: Full template content
+
+        Returns:
+            str: Only the user-facing response part
+        """
+        try:
+            # Look for "RESPOSTA OBRIGATÓRIA:" marker
+            response_marker = "RESPOSTA OBRIGATÓRIA:"
+            if response_marker in template_content:
+                # Split and get everything after the marker
+                parts = template_content.split(response_marker, 1)
+                if len(parts) > 1:
+                    user_response = parts[1].strip()
+                    app_logger.debug("✂️ Extracted user response from template")
+                    return user_response
+
+            # Fallback: Look for common response patterns
+            lines = template_content.split("\n")
+            response_lines = []
+            found_response = False
+
+            for line in lines:
+                # Skip system instruction lines
+                if any(
+                    keyword in line.upper()
+                    for keyword in [
+                        "VOCÊ É",
+                        "REGRAS",
+                        "NUNCA",
+                        "PROIBIDO",
+                        "SEMPRE",
+                        "OBRIGATÓRIA",
+                    ]
+                ):
+                    continue
+
+                # Look for greeting patterns that indicate user response
+                if any(greeting in line for greeting in ["Olá", "Oi", "Bom dia", "Boa tarde"]):
+                    found_response = True
+
+                # Collect response lines after finding start
+                if found_response and line.strip():
+                    response_lines.append(line)
+
+            if response_lines:
+                user_response = "\n".join(response_lines)
+                app_logger.debug("✂️ Extracted response using pattern matching")
+                return user_response
+
+            # Last resort: return full content with warning
+            app_logger.warning("⚠️ Could not extract response from template, returning full content")
+            return template_content
+
+        except Exception as e:
+            app_logger.error(f"❌ Error extracting response from template: {e}")
+            return template_content
 
     def _select_prompt_name(self, conversation_state: ConversationState) -> str:
         """Select appropriate prompt name based on conversation state"""
@@ -601,7 +681,6 @@ Estou à disposição para esclarecer todas as suas dúvidas!"""
         """Final security and quality validation with comprehensive checks"""
 
         response_candidate = workflow_result["response_candidate"]
-
 
         try:
             # Multi-layer validation using security validation agent
@@ -752,9 +831,9 @@ Estou à disposição para esclarecer todas as suas dúvidas!"""
             {
                 "rag_needed": "rag_business_validation",
                 "skip_rag": "response_generation",
-            }
+            },
         )
-        
+
         workflow.add_edge("rag_business_validation", "response_generation")
         workflow.add_edge("response_generation", "final_validation")
         workflow.add_edge("final_validation", END)
@@ -763,30 +842,30 @@ Estou à disposição para esclarecer todas as suas dúvidas!"""
 
     def _should_use_rag(self, state: ConversationState) -> str:
         """Decide whether to use RAG based on intent and confidence"""
-        
+
         # Get intent from state (can be stored in different keys)
         intent = state.get("detected_intent") or state.get("intent", "unknown")
         confidence = state.get("intent_confidence", 0.0)
-        
+
         # Skip RAG for high-confidence simple intents
         skip_rag_intents = ["greeting", "goodbye", "thanks", "confirmation", "positive_feedback"]
-        
+
         if intent in skip_rag_intents and confidence >= 0.9:
             app_logger.info(f"Skipping RAG for {intent} with confidence {confidence}")
             state["skip_rag"] = True
             return "skip_rag"
-        
+
         # Skip RAG if we already have a direct template response
         if state.get("has_direct_template", False):
             app_logger.info("Skipping RAG - direct template available")
             state["skip_rag"] = True
             return "skip_rag"
-        
+
         # Use RAG for information requests or low confidence
         app_logger.info(f"Using RAG for {intent} with confidence {confidence}")
         state["skip_rag"] = False
         return "rag_needed"
-    
+
     async def _security_node(self, state: ConversationState) -> ConversationState:
         """Security validation node"""
         # Implementation would go here
@@ -801,7 +880,6 @@ Estou à disposição para esclarecer todas as suas dúvidas!"""
         """Response generation node"""
         # Implementation would go here
         return state
-
 
     async def _rag_business_node(self, state: ConversationState) -> ConversationState:
         """RAG business validation node"""
