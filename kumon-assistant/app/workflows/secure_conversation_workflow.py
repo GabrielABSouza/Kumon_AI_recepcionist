@@ -604,13 +604,13 @@ Estou à disposição para esclarecer todas as suas dúvidas!"""
         intent = conversation_state.get("detected_intent", "")
 
         # Intent-based prompt selection
-        if intent == "SCHEDULING":
+        if intent == "scheduling":
             return "kumon:scheduling:appointment_booking"
-        elif intent == "INFORMATION":
+        elif intent == "information_request":
             return "kumon:information:method_explanation"
-        elif intent == "PRICING":
+        elif intent == "price_negotiation":
             return "kumon:information:pricing_details"
-        elif intent == "CONTACT":
+        elif intent == "technical_issue":
             return "kumon:contact:business_information"
 
         # Stage-based prompt selection
