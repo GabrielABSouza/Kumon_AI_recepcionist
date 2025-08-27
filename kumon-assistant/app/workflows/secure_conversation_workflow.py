@@ -256,46 +256,6 @@ class SecureConversationWorkflow:
                 conversation_state["intent_confidence"] = intent_result.get("confidence", 0.0)
                 conversation_state["threshold_action"] = intent_result.get("threshold_action", None)
 
-            # Determine if RAG is needed based on intent
-            detected_intent = conversation_state.get("detected_intent", "unknown")
-            intent_confidence = conversation_state.get("intent_confidence", 0.0)
-            skip_rag_intents = [
-                "greeting",
-                "goodbye",
-                "thanks",
-                "confirmation",
-                "positive_feedback",
-            ]
-
-            should_use_rag = not (detected_intent in skip_rag_intents and intent_confidence >= 0.9)
-
-            # Run remaining components (conditionally include RAG)
-            if should_use_rag:
-                app_logger.info(
-                    f"Using RAG for intent={detected_intent} confidence={intent_confidence}"
-                )
-                workflow_results = await asyncio.gather(
-                    self._resolve_context_references(conversation_state),
-                    self._generate_rag_context(sanitized_message),
-                    return_exceptions=True,
-                )
-                context_result, rag_result = workflow_results
-            else:
-                app_logger.info(
-                    f"Skipping RAG for intent={detected_intent} confidence={intent_confidence}"
-                )
-                context_result = await self._resolve_context_references(conversation_state)
-                rag_result = {"documents": [], "context": "", "sources": []}
-
-            if isinstance(context_result, dict):
-                conversation_state["resolved_references"] = context_result.get(
-                    "resolved_references", []
-                )
-
-            if isinstance(rag_result, dict):
-                conversation_state["rag_context"] = rag_result.get("context", "")
-                conversation_state["rag_confidence"] = rag_result.get("confidence", 0.0)
-
             # Business rules are now handled through template selection and few-shot examples
             # No separate business compliance node needed
             app_logger.info("Business rules handled via template resolution")
@@ -841,31 +801,23 @@ Estou à disposição para esclarecer todas as suas dúvidas!"""
         return workflow.compile()
 
     def _should_use_rag(self, state: ConversationState) -> str:
-        """Decide whether to use RAG based on intent and confidence"""
+        """
+        Decide whether to use RAG based on the threshold_action.
+        RAG will be skipped ONLY for the 'proceed' action.
+        """
+        # Default to 'generate' for safety if no action is found
+        threshold_action = state.get("threshold_action", "generate")
 
-        # Get intent from state (can be stored in different keys)
-        intent = state.get("detected_intent") or state.get("intent", "unknown")
-        confidence = state.get("intent_confidence", 0.0)
-
-        # Skip RAG for high-confidence simple intents
-        skip_rag_intents = ["greeting", "goodbye", "thanks", "confirmation", "positive_feedback"]
-
-        if intent in skip_rag_intents and confidence >= 0.9:
-            app_logger.info(f"Skipping RAG for {intent} with confidence {confidence}")
+        if threshold_action != "proceed":
+            # For 'augment' and 'generate', we use RAG to get more context.
+            app_logger.info(f"Intent action is '{threshold_action}', proceeding with RAG.")
+            state["skip_rag"] = False
+            return "rag_needed"
+        else:
+            # The action is 'proceed', so we skip RAG for a direct template response.
+            app_logger.info(f"Intent action is '{threshold_action}', skipping RAG.")
             state["skip_rag"] = True
             return "skip_rag"
-
-        # Skip RAG if we already have a direct template response
-        if state.get("has_direct_template", False):
-            app_logger.info("Skipping RAG - direct template available")
-            state["skip_rag"] = True
-            return "skip_rag"
-
-        # Use RAG for information requests or low confidence
-        app_logger.info(f"Using RAG for {intent} with confidence {confidence}")
-        state["skip_rag"] = False
-        return "rag_needed"
-
     async def _security_node(self, state: ConversationState) -> ConversationState:
         """Security validation node"""
         # Implementation would go here
