@@ -255,7 +255,6 @@ class SecureConversationWorkflow:
                 conversation_state["detected_intent"] = intent_result.get("intent")
                 conversation_state["intent_confidence"] = intent_result.get("confidence", 0.0)
                 conversation_state["threshold_action"] = intent_result.get("threshold_action", None)
-
             # Business rules are now handled through template selection and few-shot examples
             # No separate business compliance node needed
             app_logger.info("Business rules handled via template resolution")
