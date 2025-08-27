@@ -136,20 +136,20 @@ class IntelligentThresholdSystem:
         Retorna (action, rule_applied)
         """
         
-        # Calcular threshold efetivo com penalidades e multiplicadores
-        effective_confidence = confidence
+        # Calcular confidence efetiva com multiplicadores e penalidades
         penalties = self._calculate_accumulated_penalties(conversation_state)
         stage_multiplier = self._get_stage_multiplier(conversation_state)
+        effective_confidence = (confidence * stage_multiplier) - penalties
         
         # Encontrar regra aplicável (ordenadas por threshold desc)
         for rule in sorted(self.rules, key=lambda r: r.threshold, reverse=True):
-            effective_threshold = (rule.threshold * stage_multiplier) + penalties
+            # Usar threshold original da regra (não modificado)
             
-            if effective_confidence >= effective_threshold:
+            if effective_confidence >= rule.threshold:
                 app_logger.info(
                     f"Threshold rule applied: {rule.name} "
-                    f"(confidence: {effective_confidence:.2f}, "
-                    f"threshold: {effective_threshold:.2f})"
+                    f"(effective_confidence: {effective_confidence:.2f}, "
+                    f"rule_threshold: {rule.threshold:.2f})"
                 )
                 return rule.action, rule
         
