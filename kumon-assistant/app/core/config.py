@@ -185,7 +185,7 @@ class Settings(BaseSettings):
     LANGSMITH_API_KEY: str = ""
     LANGSMITH_PROJECT: str = "kumon-assistant"
     LANGSMITH_ENDPOINT: str = "https://api.smith.langchain.com"
-    LANGCHAIN_TRACING_V2: bool = False
+    LANGCHAIN_TRACING_V2: bool = True
 
     # Workflow Configuration
     USE_LANGGRAPH_WORKFLOW: bool = False

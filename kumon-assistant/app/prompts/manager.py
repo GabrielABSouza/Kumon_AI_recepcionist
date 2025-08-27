@@ -11,6 +11,7 @@ This module provides centralized prompt management with:
 import asyncio
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Union
 from datetime import datetime, timedelta
@@ -86,6 +87,55 @@ class PromptManager:
         cache_time = datetime.fromisoformat(cache_entry["timestamp"])
         return datetime.now() - cache_time < timedelta(seconds=self.cache_ttl)
     
+    def _should_use_langsmith(self, name: str) -> bool:
+        """
+        Determine if prompt should try LangSmith Hub first
+        
+        LangSmith Strategy:
+        - Dynamic prompts: A/B testing, experimentation, frequent changes
+        - Static prompts: Use local templates for reliability
+        
+        Args:
+            name: Prompt name (e.g., 'kumon:greeting:welcome:initial')
+            
+        Returns:
+            bool: True if should try LangSmith first
+        """
+        # Dynamic prompts that benefit from LangSmith management
+        dynamic_patterns = [
+            "kumon:dynamic:",  # Explicitly marked dynamic prompts
+            "kumon:experiment:", # A/B testing prompts
+            "kumon:seasonal:",   # Seasonal/time-based prompts
+            "kumon:campaign:",   # Marketing campaign prompts
+            "kumon:testing:",    # Testing/development prompts
+            "kumon:information:", # Information prompts (may change frequently)
+            "kumon:pricing:",     # Pricing prompts (may need updates)
+        ]
+        
+        # Static prompts that should use reliable local templates
+        static_patterns = [
+            "kumon:greeting:",    # Greeting templates - keep local for reliability
+            "kumon:handoff:",     # Handoff templates - critical, keep local
+            "kumon:error:",       # Error templates - must be reliable
+            "kumon:fallback:",    # Fallback templates - must be local
+        ]
+        
+        name_lower = name.lower()
+        
+        # Check if explicitly static (high reliability required)
+        for pattern in static_patterns:
+            if pattern in name_lower:
+                return False
+        
+        # Check if explicitly dynamic
+        for pattern in dynamic_patterns:
+            if pattern in name_lower:
+                return True
+        
+        # Default: use local templates for reliability unless API key is configured
+        # This ensures system works even without LangSmith setup
+        return bool(os.getenv("LANGSMITH_API_KEY"))  # Only try LangSmith if configured
+    
     async def get_prompt(
         self, 
         name: str, 
@@ -111,21 +161,50 @@ class PromptManager:
             
         cache_key = self._get_cache_key(name, tag)
         
-        # FORÇAR CECÍLIA: Sempre usar templates da Cecília devido a problemas com LangSmith
-        app_logger.info(f"FORÇANDO uso do template CECÍLIA para: {name}")
-        prompt_template = await self._get_cecilia_template(name)
+        # HYBRID APPROACH: Try LangSmith first, fallback to local templates
+        prompt_template = None
         
-        if prompt_template is None:
-            # ÚLTIMO RECURSO: Template base da Cecília
-            app_logger.error(f"Cecília template failed for {name}, using BASE CECÍLIA")
-            prompt_template = await self._get_base_cecilia_template()
+        # Check cache first
+        if cache_key in self.cache and self._is_cache_valid(self.cache[cache_key]):
+            app_logger.info(f"Using cached prompt: {name}")
+            prompt_template = self.cache[cache_key]["template"]
+        else:
+            # Try LangSmith Hub for dynamic templates
+            if self.client and self._should_use_langsmith(name):
+                try:
+                    prompt_template = await self._fetch_from_langsmith(name, tag)
+                    if prompt_template:
+                        app_logger.info(f"✅ LangSmith template loaded: {name}")
+                        # Cache successful LangSmith fetch
+                        self.cache[cache_key] = {
+                            "template": prompt_template,
+                            "timestamp": datetime.now().isoformat(),
+                            "source": "langsmith"
+                        }
+                        asyncio.create_task(self._save_cache())
+                    else:
+                        app_logger.warning(f"⚠️ LangSmith template not found: {name}")
+                except Exception as e:
+                    app_logger.error(f"❌ LangSmith fetch failed: {name} - {e}")
             
-            # Cache the result
-            self.cache[cache_key] = {
-                "template": prompt_template,
-                "timestamp": datetime.now().isoformat()
-            }
-            asyncio.create_task(self._save_cache())
+            # Fallback to local Cecília templates
+            if not prompt_template:
+                app_logger.info(f"🔄 Using fallback template for: {name}")
+                prompt_template = await self._get_cecilia_template(name)
+                
+                if prompt_template:
+                    # Cache successful fallback
+                    self.cache[cache_key] = {
+                        "template": prompt_template,
+                        "timestamp": datetime.now().isoformat(),
+                        "source": "local"
+                    }
+                    asyncio.create_task(self._save_cache())
+        
+        # Last resort: base template
+        if prompt_template is None:
+            app_logger.error(f"🚨 All template sources failed for {name}, using BASE CECÍLIA")
+            prompt_template = await self._get_base_cecilia_template()
         
         # Apply variables if provided
         if variables:
@@ -145,32 +224,61 @@ class PromptManager:
         name: str, 
         tag: str = "prod"
     ) -> Optional[str]:
-        """Fetch prompt from LangSmith Hub"""
+        """
+        Fetch prompt from LangSmith Hub with improved error handling
+        
+        Args:
+            name: Prompt name (e.g., 'kumon:greeting:welcome:initial')
+            tag: Version tag (e.g., 'prod', 'dev', 'staging')
+            
+        Returns:
+            Optional[str]: Prompt template or None if fetch fails
+        """
         if not self.client:
+            app_logger.debug("LangSmith client not initialized")
             return None
         
         try:
-            # Try to get the prompt by name (sem tag funciona melhor)
-            try:
-                prompt = self.client.pull_prompt(name)
-            except:
-                # Fallback para formato com tag
-                prompt = self.client.pull_prompt(f"{name}:{tag}")
+            prompt = None
             
+            # Strategy 1: Try name without tag first (LangSmith default)
+            try:
+                app_logger.debug(f"🔍 Trying LangSmith fetch: {name}")
+                prompt = self.client.pull_prompt(name)
+                app_logger.debug(f"✅ LangSmith fetch successful: {name}")
+            except Exception as e1:
+                # Strategy 2: Try with explicit tag
+                try:
+                    tagged_name = f"{name}:{tag}"
+                    app_logger.debug(f"🔍 Trying LangSmith fetch with tag: {tagged_name}")
+                    prompt = self.client.pull_prompt(tagged_name)
+                    app_logger.debug(f"✅ LangSmith fetch successful: {tagged_name}")
+                except Exception as e2:
+                    app_logger.debug(f"❌ Both LangSmith strategies failed: {e1}, {e2}")
+                    return None
+            
+            # Extract template content from different prompt formats
             if hasattr(prompt, 'template'):
-                app_logger.info(f"Fetched prompt from LangSmith: {name}:{tag}")
+                # PromptTemplate format
+                app_logger.info(f"📥 LangSmith template loaded (PromptTemplate): {name}:{tag}")
                 return prompt.template
             elif hasattr(prompt, 'messages') and prompt.messages:
-                # Handle ChatPromptTemplate
-                if hasattr(prompt.messages[0], 'prompt'):
+                # ChatPromptTemplate format
+                if hasattr(prompt.messages[0], 'prompt') and hasattr(prompt.messages[0].prompt, 'template'):
+                    app_logger.info(f"📥 LangSmith template loaded (ChatPromptTemplate): {name}:{tag}")
                     return prompt.messages[0].prompt.template
-                return str(prompt.messages[0])
+                elif hasattr(prompt.messages[0], 'content'):
+                    app_logger.info(f"📥 LangSmith template loaded (Message content): {name}:{tag}")
+                    return prompt.messages[0].content
+                else:
+                    app_logger.info(f"📥 LangSmith template loaded (Message str): {name}:{tag}")
+                    return str(prompt.messages[0])
             else:
-                app_logger.warning(f"Unexpected prompt format from LangSmith: {name}")
+                app_logger.warning(f"⚠️ Unexpected LangSmith prompt format: {name} - {type(prompt)}")
                 return None
                 
         except Exception as e:
-            app_logger.error(f"Failed to fetch prompt from LangSmith: {name}:{tag} - {e}")
+            app_logger.error(f"❌ LangSmith fetch error: {name}:{tag} - {type(e).__name__}: {e}")
             return None
     
     async def _fetch_from_fallback(self, name: str) -> Optional[str]:
