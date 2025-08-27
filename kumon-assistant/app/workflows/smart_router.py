@@ -15,12 +15,14 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from ..core.dependencies import intent_classifier
 from ..core.logger import app_logger
+from .intent_classifier import IntentResult, IntentCategory, IntentSubcategory
 from .context_manager import (
     ConversationContextManager,
     TopicTransition,
     context_manager,
 )
 from .states import ConversationState, ConversationStep, WorkflowStage
+from ..core.state.models import ConversationStage
 
 
 class RoutingPriority(Enum):
@@ -166,16 +168,7 @@ class SmartConversationRouter:
                 "bypass_conditions": [],
                 "typical_duration": timedelta(minutes=3),
             },
-            WorkflowStage.FALLBACK: {
-                "next_stages": [
-                    WorkflowStage.GREETING,
-                    WorkflowStage.INFORMATION_GATHERING,
-                    WorkflowStage.SCHEDULING,
-                ],
-                "completion_criteria": ["confusion_resolved"],
-                "bypass_conditions": ["escalation_required"],
-                "typical_duration": timedelta(minutes=1),
-            },
+            # Fallback is handled at LangGraph node level, not as a conversation stage
         }
 
     async def make_routing_decision(self, conversation_state: ConversationState) -> RoutingDecision:
@@ -250,10 +243,10 @@ class SmartConversationRouter:
 
         except Exception as e:
             app_logger.error(f"Error in routing decision: {e}")
-            # Return safe fallback decision
+            # Return safe fallback decision - use current stage since FALLBACK doesn't exist in new enum
             return RoutingDecision(
                 target_node="fallback",
-                target_stage=WorkflowStage.FALLBACK,
+                target_stage=conversation_state.get("current_stage", ConversationStage.GREETING),
                 target_step=ConversationStep.CLARIFICATION_ATTEMPT,
                 strategy=RoutingStrategy.RECOVERY,
                 priority=RoutingPriority.MEDIUM,
@@ -605,7 +598,8 @@ class SmartConversationRouter:
                 return WorkflowStage.SCHEDULING, ConversationStep.SUGGEST_APPOINTMENT
 
         elif category == IntentCategory.CLARIFICATION:
-            return WorkflowStage.FALLBACK, ConversationStep.CLARIFICATION_ATTEMPT
+            # Return current stage for clarification since FALLBACK doesn't exist 
+            return current_stage, ConversationStep.CLARIFICATION_ATTEMPT
 
         elif category == IntentCategory.DECISION:
             # User made a decision - progress to next stage
@@ -641,11 +635,10 @@ class SmartConversationRouter:
     def _get_fallback_options(self, target_stage: WorkflowStage) -> List[str]:
         """Get fallback routing options for a target stage"""
         fallback_map = {
-            WorkflowStage.GREETING: ["information"],
-            WorkflowStage.INFORMATION_GATHERING: ["greeting", "scheduling"],
-            WorkflowStage.SCHEDULING: ["information"],
-            WorkflowStage.FALLBACK: ["greeting", "information"],
-            WorkflowStage.COMPLETED: [],
+            ConversationStage.GREETING: ["information"],
+            ConversationStage.INFORMATION_GATHERING: ["greeting", "scheduling"],
+            ConversationStage.SCHEDULING: ["information"],
+            ConversationStage.COMPLETED: [],
         }
 
         return fallback_map.get(target_stage, ["fallback"])
@@ -730,4 +723,5 @@ class SmartConversationRouter:
         }
 
 
-# Global instance removed, will be initialized on startup
+# Global instance for easy access
+smart_router = SmartConversationRouter()

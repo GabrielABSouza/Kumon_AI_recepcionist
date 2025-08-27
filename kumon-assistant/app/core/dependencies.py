@@ -14,3 +14,4 @@ llm_service: Optional["ProductionLLMService"] = None
 intent_classifier: Optional["AdvancedIntentClassifier"] = None
 secure_workflow: Optional["SecureConversationWorkflow"] = None
 langchain_rag_service: Optional["LangChainRAGService"] = None
+intelligent_threshold_system: Optional["IntelligentThresholdSystem"] = None

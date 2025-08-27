@@ -25,10 +25,10 @@ FallbackNext = Literal["greeting", "information", "scheduling", "human_handoff",
 
 async def smart_route_conversation(state: ConversationState) -> str:
     """
-    Phase 4: Smart routing using advanced intent classification and context analysis
+    Phase 4: Smart routing with intelligent threshold system and advanced classification
     
-    This function replaces simple routing logic with intelligent decision-making
-    based on intent classification, context memory, and business rules.
+    This function integrates the intelligent threshold system with smart routing
+    for sophisticated decision-making based on confidence thresholds and context.
     
     Args:
         state: Current conversation state
@@ -39,23 +39,60 @@ async def smart_route_conversation(state: ConversationState) -> str:
     try:
         app_logger.info(f"Smart routing for {state['phone_number']}")
         
-        # Use smart router to make routing decision
-        routing_decision = await smart_router.make_routing_decision(state)
+        # Step 1: Get intent classification with confidence scoring
+        from ..core.dependencies import intent_classifier
+        intent_result = await intent_classifier.classify_intent(
+            state["user_message"], state
+        )
         
-        app_logger.info(f"Smart router decision: {routing_decision.target_node} "
-                       f"(confidence: {routing_decision.confidence:.2f}, "
-                       f"strategy: {routing_decision.strategy.value})")
+        # Step 2: Process through intelligent threshold system
+        from .intelligent_threshold_system import intelligent_threshold_system
+        threshold_result = await intelligent_threshold_system.process_intent_with_thresholds(
+            intent_result, state
+        )
+        
+        app_logger.info(f"Threshold system result: action={threshold_result.action}, "
+                       f"confidence={threshold_result.final_confidence:.3f}, "
+                       f"target={threshold_result.target_node}")
+        
+        # Step 3: Handle threshold system actions
+        if threshold_result.action == "proceed":
+            # High confidence - proceed with intent routing
+            target_node = threshold_result.target_node
+            
+        elif threshold_result.action == "enhance_with_llm":
+            # Medium confidence - use LLM-enhanced classification
+            target_node = threshold_result.target_node
+            
+        elif threshold_result.action in ["fallback_level1", "fallback_level2"]:
+            # Low confidence - intelligent fallback
+            target_node = "fallback"
+            
+        elif threshold_result.action == "escalate_human":
+            # Very low confidence - human handoff
+            target_node = "human_handoff"
+            
+        else:
+            # Fallback to smart router for edge cases
+            app_logger.warning(f"Unknown threshold action: {threshold_result.action}")
+            routing_decision = await smart_router.make_routing_decision(state)
+            target_node = routing_decision.target_node
         
         # Update state with routing information for debugging/analytics
         state["routing_info"] = {
-            "target_node": routing_decision.target_node,
-            "strategy": routing_decision.strategy.value,
-            "confidence": routing_decision.confidence,
-            "reasoning": routing_decision.reasoning,
+            "target_node": target_node,
+            "confidence": threshold_result.final_confidence,
+            "original_confidence": intent_result.confidence,
+            "threshold_action": threshold_result.action,
+            "reasoning": threshold_result.reasoning,
+            "penalty_applied": threshold_result.penalty_applied,
             "timestamp": "2024-08-11T19:55:00"  # Would be datetime.now().isoformat()
         }
         
-        return routing_decision.target_node
+        app_logger.info(f"Final routing decision: {target_node} "
+                       f"(confidence: {threshold_result.final_confidence:.3f})")
+        
+        return target_node
         
     except Exception as e:
         app_logger.error(f"Error in smart routing: {e}")

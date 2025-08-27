@@ -5,7 +5,6 @@ from typing import Dict, Any, Optional
 import asyncio
 
 from ..models.message import WhatsAppMessage, MessageResponse, MessageType
-from ..services.intent_classifier import IntentClassifier
 from ..services.availability_service import AvailabilityService
 from ..services.booking_service import BookingService
 from ..core.dependencies import langchain_rag_service
@@ -24,7 +23,6 @@ class MessageProcessor:
     
     def __init__(self):
         # Legacy components (for backward compatibility)
-        self.intent_classifier = IntentClassifier()
         self.availability_service = AvailabilityService()
         self.booking_service = BookingService()
         # Legacy conversation flow removed - using CeciliaWorkflow instead

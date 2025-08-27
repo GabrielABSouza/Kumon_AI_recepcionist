@@ -20,6 +20,7 @@ from ..core.config import settings
 from ..core.logger import app_logger
 from ..services.business_metrics_service import track_response_time
 from .states import ConversationState, ConversationStep, WorkflowStage
+from .intelligent_threshold_system import intelligent_threshold_system
 
 
 class IntentCategory(Enum):
@@ -130,8 +131,10 @@ class AdvancedIntentClassifier:
             IntentCategory.GREETING: {
                 "patterns": [
                     r"\b(oi|olá|hello|hi|bom\s+dia|boa\s+tarde|boa\s+noite)\b",
+                    r"\b(buenos\s+dias|buenas\s+tardes|buenas\s+noches|hola)\b",
                     r"\b(me\s+chamo|meu\s+nome\s+[éeE]|sou\s+o?a?)\s+([A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,})",
                     r"\b(primeira\s+vez|primeiro\s+contato)\b",
+                    r"\b(meu\s+filho|minha\s+filha|tem\s+\d+\s+anos|está\s+no|nome\s+é|estuda|escola)\b",
                 ],
                 "context_indicators": ["new_conversation", "name_exchange"],
                 "confidence_boost": 0.2,
@@ -143,10 +146,11 @@ class AdvancedIntentClassifier:
                     r"\b(matemática|math|cálculo|números?|conta)\b",
                     r"\b(português|port|leitura|escrita|redação|texto)\b",
                     r"\b(inglês|english|idioma)\b",
-                    r"\b(preço|valor|custa|quanto|investimento|mensalidade)\b",
-                    r"\b(como\s+funciona|metodologia|método|ensino)\b",
-                    r"\b(onde\s+fica|endereço|localização|unidade)\b",
+                    r"\b(preço|valor|custa|quanto|investimento|mensalidade|quanto\s+custa)\b",
+                    r"\b(como\s+funciona|metodologia|método|ensino|o\s+que\s+é|qual)\b",
+                    r"\b(onde\s+fica|endereço|localização|unidade|telefone|horário\s+de\s+funcionamento)\b",
                     r"\b(resultado|melhora|progresso|funciona\s+mesmo)\b",
+                    r"\b(dúvida|informação|explicar)\b",
                 ],
                 "subcategory_mapping": {
                     "matemática": IntentSubcategory.PROGRAM_MATHEMATICS,
@@ -159,11 +163,12 @@ class AdvancedIntentClassifier:
             IntentCategory.SCHEDULING: {
                 "patterns": [
                     r"\b(agendar|marcar|schedule|appointment)\b",
-                    r"\b(visita|apresentação|conhecer\s+a\s+unidade)\b",
-                    r"\b(quando|horário|disponível|livre)\b",
+                    r"\b(visita|apresentação|conhecer\s+a\s+unidade|consulta)\b",
+                    r"\b(quando|horário|disponível|livre|disponibilidade)\b",
                     r"\b(manhã|tarde|morning|afternoon)\b",
                     r"\b(segunda|terça|quarta|quinta|sexta)\b",
                     r"\b(cancelar|remarcar|mudar\s+horário)\b",
+                    r"\b(quero\s+agendar|posso\s+marcar|tem\s+vaga)\b",
                 ],
                 "urgency_indicators": ["hoje", "amanhã", r"essa\s+semana", "urgente"],
                 "time_indicators": ["manhã", "tarde", "horário", "disponível"],
@@ -211,6 +216,16 @@ class AdvancedIntentClassifier:
                     "low": ["talvez", r"vou\s+pensar"],
                 },
             },
+            IntentCategory.COMPLAINT: {
+                "patterns": [
+                    r"\b(reclamação|problema|insatisfeito|ruim|péssimo)\b",
+                ],
+                "severity_levels": {
+                    "high": ["péssimo", "horrível", "terrível"],
+                    "medium": ["ruim", "problema", "insatisfeito"],
+                    "low": ["reclamação", "questão"],
+                },
+            },
         }
 
     def _build_entity_patterns(self) -> Dict[str, List[str]]:
@@ -229,14 +244,14 @@ class AdvancedIntentClassifier:
         self, message: str, conversation_state: ConversationState
     ) -> IntentResult:
         """
-        Classify intent with full contextual understanding
+        Classify intent with intelligent threshold system
 
         Args:
             message: User's message
             conversation_state: Current conversation state
 
         Returns:
-            IntentResult: Comprehensive intent analysis
+            IntentResult: Comprehensive intent analysis with intelligent fallback
         """
         try:
             app_logger.info(f"Classifying intent for message: {message[:50]}...")
@@ -249,13 +264,13 @@ class AdvancedIntentClassifier:
             # Step 1: Rule-based classification
             rule_based_result = self._classify_with_rules(message, context)
 
-            # Step 2: LLM-enhanced classification
-            llm_enhanced_result = await self._enhance_with_llm(
-                message, context, rule_based_result, conversation_state
+            # Step 2: Apply intelligent threshold system
+            final_result = await self._classify_with_intelligent_thresholds(
+                rule_based_result, conversation_state
             )
 
             # Step 3: Context integration
-            final_result = self._integrate_context(llm_enhanced_result, context, conversation_state)
+            final_result = self._integrate_context(final_result, context, conversation_state)
 
             # Step 4: Update context
             self._update_context(phone_number, context, final_result, message)
@@ -288,6 +303,40 @@ class AdvancedIntentClassifier:
                 confidence=0.5,
                 requires_clarification=True,
             )
+
+    async def _classify_with_intelligent_thresholds(
+        self, 
+        initial_result: IntentResult, 
+        conversation_state: ConversationState
+    ) -> IntentResult:
+        """
+        Apply intelligent threshold system with hierarchical fallback
+        
+        Args:
+            initial_result: Result from rule-based classification
+            conversation_state: Current conversation state
+            
+        Returns:
+            IntentResult: Enhanced result with intelligent threshold handling
+        """
+        
+        # Determine action based on confidence and context
+        action, rule = await intelligent_threshold_system.determine_action(
+            initial_result.confidence,
+            conversation_state
+        )
+        
+        # Execute appropriate handler
+        enhanced_result = await intelligent_threshold_system.execute_action(
+            action, rule, initial_result, conversation_state
+        )
+        
+        app_logger.info(
+            f"Applied threshold rule: {rule.name} -> {action} "
+            f"(confidence: {initial_result.confidence:.2f} -> {enhanced_result.confidence:.2f})"
+        )
+        
+        return enhanced_result
 
     def _get_conversation_context(
         self, phone_number: str, state: ConversationState

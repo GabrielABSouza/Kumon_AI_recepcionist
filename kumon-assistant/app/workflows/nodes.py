@@ -27,7 +27,7 @@ from .states import (
     update_state_metrics
 )
 from .context_manager import context_manager
-from .intelligent_fallback import intelligent_fallback
+# Legacy intelligent_fallback removed - now integrated in threshold handlers
 from ..services.business_metrics_service import (
     track_lead, 
     track_qualified_lead, 
@@ -413,73 +413,42 @@ async def fallback_node(state: ConversationState) -> ConversationState:
     app_logger.info(f"Processing intelligent fallback for {state['phone_number']}")
     
     try:
-        # Step 1: Analyze confusion type and severity
-        confusion_analysis = await intelligent_fallback.analyze_confusion(state)
+        # Step 1: Simple confusion analysis (legacy intelligent_fallback replaced)
+        confusion_count = state["metrics"].consecutive_confusion
         
-        # Step 2: Check if escalation is needed
-        escalation_decision = await intelligent_fallback.should_escalate_to_human(
-            state, confusion_analysis
-        )
+        # Step 2: Check if escalation is needed based on simple rules
+        should_escalate = confusion_count >= 3 or state.get("requires_human", False)
         
-        if escalation_decision.should_escalate:
-            app_logger.info(f"Escalating to human: {escalation_decision.reasoning}")
+        if should_escalate:
+            app_logger.info(f"Escalating to human due to confusion count: {confusion_count}")
             return {
                 **state,
-                "ai_response": escalation_decision.escalation_message,
+                "ai_response": "Vou conectá-lo com nossa equipe para um atendimento personalizado! 📞 WhatsApp: (51) 99692-1999",
                 "requires_human": True,
                 "stage": WorkflowStage.COMPLETED,
                 "step": ConversationStep.CONVERSATION_ENDED,
                 "conversation_ended": True,
                 "validation_passed": True,
-                "prompt_used": "intelligent_escalation",
-                "escalation_info": {
-                    "triggers": [t.value for t in escalation_decision.triggers],
-                    "confidence": escalation_decision.confidence,
-                    "urgency": escalation_decision.urgency_level
-                }
+                "prompt_used": "simple_escalation"
             }
         
-        # Step 3: Determine recovery action
-        recovery_action = await intelligent_fallback.determine_recovery_action(
-            confusion_analysis, state
-        )
-        
-        # Step 4: Update metrics with intelligent feedback
+        # Step 3: Simple recovery response
         metrics = state["metrics"]
         metrics.clarification_attempts += 1
-        if confusion_analysis.is_recurring:
-            metrics.consecutive_confusion += 1
+        metrics.consecutive_confusion += 1
         
-        # Step 5: Apply recovery action
+        # Step 4: Simple fallback response
         updated_state = {
             **state,
-            "ai_response": recovery_action.response,
-            "step": recovery_action.next_step,
+            "ai_response": "Desculpe, não consegui entender bem. Pode reformular sua pergunta? 😊",
             "validation_passed": True,
-            "prompt_used": "intelligent_recovery",
-            "metrics": metrics,
-            "confusion_info": {
-                "type": confusion_analysis.confusion_type.value,
-                "confidence": confusion_analysis.confidence,
-                "severity": confusion_analysis.severity,
-                "is_recurring": confusion_analysis.is_recurring,
-                "strategy": recovery_action.strategy.value,
-                "reasoning": recovery_action.reasoning
-            }
+            "prompt_used": "simple_fallback",
+            "metrics": metrics
         }
         
-        # Step 6: Reset context if required
-        if recovery_action.requires_context_reset:
-            # Clear confusion history for fresh start
-            updated_state["metrics"].consecutive_confusion = 0
-            if recovery_action.strategy.value == "restart":
-                updated_state["stage"] = WorkflowStage.GREETING
-                updated_state["step"] = ConversationStep.WELCOME
+        app_logger.info(f"Applied simple fallback recovery")
         
-        app_logger.info(f"Applied recovery strategy: {recovery_action.strategy.value} "
-                       f"for confusion: {confusion_analysis.confusion_type.value}")
-        
-        return update_state_metrics(updated_state, intelligent_recovery=True)
+        return update_state_metrics(updated_state)
         
     except Exception as e:
         app_logger.error(f"Error in intelligent fallback_node: {e}")
