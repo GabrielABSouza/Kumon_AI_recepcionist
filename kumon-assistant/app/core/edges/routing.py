@@ -13,6 +13,7 @@ from ..state.models import CeciliaState, ConversationStage, ConversationStep, ge
 from ..state.managers import StateManager
 from .intent_detection import IntentDetector
 from .conditions import ConditionChecker
+from .validation_routing import kumon_validation_router
 import logging
 
 logger = logging.getLogger(__name__)
@@ -20,6 +21,48 @@ logger = logging.getLogger(__name__)
 # Inicializar detectores uma vez
 intent_detector = IntentDetector()
 condition_checker = ConditionChecker()
+
+
+def should_route_to_validation(state: CeciliaState) -> bool:
+    """
+    Intelligent validation routing using hybrid Score-Based + Rule Engine system
+    
+    Replaces primitive if/else logic with sophisticated validation decision engine.
+    
+    Returns:
+        bool: True if validation_node should be activated
+    """
+    try:
+        # Use intelligent validation router
+        validation_decision = kumon_validation_router.should_validate_response(state)
+        
+        should_validate = validation_decision["should_validate"]
+        
+        if should_validate:
+            # Store validation decision context in state for validation_node
+            state["validation_decision_context"] = {
+                "method": validation_decision["primary_method"],
+                "confidence": validation_decision["combined_confidence"],
+                "reasoning": validation_decision["decision_reasoning"],
+                "triggered_at": datetime.now().isoformat()
+            }
+            
+            logger.info(
+                f"🎯 Routing to validation: {validation_decision['decision_reasoning']}"
+            )
+        
+        return should_validate
+        
+    except Exception as e:
+        logger.error(f"Error in intelligent validation routing: {e}")
+        # Fail-safe: route to validation on error
+        state["validation_decision_context"] = {
+            "method": "error_fallback", 
+            "confidence": 0.5,
+            "reasoning": "Validation required due to routing error",
+            "error": str(e)
+        }
+        return True
 
 
 def route_from_greeting(
@@ -60,8 +103,8 @@ def route_from_greeting(
     if state["current_stage"] == ConversationStage.QUALIFICATION:
         return "qualification"
     
-    # 5. Precisa validação?
-    if state.get("needs_validation", False):
+    # 5. Intelligent validation routing
+    if should_route_to_validation(state):
         return "validation"
     
     # Default: qualificação
@@ -99,7 +142,7 @@ def route_from_qualification(
         return "information"
     
     # Continuar qualificação ou validar
-    return "validation" if state.get("needs_validation") else "qualification"
+    return "validation" if should_route_to_validation(state) else "qualification"
 
 
 def route_from_information(
@@ -135,7 +178,7 @@ def route_from_information(
         return "scheduling"
     
     # Continuar com informações ou validar
-    return "validation" if state.get("needs_validation") else "information"
+    return "validation" if should_route_to_validation(state) else "information"
 
 
 def route_from_scheduling(
@@ -162,7 +205,7 @@ def route_from_scheduling(
         return "confirmation"
     
     # Continuar scheduling ou validar
-    return "validation" if state.get("needs_validation") else "scheduling"
+    return "validation" if should_route_to_validation(state) else "scheduling"
 
 
 def route_from_validation(
@@ -185,7 +228,7 @@ def route_from_validation(
         return "handoff"
     
     # Se validação passou, voltar para estágio atual
-    if not state.get("needs_validation", False):
+    if not should_route_to_validation(state):
         current_stage = state["current_stage"]
         
         if current_stage == ConversationStage.GREETING:
@@ -365,7 +408,7 @@ def route_from_confirmation(
     logger.info(f"Routing from confirmation for {state['phone_number']}")
     
     # Se ainda precisa validação, validar primeiro
-    if state.get("needs_validation", False):
+    if should_route_to_validation(state):
         return "validation"
     
     # Caso contrário, conversa completa
