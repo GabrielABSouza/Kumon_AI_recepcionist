@@ -18,7 +18,7 @@ from datetime import datetime, timedelta
 import hashlib
 import aiofiles
 
-from langsmith import Client as LangSmithClient
+# LangSmith removed - using local templates only
 from langchain.prompts import PromptTemplate
 
 from ..core.config import settings
@@ -27,31 +27,13 @@ from .template_variables import template_variable_resolver
 
 
 class PromptManager:
-    """Manages prompts from LangSmith with local fallback"""
+    """Manages prompts from local templates only"""
     
     def __init__(self):
-        self.client = None
         self.cache = {}
-        self.cache_file = Path("cache/prompts/langsmith_cache.json")
         self.fallback_dir = Path("app/prompts/templates")
-        self.cache_ttl = 3600  # 1 hour cache TTL
         
-        # Initialize client if API key is available
-        if settings.LANGSMITH_API_KEY:
-            try:
-                self.client = LangSmithClient(
-                    api_url=settings.LANGSMITH_ENDPOINT,
-                    api_key=settings.LANGSMITH_API_KEY
-                )
-                app_logger.info("LangSmith client initialized successfully")
-            except Exception as e:
-                app_logger.error(f"Failed to initialize LangSmith client: {e}")
-                self.client = None
-        else:
-            app_logger.warning("LANGSMITH_API_KEY not set. Using fallback templates only.")
-        
-        # Ensure cache directory exists
-        self.cache_file.parent.mkdir(parents=True, exist_ok=True)
+        app_logger.info("Prompt manager initialized with local templates only")
         self.fallback_dir.mkdir(parents=True, exist_ok=True)
         
         # Cache will be loaded lazily on first use
@@ -88,54 +70,7 @@ class PromptManager:
         cache_time = datetime.fromisoformat(cache_entry["timestamp"])
         return datetime.now() - cache_time < timedelta(seconds=self.cache_ttl)
     
-    def _should_use_langsmith(self, name: str) -> bool:
-        """
-        Determine if prompt should try LangSmith Hub first
-        
-        LangSmith Strategy:
-        - Dynamic prompts: A/B testing, experimentation, frequent changes
-        - Static prompts: Use local templates for reliability
-        
-        Args:
-            name: Prompt name (e.g., 'kumon:greeting:welcome:initial')
-            
-        Returns:
-            bool: True if should try LangSmith first
-        """
-        # Dynamic prompts that benefit from LangSmith management
-        dynamic_patterns = [
-            "kumon:dynamic:",  # Explicitly marked dynamic prompts
-            "kumon:experiment:", # A/B testing prompts
-            "kumon:seasonal:",   # Seasonal/time-based prompts
-            "kumon:campaign:",   # Marketing campaign prompts
-            "kumon:testing:",    # Testing/development prompts
-            "kumon:information:", # Information prompts (may change frequently)
-            "kumon:pricing:",     # Pricing prompts (may need updates)
-        ]
-        
-        # Static prompts that should use reliable local templates
-        static_patterns = [
-            "kumon:greeting:",    # Greeting templates - keep local for reliability
-            "kumon:handoff:",     # Handoff templates - critical, keep local
-            "kumon:error:",       # Error templates - must be reliable
-            "kumon:fallback:",    # Fallback templates - must be local
-        ]
-        
-        name_lower = name.lower()
-        
-        # Check if explicitly static (high reliability required)
-        for pattern in static_patterns:
-            if pattern in name_lower:
-                return False
-        
-        # Check if explicitly dynamic
-        for pattern in dynamic_patterns:
-            if pattern in name_lower:
-                return True
-        
-        # Default: use local templates for reliability unless API key is configured
-        # This ensures system works even without LangSmith setup
-        return bool(os.getenv("LANGSMITH_API_KEY"))  # Only try LangSmith if configured
+    # LangSmith removed - using local templates only
     
     async def get_prompt(
         self, 
@@ -190,10 +125,16 @@ class PromptManager:
                 except Exception as e:
                     app_logger.error(f"❌ LangSmith fetch failed: {name} - {e}")
             
-            # Fallback to local Cecília templates
+            # Fallback to local structured templates first, then legacy Cecília templates
             if not prompt_template:
                 app_logger.info(f"🔄 Using fallback template for: {name}")
-                prompt_template = await self._get_cecilia_template(name)
+                # Try new structured template system first
+                prompt_template = await self._fetch_from_fallback(name)
+                
+                # If structured template not found, try legacy Cecília template system
+                if not prompt_template:
+                    app_logger.info(f"📁 Trying legacy template system for: {name}")
+                    prompt_template = await self._get_cecilia_template(name)
                 
                 if prompt_template:
                     # Cache successful fallback
@@ -301,26 +242,54 @@ class PromptManager:
             return None
     
     async def _fetch_from_fallback(self, name: str) -> Optional[str]:
-        """Fetch prompt from local fallback templates"""
+        """Fetch prompt from local fallback templates with unified 1:1 mapping"""
         try:
-            # Convert prompt name to file path
-            # kumon:greeting:welcome:initial -> greeting/welcome_initial.txt
+            # Convert prompt name to file path with 1:1 mapping
+            # kumon:greeting:welcome:initial -> greeting/welcome/initial.txt
+            # kumon:system:conversation:general -> system/conversation/general.txt
             parts = name.split(':')[1:]  # Remove 'kumon' prefix
+            
+            if len(parts) >= 3:
+                # Unified structure: category/subcategory/specific.txt
+                category, subcategory, specific = parts[0], parts[1], parts[2]
+                filepath = self.fallback_dir / category / subcategory / f"{specific}.txt"
+                
+                if filepath.exists():
+                    async with aiofiles.open(filepath, 'r', encoding='utf-8') as f:
+                        content = await f.read()
+                        app_logger.info(f"✅ Using unified template: {filepath}")
+                        return content.strip()
+            
+            # Special mapping for legacy system templates
+            legacy_mappings = {
+                "kumon:conversation:general": "system/conversation/general.txt",
+                "kumon:system:base:identity": "system/base/identity.txt"
+            }
+            
+            if name in legacy_mappings:
+                filepath = self.fallback_dir / legacy_mappings[name]
+                if filepath.exists():
+                    async with aiofiles.open(filepath, 'r', encoding='utf-8') as f:
+                        content = await f.read()
+                        app_logger.info(f"✅ Using mapped legacy template: {filepath}")
+                        return content.strip()
+            
+            # Fallback to old structure for backward compatibility
             if len(parts) >= 3:
                 stage, type_name, variant = parts[0], parts[1], parts[2]
                 filename = f"{type_name}_{variant}.txt"
                 filepath = self.fallback_dir / stage / filename
             else:
-                # Fallback naming
+                # Legacy fallback naming
                 filepath = self.fallback_dir / f"{name.replace(':', '_')}.txt"
             
             if filepath.exists():
                 async with aiofiles.open(filepath, 'r', encoding='utf-8') as f:
                     content = await f.read()
-                    app_logger.info(f"Using fallback template: {filepath}")
+                    app_logger.info(f"📁 Using legacy template: {filepath}")
                     return content.strip()
             else:
-                app_logger.warning(f"Fallback template not found: {filepath}")
+                app_logger.warning(f"❌ Template not found: {name} - Tried: {filepath}")
                 return None
                 
         except Exception as e:
@@ -371,7 +340,7 @@ class PromptManager:
                     "keywords": ["initial", "welcome", "first"],
                     "priority": 8
                 },
-                "cecilia_conversation.txt": {
+                "system/conversation/general.txt": {
                     "required": [],  # No requirements = always eligible
                     "keywords": ["conversation", "response", "chat"],
                     "priority": 1  # Lowest priority = fallback
@@ -394,7 +363,7 @@ class PromptManager:
                 app_logger.info(f"Best template match: {template_file} (score: {best_score:.1f}) for prompt: {name}")
             else:
                 # Ultimate fallback
-                template_file = "cecilia_conversation.txt"
+                template_file = "system/conversation/general.txt"
                 app_logger.warning(f"No template match found, using fallback: {template_file}")
             
             # Load the selected template
@@ -416,7 +385,8 @@ class PromptManager:
     async def _get_base_cecilia_template(self) -> str:
         """Get base Cecília template as ultimate fallback"""
         try:
-            base_file = self.fallback_dir / "cecilia_base_system.txt"
+            # Try new unified structure first
+            base_file = self.fallback_dir / "system" / "base" / "identity.txt"
             if base_file.exists():
                 async with aiofiles.open(base_file, 'r', encoding='utf-8') as f:
                     content = await f.read()

@@ -453,3 +453,12 @@ try:
 except ImportError:
     # Railway config not available, use defaults
     pass
+
+# Configure LangChain environment variables for hub.pull() to work
+# LangChain Hub requires these OS environment variables, not just pydantic settings
+if settings.LANGSMITH_API_KEY:
+    os.environ["LANGCHAIN_API_KEY"] = settings.LANGSMITH_API_KEY
+    os.environ["LANGSMITH_API_KEY"] = settings.LANGSMITH_API_KEY
+    os.environ["LANGSMITH_PROJECT"] = settings.LANGSMITH_PROJECT
+    os.environ["LANGSMITH_ENDPOINT"] = settings.LANGSMITH_ENDPOINT
+    os.environ["LANGCHAIN_TRACING_V2"] = str(settings.LANGCHAIN_TRACING_V2).lower()
