@@ -23,6 +23,7 @@ from langchain.prompts import PromptTemplate
 
 from ..core.config import settings
 from ..core.logger import app_logger
+from .template_variables import template_variable_resolver
 
 
 class PromptManager:
@@ -141,7 +142,9 @@ class PromptManager:
         name: str, 
         tag: str = "prod",
         variables: Optional[Dict[str, Any]] = None,
-        fallback_enabled: bool = True
+        fallback_enabled: bool = True,
+        conversation_state: Optional[Dict] = None,
+        student_name: Optional[str] = None
     ) -> str:
         """
         Get a prompt from LangSmith Hub with fallback to local templates
@@ -206,16 +209,32 @@ class PromptManager:
             app_logger.error(f"🚨 All template sources failed for {name}, using BASE CECÍLIA")
             prompt_template = await self._get_base_cecilia_template()
         
-        # Apply variables if provided
-        if variables:
+        # Apply variables with intelligent stage-aware resolution
+        if variables or conversation_state:
             try:
-                # Use LangChain PromptTemplate for safe variable substitution
-                template = PromptTemplate.from_template(prompt_template)
-                return template.format(**variables)
+                # Get intelligent variables based on conversation state and stage
+                resolved_variables = template_variable_resolver.get_template_variables(
+                    conversation_state or {},
+                    user_variables=variables
+                )
+                
+                if resolved_variables:
+                    # Use LangChain PromptTemplate for safe variable substitution
+                    template = PromptTemplate.from_template(prompt_template)
+                    formatted_prompt = template.format(**resolved_variables)
+                    app_logger.info(f"Applied {len(resolved_variables)} variables to template: {name}")
+                    return formatted_prompt
+                else:
+                    app_logger.info(f"No variables to apply for template: {name}")
+                    
             except Exception as e:
                 app_logger.error(f"Failed to format prompt template: {e}")
-                # Fallback to simple string formatting
-                return prompt_template.format(**variables)
+                # Fallback to simple string formatting if available
+                if variables:
+                    try:
+                        return prompt_template.format(**variables)
+                    except Exception as e2:
+                        app_logger.error(f"Fallback formatting also failed: {e2}")
         
         return prompt_template
     

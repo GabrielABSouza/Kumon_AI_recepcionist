@@ -171,7 +171,7 @@ class KumonWorkflow:
         try:
             from ..prompts.manager import prompt_manager
 
-            response = await prompt_manager.get_prompt("kumon:fallback:handoff:explicit_request")
+            response = await prompt_manager.get_prompt("kumon:fallback:handoff:explicit_request", conversation_state=state)
         except Exception as e:
             app_logger.error(f"Failed to get handoff prompt: {e}")
             response = """Vou conectá-lo com nossa equipe para um atendimento personalizado! 👥

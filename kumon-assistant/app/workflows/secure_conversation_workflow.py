@@ -422,7 +422,7 @@ class SecureConversationWorkflow:
 
             # Get prompt template from LangSmith
             prompt_template = await self.prompt_manager.get_prompt(
-                prompt_name, variables=prompt_variables
+                prompt_name, conversation_state=conversation_state, variables=prompt_variables
             )
 
             # Execute LLM with the prompt using Production LLM Service
@@ -506,7 +506,7 @@ Estou à disposição para esclarecer todas as suas dúvidas!"""
 
             # Get template directly without LLM processing
             template_response = await self.prompt_manager.get_prompt(
-                prompt_name, variables=prompt_variables
+                prompt_name, conversation_state=conversation_state, variables=prompt_variables
             )
 
             # Extract only the response part (not system instructions)

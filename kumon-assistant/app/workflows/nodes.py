@@ -73,7 +73,7 @@ async def greeting_node(state: ConversationState) -> ConversationState:
             # FAST PATH: High confidence greeting, skip LLM
             app_logger.info("High confidence greeting. Using static template and skipping LLM.")
             prompt_name = "kumon:greeting:welcome:initial"
-            response = await prompt_manager.get_prompt(prompt_name)
+            response = await prompt_manager.get_prompt(prompt_name, conversation_state=state)
             next_step = ConversationStep.COLLECT_NAME
             
             # Set final response and skip LLM
@@ -104,12 +104,13 @@ async def greeting_node(state: ConversationState) -> ConversationState:
                     prompt_name = "kumon:greeting:collection:parent_name"
                     response = await prompt_manager.get_prompt(
                         prompt_name, 
+                        conversation_state=state,
                         variables={"parent_name": user_context.parent_name}
                     )
                     next_step = ConversationStep.IDENTIFY_INTEREST
                 else:
                     prompt_name = "kumon:greeting:error:name_not_found"
-                    response = await prompt_manager.get_prompt(prompt_name)
+                    response = await prompt_manager.get_prompt(prompt_name, conversation_state=state)
                     next_step = ConversationStep.COLLECT_NAME
             
             elif step == ConversationStep.IDENTIFY_INTEREST:
@@ -128,19 +129,20 @@ async def greeting_node(state: ConversationState) -> ConversationState:
                     next_step = ConversationStep.PROVIDE_PROGRAM_INFO
                 else:
                     prompt_name = "kumon:greeting:clarification:interest_type"
-                    response = await prompt_manager.get_prompt(prompt_name)
+                    response = await prompt_manager.get_prompt(prompt_name, conversation_state=state)
                     next_stage = WorkflowStage.GREETING
                     next_step = ConversationStep.IDENTIFY_INTEREST
                     
                 if 'prompt_name' in locals() and 'response' not in locals():
                     response = await prompt_manager.get_prompt(
                         prompt_name,
+                        conversation_state=state,
                         variables={"parent_name": user_context.parent_name}
                     )
             else:
                 # Fallback for any other step within greeting
                 prompt_name = "kumon:greeting:clarification:general"
-                response = await prompt_manager.get_prompt(prompt_name)
+                response = await prompt_manager.get_prompt(prompt_name, conversation_state=state)
                 next_stage = WorkflowStage.INFORMATION
                 next_step = ConversationStep.PROVIDE_PROGRAM_INFO
 
@@ -248,7 +250,7 @@ Sobre qual tema você gostaria de saber mais? 😊"""
         
         # Get response from LangSmith if prompt_name was set
         if 'prompt_name' in locals() and prompt_name != "rag_response" and prompt_name != "information_menu":
-            response = await prompt_manager.get_prompt(prompt_name)
+            response = await prompt_manager.get_prompt(prompt_name, conversation_state=state)
         
         # Track response time
         response_time_ms = (datetime.now() - start_time).total_seconds() * 1000
@@ -296,19 +298,19 @@ async def scheduling_node(state: ConversationState) -> ConversationState:
         if step == ConversationStep.SUGGEST_APPOINTMENT:
             # Initial scheduling suggestion
             prompt_name = "kumon:scheduling:welcome:direct_booking"
-            response = await prompt_manager.get_prompt(prompt_name)
+            response = await prompt_manager.get_prompt(prompt_name, conversation_state=state)
             next_step = ConversationStep.COLLECT_PREFERENCES
             
         elif step == ConversationStep.COLLECT_PREFERENCES:
             # Check for weekend requests (not available)
             if any(word in user_message for word in ["sábado", "saturday", "sabado"]):
                 prompt_name = "kumon:scheduling:error:saturday_unavailable" 
-                response = await prompt_manager.get_prompt(prompt_name)
+                response = await prompt_manager.get_prompt(prompt_name, conversation_state=state)
                 next_step = ConversationStep.COLLECT_PREFERENCES  # Stay in same step
                 
             elif any(word in user_message for word in ["domingo", "sunday"]):
                 prompt_name = "kumon:scheduling:error:sunday_unavailable"
-                response = await prompt_manager.get_prompt(prompt_name)
+                response = await prompt_manager.get_prompt(prompt_name, conversation_state=state)
                 next_step = ConversationStep.COLLECT_PREFERENCES  # Stay in same step
                 
             else:
