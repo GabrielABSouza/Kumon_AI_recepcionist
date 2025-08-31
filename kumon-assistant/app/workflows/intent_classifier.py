@@ -105,8 +105,7 @@ class AdvancedIntentClassifier:
         # Intent patterns with context awareness
         self.intent_patterns = self._build_intent_patterns()
 
-        # Entity extraction patterns
-        self.entity_patterns = self._build_entity_patterns()
+        # Entity extraction patterns moved to PatternScorer for centralization
 
         # Context tracking
         self.active_contexts: Dict[str, ConversationContext] = {}
@@ -219,17 +218,7 @@ class AdvancedIntentClassifier:
             },
         }
 
-    def _build_entity_patterns(self) -> Dict[str, List[str]]:
-        """Build entity extraction patterns"""
-        return {
-            "person_names": [
-                r"\b([A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,}(?:\s+[A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,})*)\b"
-            ],
-            "ages": [r"\b(\d{1,2})\s+anos?\b", r"\bidade\s+(\d{1,2})\b"],
-            "times": [r"\b(manhã|tarde|morning|afternoon)\b", r"\b(\d{1,2}h?\d{0,2})\b"],
-            "programs": [r"\b(matemática|português|inglês|math|portuguese|english)\b"],
-            "prices": [r"\b(r\$?\s*\d+(?:,\d{2})?)\b", r"\b(\d+\s+reais?)\b"],
-        }
+    # Entity patterns moved to PatternScorer for centralized management
 
     async def classify_intent(
         self, message: str, conversation_state: ConversationState
@@ -383,8 +372,10 @@ class AdvancedIntentClassifier:
         best_match = None
         best_confidence = 0.0
 
-        # Extract entities first
-        entities = self._extract_entities(message)
+        # Extract entities using centralized PatternScorer
+        from .pattern_scorer import PatternScorer
+        pattern_scorer = PatternScorer()
+        entities = pattern_scorer.extract_entities(message)
 
         # Check each intent category
         for category, config in self.intent_patterns.items():
@@ -449,20 +440,7 @@ class AdvancedIntentClassifier:
 
     # Pattern confidence calculation now handled by PatternScorer class
 
-    def _extract_entities(self, message: str) -> Dict[str, List[str]]:
-        """Extract entities from message"""
-        entities = {}
-
-        for entity_type, patterns in self.entity_patterns.items():
-            matches = []
-            for pattern in patterns:
-                found = re.findall(pattern, message, re.IGNORECASE)
-                matches.extend(found)
-
-            if matches:
-                entities[entity_type] = list(set(matches))  # Remove duplicates
-
-        return entities
+    # Entity extraction method moved to PatternScorer for centralized management
 
     def _determine_subcategory(
         self, category: IntentCategory, message: str, entities: Dict[str, List[str]]

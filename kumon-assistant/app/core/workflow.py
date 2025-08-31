@@ -586,11 +586,8 @@ class CeciliaWorkflow:
                 
                 # Gerar resposta planejada usando ResponsePlanner
                 from .router.response_planner import response_planner
-                planned_response = await response_planner.plan_response(
-                    state=result,
-                    routing_decision=routing_decision
-                )
-                result["planned_response"] = planned_response
+                await response_planner.plan_and_generate(result, routing_decision)
+                # Response is now in result["planned_response"]
             
             # PHASE 3: Use DeliveryService for atomic message delivery and state updates
             # Extract data for delivery

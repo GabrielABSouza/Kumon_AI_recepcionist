@@ -54,14 +54,38 @@ class PatternScorer:
             ]
         }
         
-        # Entity extraction patterns (from IntentClassifier)
+        # Entity extraction patterns (unified from IntentClassifier and PatternScorer)
+        # CENTRALIZED entity extraction - single source of truth for all entity patterns
         self.entity_patterns = {
-            "names": [r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b"],
-            "ages": [r"\b(\d{1,2})\s*anos?\b", r"\b(\d{1,2})\s*years?\s*old\b"],
-            "dates": [r"\b(\d{1,2}/\d{1,2}(?:/\d{4})?)\b", r"\b(segunda|terça|quarta|quinta|sexta|sábado|domingo)\b"],
-            "times": [r"\b(manhã|tarde|morning|afternoon)\b", r"\b(\d{1,2}h?\d{0,2})\b"],
-            "programs": [r"\b(matemática|português|inglês|math|portuguese|english)\b"],
-            "prices": [r"\b(r\$?\s*\d+(?:,\d{2})?)\b", r"\b(\d+\s+reais?)\b"],
+            # UNIFIED: Using IntentClassifier's superior regex with proper Portuguese accents
+            "person_names": [
+                r"\b([A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,}(?:\s+[A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,})*)\b"
+            ],
+            # Enhanced age patterns from both classes
+            "ages": [
+                r"\b(\d{1,2})\s+anos?\b", 
+                r"\bidade\s+(\d{1,2})\b",
+                r"\b(\d{1,2})\s*years?\s*old\b"
+            ],
+            # Enhanced time patterns  
+            "times": [
+                r"\b(manhã|tarde|morning|afternoon)\b", 
+                r"\b(\d{1,2}h?\d{0,2})\b"
+            ],
+            # Enhanced date patterns
+            "dates": [
+                r"\b(\d{1,2}/\d{1,2}(?:/\d{4})?)\b", 
+                r"\b(segunda|terça|quarta|quinta|sexta|sábado|domingo)\b"
+            ],
+            # Enhanced program patterns
+            "programs": [
+                r"\b(matemática|português|inglês|math|portuguese|english)\b"
+            ],
+            # Enhanced price patterns
+            "prices": [
+                r"\b(r\$?\s*\d+(?:,\d{2})?)\b", 
+                r"\b(\d+\s+reais?)\b"
+            ],
         }
 
         # Route-specific patterns (from IntentClassifier intent_patterns)
@@ -71,9 +95,11 @@ class PatternScorer:
                     r"\b(oi|olá|hello|hi|bom\s*dia|boa\s*tarde|boa\s*noite)\b",
                     r"\b(meu\s+nome\s+é|me\s+chamo|sou\s+o|sou\s+a)\b",
                     r"\b(gostaria\s+de\s+saber|quero\s+conhecer|tenho\s+interesse)\b",
+                    # CONTEXT-AWARE: Single name as response (when expecting name collection)
+                    r"^[A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,}(?:\s+[A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,})*$",
                 ],
                 "base_score": 0.7,
-                "boost_factors": ["entity_names", "polite_greeting"]
+                "boost_factors": ["person_names", "polite_greeting", "context_name_collection"]
             },
             "information": {
                 "patterns": [
@@ -284,7 +310,7 @@ class PatternScorer:
         boosted_score = base_score
         
         for factor in boost_factors:
-            if factor == "entity_names" and entities.get("names"):
+            if factor == "person_names" and entities.get("person_names"):
                 boosted_score += 0.1
             elif factor == "entity_programs" and entities.get("programs"):
                 boosted_score += 0.15
@@ -292,15 +318,30 @@ class PatternScorer:
                 boosted_score += 0.2
             elif factor == "entity_times" and entities.get("times"):
                 boosted_score += 0.15
-            elif factor == "polite_greeting" and any(word in entities.get("names", []) for word in ["obrigado", "obrigada", "valeu"]):
+            elif factor == "polite_greeting" and any(word in entities.get("person_names", []) for word in ["obrigado", "obrigada", "valeu"]):
                 boosted_score += 0.05
             elif factor == "confirmation_words" and collected_data.get("selected_slot"):
                 boosted_score += 0.2  # Strong boost if scheduling data exists
+            elif factor == "context_name_collection" and entities.get("person_names"):
+                # CONTEXT-AWARE: Boost names when we're in greeting stage expecting name
+                # This addresses the "Gabriel" scenario where it should be high confidence
+                boosted_score += 0.3  # Strong context boost for name collection
         
         return boosted_score
 
-    def _extract_entities(self, message: str) -> Dict[str, List[str]]:
-        """Extract entities from message (from IntentClassifier)"""
+    def extract_entities(self, message: str) -> Dict[str, List[str]]:
+        """
+        Extract entities from message - PUBLIC method for IntentClassifier
+        
+        This is the centralized entity extraction method used by both
+        PatternScorer and IntentClassifier to ensure consistency.
+        
+        Args:
+            message: User message to analyze
+            
+        Returns:
+            Dict mapping entity types to lists of found entities
+        """
         entities = {}
 
         for entity_type, patterns in self.entity_patterns.items():
@@ -313,6 +354,10 @@ class PatternScorer:
                 entities[entity_type] = list(set(matches))  # Remove duplicates
 
         return entities
+
+    def _extract_entities(self, message: str) -> Dict[str, List[str]]:
+        """Private wrapper for backward compatibility"""
+        return self.extract_entities(message)
     
     def _calculate_intent_boosts(self, message_lower: str) -> Dict[str, float]:
         """Calculate boost scores based on intent pattern matches"""
