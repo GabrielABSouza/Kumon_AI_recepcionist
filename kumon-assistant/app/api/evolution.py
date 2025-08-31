@@ -596,6 +596,60 @@ async def handle_contacts_set(request: Request):
         return {"success": False, "error": "Failed to process contacts-set webhook"}
 
 
+# ========== UTILITY FUNCTIONS FOR SERVICES ==========
+
+async def send_message(phone_number: str, message: str, instance_name: str = None) -> Dict[str, Any]:
+    """
+    Central send message function used by DeliveryService
+    
+    Args:
+        phone_number: Target phone number
+        message: Message text to send
+        instance_name: WhatsApp instance name (defaults to settings default)
+    
+    Returns:
+        Dict with status and result information
+    """
+    try:
+        # Use default instance if not specified
+        if not instance_name:
+            instance_name = getattr(settings, 'DEFAULT_WHATSAPP_INSTANCE', 'default')
+        
+        # Send message via Evolution API client
+        result = await evolution_api_client.send_text_message(
+            instance_name=instance_name,
+            phone=phone_number,
+            message=message
+        )
+        
+        # Standardize response format
+        if result:
+            return {
+                "status": "success",
+                "message_id": result.get("id"),
+                "phone": phone_number,
+                "instance": instance_name,
+                "timestamp": result.get("timestamp"),
+                "result": result
+            }
+        else:
+            return {
+                "status": "error", 
+                "error": "No result from Evolution API",
+                "phone": phone_number,
+                "instance": instance_name
+            }
+            
+    except Exception as e:
+        app_logger.error(f"send_message failed for {phone_number}: {str(e)}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "phone": phone_number,
+            "instance": instance_name
+        }
+
+
 @router.post("/contacts-upsert")
 async def handle_contacts_upsert(request: Request):
     """Handle contacts-upsert webhook"""

@@ -546,16 +546,49 @@ class CeciliaWorkflow:
             # Executar workflow
             result = await self.app.ainvoke(input_data, config=config)
             
-            # Extrair resposta
-            response = result.get("last_bot_response", "Desculpe, houve um problema. Como posso ajudá-lo?")
+            # PHASE 3: Use DeliveryService for atomic message delivery and state updates
+            # Extract data for delivery
+            planned_response = result.get("planned_response") or result.get("last_bot_response")
+            routing_decision = result.get("routing_decision", {})
             current_stage = result.get("current_stage", "greeting")
             current_step = result.get("current_step")
             
-            # Wave 3: Persist state to PostgreSQL
+            # Default response if none planned
+            if not planned_response:
+                planned_response = "Desculpe, houve um problema. Como posso ajudá-lo?"
+            
+            # PHASE 3: Use DeliveryService for atomic delivery and state updates
+            from ..core.services.delivery_service import delivery_service
+            
+            # Deliver message and update state atomically
+            delivery_result = await delivery_service.deliver_response(
+                state=result,  # Pass the workflow result state
+                phone_number=phone_number,
+                planned_response=planned_response,
+                routing_decision=routing_decision
+            )
+            
+            # Extract updated state and delivery results
+            if delivery_result["success"]:
+                # Message was delivered successfully and state was updated
+                updated_result_state = delivery_result["updated_state"]
+                current_stage = updated_result_state.get("current_stage", current_stage)
+                current_step = updated_result_state.get("current_step", current_step)
+                response = planned_response
+                
+                logger.info(f"✅ DeliveryService succeeded for {phone_number}: {delivery_result['delivery_id']}")
+            else:
+                # Delivery failed - use fallback response and do not update stage
+                response = "Olá! Sou Cecília do Kumon Vila A! 😊 Houve um problema técnico, mas estou aqui para ajudar. Como posso auxiliá-lo hoje?"
+                # Keep original stage/step from workflow result (no progression)
+                logger.warning(f"⚠️ DeliveryService failed for {phone_number}: {delivery_result.get('error')}")
+            
+            # Wave 3: Fallback persistence to PostgreSQL (if DeliveryService didn't handle it)
             processing_time = (time.time() - start_time) * 1000
             
-            if self.use_postgres_persistence:
-                # Update conversation history
+            # Only do fallback persistence if DeliveryService failed or Redis unavailable
+            if not delivery_result["success"] and self.use_postgres_persistence and not active_session:
+                # DeliveryService failed, use PostgreSQL fallback
                 conversation_history = existing_state.conversation_history if existing_state else []
                 conversation_history.append({
                     "role": "user",
@@ -572,72 +605,80 @@ class CeciliaWorkflow:
                 if len(conversation_history) > 20:
                     conversation_history = conversation_history[-20:]
                 
-                # Prepare state updates
+                # Prepare fallback state updates (no stage progression on delivery failure)
                 state_updates = {
-                    "current_stage": current_stage,
-                    "current_step": current_step,
+                    "current_stage": result.get("current_stage", current_stage),  # Keep original stage
+                    "current_step": result.get("current_step", current_step),
                     "state_data": result,
                     "conversation_history": conversation_history,
-                    "last_activity": datetime.now()
+                    "last_activity": datetime.now(),
+                    "delivery_failed": True
                 }
                 
-                # CRITICAL FIX: Update Redis session if active
-                if active_session and session_id:
-                    try:
-                        # Add user message to session
-                        await conversation_memory_service.add_message_to_session(
-                            session_id=session_id,
-                            content=user_message,
-                            is_from_user=True
-                        )
-                        
-                        # Add assistant response to session
-                        await conversation_memory_service.add_message_to_session(
-                            session_id=session_id,
-                            content=response,
-                            is_from_user=False
-                        )
-                        
-                        # Update session state - map workflow stages to conversation stages
-                        stage_mapping = {
-                            "greeting": "greeting",
-                            "qualification": "qualification", 
-                            "information_gathering": "information_gathering",
-                            "scheduling": "scheduling",
-                            "confirmation": "confirmation",
-                            "follow_up": "follow_up"
-                        }
-                        
-                        step_mapping = {
-                            "welcome": "welcome",
-                            "parent_name_collection": "parent_name_collection",
-                            "initial_response": "initial_response",
-                            "child_name_collection": "child_name_collection",
-                            "child_age_collection": "child_age_collection",
-                            "program_interest_detection": "program_interest_detection"
-                        }
-                        
-                        # Update session with current workflow state
-                        active_session.current_stage = stage_mapping.get(current_stage, current_stage)
-                        active_session.current_step = step_mapping.get(current_step, current_step) if current_step else "welcome"
-                        active_session.last_activity = datetime.now()
-                        
-                        await conversation_memory_service.update_session(active_session)
-                        logger.info(f"✅ Updated Redis session {session_id}: stage={current_stage}, step={current_step}")
-                        
-                    except Exception as redis_update_error:
-                        logger.error(f"🚨 Failed to update Redis session {session_id}: {redis_update_error}")
+                # Update PostgreSQL as fallback
+                update_success = await self.state_repository.update_workflow_state(
+                    thread_id, 
+                    state_updates, 
+                    processing_time
+                )
                 
-                # Update PostgreSQL state if enabled and no Redis session
-                if self.use_postgres_persistence and not active_session:
-                    update_success = await self.state_repository.update_workflow_state(
-                        thread_id, 
-                        state_updates, 
-                        processing_time
+                if not update_success:
+                    logger.warning(f"Failed to update workflow state for {thread_id}")
+                else:
+                    logger.info(f"✅ PostgreSQL fallback persistence for {phone_number}")
+                    
+            elif delivery_result["success"]:
+                logger.info(f"✅ DeliveryService handled persistence - no fallback needed")
+                
+            # Update Redis session if active (independent of DeliveryService)
+            if active_session and session_id:
+                try:
+                    # Add user message to session
+                    await conversation_memory_service.add_message_to_session(
+                        session_id=session_id,
+                        content=user_message,
+                        is_from_user=True
                     )
                     
-                    if not update_success:
-                        logger.warning(f"Failed to update workflow state for {thread_id}")
+                    # Add assistant response to session
+                    await conversation_memory_service.add_message_to_session(
+                        session_id=session_id,
+                        content=response,
+                        is_from_user=False
+                    )
+                    
+                    # Update session state - map workflow stages to conversation stages
+                    stage_mapping = {
+                        "greeting": "greeting",
+                        "qualification": "qualification", 
+                        "information_gathering": "information_gathering",
+                        "scheduling": "scheduling",
+                        "confirmation": "confirmation",
+                        "follow_up": "follow_up"
+                    }
+                    
+                    step_mapping = {
+                        "welcome": "welcome",
+                        "parent_name_collection": "parent_name_collection",
+                        "initial_response": "initial_response",
+                        "child_name_collection": "child_name_collection",
+                        "child_age_collection": "child_age_collection",
+                        "program_interest_detection": "program_interest_detection"
+                    }
+                    
+                    # Update session with current workflow state (use DeliveryService updated state if available)
+                    final_stage = current_stage
+                    final_step = current_step
+                    
+                    active_session.current_stage = stage_mapping.get(final_stage, final_stage)
+                    active_session.current_step = step_mapping.get(final_step, final_step) if final_step else "welcome"
+                    active_session.last_activity = datetime.now()
+                    
+                    await conversation_memory_service.update_session(active_session)
+                    logger.info(f"✅ Updated Redis session {session_id}: stage={final_stage}, step={final_step}")
+                    
+                except Exception as redis_update_error:
+                    logger.error(f"🚨 Failed to update Redis session {session_id}: {redis_update_error}")
             
             return {
                 "response": response,
@@ -649,6 +690,13 @@ class CeciliaWorkflow:
                 "coordination_method": "direct_langgraph",
                 "redis_session_id": session_id,
                 "redis_enabled": active_session is not None,
+                "delivery_service": {
+                    "delivery_id": delivery_result.get("delivery_id"),
+                    "delivery_success": delivery_result["success"],
+                    "delivery_time_ms": delivery_result.get("delivery_time_ms"),
+                    "stage_updated": delivery_result.get("stage_updated", False),
+                    "message_sent": delivery_result.get("message_sent", False)
+                },
                 "success": True
             }
             
