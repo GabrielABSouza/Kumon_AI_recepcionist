@@ -115,6 +115,12 @@ class AdvancedIntentClassifier:
         else:
             app_logger.info("Advanced Intent Classifier initialized (pattern matching only)")
 
+    def _get_enum_value(self, enum_obj):
+        """Safely extract value from enum (handle both Enum and string)"""
+        if hasattr(enum_obj, 'value'):
+            return enum_obj.value
+        return str(enum_obj) if enum_obj else "unknown"
+
     def _build_intent_patterns(self) -> Dict[IntentCategory, Dict]:
         """Build comprehensive intent patterns with context"""
         return {
@@ -387,8 +393,9 @@ class AdvancedIntentClassifier:
             route_patterns = pattern_scorer.route_patterns
             
             # Match against route patterns if available
-            if category.value in route_patterns:
-                route_config = route_patterns[category.value]
+            category_value = self._get_enum_value(category)
+            if category_value in route_patterns:
+                route_config = route_patterns[category_value]
                 base_score = pattern_scorer._calculate_base_pattern_score(
                     message_lower, route_config["patterns"], route_config["base_score"]
                 )
@@ -404,7 +411,7 @@ class AdvancedIntentClassifier:
 
             # Context boost
             if config.get("context_continuation") and context.current_topic:
-                if category.value in context.current_topic:
+                if self._get_enum_value(category) in context.current_topic:
                     confidence += config.get("confidence_boost", 0.1)
 
             # Entity boost
@@ -421,8 +428,8 @@ class AdvancedIntentClassifier:
                 best_confidence = confidence
                 subcategory = self._determine_subcategory(category, message_lower, entities)
                 best_match = IntentResult(
-                    category=category.value if hasattr(category, 'value') else str(category),
-                    subcategory=subcategory.value if subcategory and hasattr(subcategory, 'value') else str(subcategory) if subcategory else None,
+                    category=self._get_enum_value(category),
+                    subcategory=self._get_enum_value(subcategory) if subcategory else None,
                     confidence=confidence,
                     context_entities=entities
                 )
@@ -565,14 +572,14 @@ class AdvancedIntentClassifier:
 
             # Try to match to known categories
             for category in IntentCategory:
-                if category.value == llm_category_str:
+                if self._get_enum_value(category) == llm_category_str:
                     # Enhance confidence if LLM agrees
                     if category == rule_result.category:
                         rule_result.confidence = min(0.95, rule_result.confidence + 0.2)
                     else:
                         # LLM disagrees, create new result with moderate confidence
                         rule_result = IntentResult(
-                            category=category.value if hasattr(category, 'value') else str(category),
+                            category=self._get_enum_value(category),
                             subcategory=self._determine_subcategory(
                                 category, message.lower(), rule_result.context_entities
                             ),

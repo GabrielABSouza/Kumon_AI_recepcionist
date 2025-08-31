@@ -178,6 +178,12 @@ class ConversationMemoryService:
             }
         })
     
+    def _get_enum_value(self, enum_obj):
+        """Safely extract value from enum (handle both Enum and string)"""
+        if hasattr(enum_obj, 'value'):
+            return enum_obj.value
+        return str(enum_obj) if enum_obj else "unknown"
+    
     # ========================================================================
     # INITIALIZATION AND CLEANUP
     # ========================================================================
@@ -1027,11 +1033,11 @@ class ConversationMemoryService:
         """, 
             session.session_id, session.user_id, session.phone_number,
             session.created_at, session.updated_at, session.last_activity, session.ended_at,
-            session.status.value, session.current_stage.value, session.current_step.value,
+            self._get_enum_value(session.status), self._get_enum_value(session.current_stage), self._get_enum_value(session.current_step),
             session.metrics.message_count, session.calculate_session_duration(),
             session.metrics.failed_attempts, session.metrics.sentiment_score_avg,
             session.metrics.satisfaction_score, session.metrics.lead_score,
-            session.lead_score_category.value, session.metrics.conversion_probability,
+            self._get_enum_value(session.lead_score_category), session.metrics.conversion_probability,
             session.metrics.estimated_value, json.dumps(session.session_features),
             json.dumps(session.predictions), json.dumps(session.labels), 
             json.dumps(session.stage_history), json.dumps(session.conversion_events),
@@ -1053,10 +1059,10 @@ class ConversationMemoryService:
         """,
             message.message_id, message.conversation_id, message.user_id, message.timestamp,
             message.content, message.is_from_user, message.message_type,
-            message.intent.value if message.intent else None, message.intent_confidence,
-            message.sentiment.value if message.sentiment else None, message.sentiment_score,
-            json.dumps(message.entities), message.conversation_stage.value,
-            message.conversation_step.value, message.response_time_seconds,
+            self._get_enum_value(message.intent) if message.intent else None, message.intent_confidence,
+            self._get_enum_value(message.sentiment) if message.sentiment else None, message.sentiment_score,
+            json.dumps(message.entities), self._get_enum_value(message.conversation_stage),
+            self._get_enum_value(message.conversation_step), message.response_time_seconds,
             json.dumps(message.features), message.embeddings, "1.0"
         )
     

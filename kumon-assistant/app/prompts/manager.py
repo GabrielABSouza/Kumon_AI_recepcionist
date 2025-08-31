@@ -131,10 +131,13 @@ class PromptManager:
                         app_logger.info(f"✅ Using unified template: {filepath}")
                         return content.strip()
 
-            # Special mapping for legacy system templates
+            # Special mapping for legacy system templates and fallbacks
             legacy_mappings = {
                 "kumon:conversation:general": "system/conversation/general.txt",
                 "kumon:system:base:identity": "system/base/identity.txt",
+                "kumon:fallback:level1:general": "fallback/cecilia_fallback_general.txt",
+                "kumon:fallback:level2:basic": "fallback/cecilia_fallback_level2_menu.txt",
+                "kumon:handoff:transfer:human_contact": "fallback/handoff_general.txt",
             }
 
             if name in legacy_mappings:

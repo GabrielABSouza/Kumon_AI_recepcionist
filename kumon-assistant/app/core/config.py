@@ -40,7 +40,8 @@ class Settings(BaseSettings):
     EVOLUTION_API_URL: str = "https://evolution-api.railway.app"
     EVOLUTION_API_KEY: str = ""
     EVOLUTION_GLOBAL_API_KEY: str = ""
-    EVOLUTION_INSTANCE_NAME: str = "kumonvilaa"
+    EVOLUTION_INSTANCE_NAME: str = "kumon_assistant"
+    DEFAULT_WHATSAPP_INSTANCE: str = "kumon_assistant"  # Fixed: use correct instance name
     AUTHENTICATION_API_KEY: str = ""
     WEBHOOK_GLOBAL_URL: str = ""
     WEBHOOK_GLOBAL_ENABLED: bool = True

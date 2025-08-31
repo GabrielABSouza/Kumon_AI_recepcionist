@@ -127,6 +127,12 @@ class IntelligentThresholdSystem:
         
         app_logger.info("Intelligent Threshold System initialized")
 
+    def _get_enum_value(self, enum_obj):
+        """Safely extract value from enum (handle both Enum and string)"""
+        if hasattr(enum_obj, 'value'):
+            return enum_obj.value
+        return str(enum_obj) if enum_obj else "unknown"
+
     async def decide(
         self,
         intent_confidence: float,
@@ -330,7 +336,7 @@ class IntelligentThresholdSystem:
 
     async def _proceed(self, result, conversation_state: ConversationState, rule: ThresholdRule):
         """Handler para alta confiança - prosseguir normalmente"""
-        app_logger.info(f"High confidence classification: {result.category.value}")
+        app_logger.info(f"High confidence classification: {self._get_enum_value(result.category)}")
         return result
 
     async def _enhance_with_llm(self, result, conversation_state: ConversationState, rule: ThresholdRule):
