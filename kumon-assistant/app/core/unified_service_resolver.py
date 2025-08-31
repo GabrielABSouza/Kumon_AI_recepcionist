@@ -208,10 +208,9 @@ class UnifiedServiceResolver:
         """Attempt lazy initialization as last resort"""
         try:
             # Attempt to register and initialize common services
-            # REMOVED: SecureConversationWorkflow replaced by CeciliaWorkflow
-            # if service_name == "secure_workflow":
-            #     return await self._lazy_init_secure_workflow()
-            if service_name == "llm_service":
+            if service_name == "cecilia_workflow":
+                return await self._lazy_init_cecilia_workflow()
+            elif service_name == "llm_service":
                 return await self._lazy_init_llm_service()
             elif service_name == "intent_classifier":
                 return await self._lazy_init_intent_classifier()
@@ -265,6 +264,24 @@ class UnifiedServiceResolver:
 
         except Exception as e:
             self.logger.error(f"Failed to lazy initialize llm_service: {e}")
+            return None
+
+    async def _lazy_init_cecilia_workflow(self) -> Optional[Any]:
+        """Lazy initialize CeciliaWorkflow"""
+        try:
+            from ..core.workflow import cecilia_workflow
+            
+            self.logger.info("🔄 Lazy initializing CeciliaWorkflow...")
+            
+            # CeciliaWorkflow is already instantiated as global instance
+            # Just cache it in our systems
+            self.service_cache["cecilia_workflow"] = cecilia_workflow
+            
+            self.logger.info("✅ CeciliaWorkflow lazy initialized successfully")
+            return cecilia_workflow
+
+        except Exception as e:
+            self.logger.error(f"Failed to lazy initialize cecilia_workflow: {e}")
             return None
 
     async def _lazy_init_intent_classifier(self) -> Optional[Any]:

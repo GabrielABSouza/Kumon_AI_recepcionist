@@ -396,7 +396,7 @@ async def service_resolver_health():
         # Test critical service resolution
         critical_services_status = {}
         critical_services = [
-            "secure_workflow",
+            "cecilia_workflow",  # UPDATED: Using CeciliaWorkflow instead of secure_workflow
             "llm_service",
             "intent_classifier",
             "langchain_rag_service",

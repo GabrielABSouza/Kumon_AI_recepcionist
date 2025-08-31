@@ -48,6 +48,7 @@ from app.api.v1 import conversation, health, units, whatsapp
 from app.core.config import settings
 from app.core.logger import app_logger
 from app.services.cache_manager import cache_manager
+from app.core.workflow import cecilia_workflow
 # from app.workflows.development_workflow import development_workflow_manager  # File missing
 # from app.workflows.maintainability_engine import maintainability_engine  # File missing
 
@@ -418,9 +419,8 @@ async def startup_event():
     dependencies.intent_classifier = optimized_startup_manager.service_instances.get(
         "intent_classifier"
     )
-    dependencies.secure_workflow = optimized_startup_manager.service_instances.get(
-        "secure_workflow"
-    )
+    # UPDATED: Using CeciliaWorkflow instead of secure_workflow
+    dependencies.cecilia_workflow = cecilia_workflow
     dependencies.langchain_rag_service = optimized_startup_manager.service_instances.get(
         "langchain_rag_service"
     )
@@ -429,7 +429,7 @@ async def startup_event():
     critical_services = {
         "llm_service": dependencies.llm_service,
         "intent_classifier": dependencies.intent_classifier,
-        "secure_workflow": dependencies.secure_workflow,
+        "cecilia_workflow": dependencies.cecilia_workflow,
         "langchain_rag_service": dependencies.langchain_rag_service,
     }
 
@@ -457,13 +457,14 @@ async def startup_event():
         await service_factory.initialize_core_services()
         dependencies.llm_service = await service_factory.get_service("llm_service")
         dependencies.intent_classifier = await service_factory.get_service("intent_classifier")
-        dependencies.secure_workflow = await service_factory.get_service("secure_workflow")
+        # UPDATED: Using CeciliaWorkflow instead of secure_workflow from service factory
+        dependencies.cecilia_workflow = cecilia_workflow
         dependencies.langchain_rag_service = await service_factory.get_service(
             "langchain_rag_service"
         )
 
     app_logger.info(
-        "✅ Core services (LLM, Intent Classifier, Secure Workflow, RAG) initialized via optimized startup"
+        "✅ Core services (LLM, Intent Classifier, CeciliaWorkflow, RAG) initialized via optimized startup"
     )
 
     # Initialize and validate Unified Service Resolver
@@ -483,13 +484,13 @@ async def startup_event():
 
     # Test critical service resolution via unified resolver
     try:
-        test_secure_workflow = await unified_service_resolver.get_service("secure_workflow")
-        if test_secure_workflow:
-            app_logger.info("✅ Critical service 'secure_workflow' resolvable via unified resolver")
+        # UPDATED: Test CeciliaWorkflow instead of secure_workflow
+        if cecilia_workflow:
+            app_logger.info("✅ Critical service 'cecilia_workflow' available directly")
         else:
-            app_logger.error("❌ Critical service 'secure_workflow' not resolvable")
+            app_logger.error("❌ Critical service 'cecilia_workflow' not available")
     except Exception as e:
-        app_logger.error(f"❌ Failed to resolve 'secure_workflow' via unified resolver: {e}")
+        app_logger.error(f"❌ Failed to access 'cecilia_workflow': {e}")
 
     # DEBUG: Log environment variable status
     # os already imported globally
