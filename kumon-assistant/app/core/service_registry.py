@@ -43,7 +43,7 @@ async def _initialize_intent_classifier():
             )
             llm_service = None
 
-    classifier = AdvancedIntentClassifier(llm_service)
+    classifier = AdvancedIntentClassifier(llm_service_instance=llm_service)
     # CRITICAL FIX: Ensure service instance is stored for dependency injection
     optimized_startup_manager.service_instances["intent_classifier"] = classifier
     app_logger.info(f"✅ Intent classifier instance stored: {type(classifier).__name__}")
