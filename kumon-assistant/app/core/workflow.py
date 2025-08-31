@@ -531,16 +531,20 @@ class CeciliaWorkflow:
                     logger.debug(f"Created initial workflow state: {state_id}")
             
             # Preparar input para o workflow - CeciliaState completo otimizado
-            input_data = StateManager.create_initial_state(phone_number, user_message)
-            
-            # Se existe estado anterior, incluir na entrada
-            # CRITICAL FIX: Don't use .update() as it converts CeciliaState to dict!
-            # Update fields directly to preserve TypedDict structure
+            # CRITICAL FIX: Avoid double initialization - use existing_state if available
             if existing_state:
-                input_data["current_stage"] = existing_state.current_stage
-                input_data["current_step"] = existing_state.current_step
-                # Add previous state data to context if needed (but preserve CeciliaState structure)
-                input_data["conversation_id"] = existing_state.id or input_data["conversation_id"]
+                # Use existing state from conversation memory, but ensure it's a proper CeciliaState
+                input_data = StateManager.create_initial_state(phone_number, user_message)
+                # Apply existing state data with correct dict access (not attribute access)
+                input_data["current_stage"] = existing_state["current_stage"]
+                input_data["current_step"] = existing_state["current_step"]
+                if "conversation_id" in existing_state.get("state_data", {}):
+                    input_data["conversation_id"] = existing_state["state_data"]["conversation_id"]
+                logger.info(f"🔄 Restored existing state: stage={existing_state['current_stage']}, step={existing_state['current_step']}")
+            else:
+                # Create fresh state only if no existing state
+                input_data = StateManager.create_initial_state(phone_number, user_message)
+                logger.info(f"🆕 Created fresh initial state for {phone_number}")
             
             # Executar workflow
             result = await self.app.ainvoke(input_data, config=config)
