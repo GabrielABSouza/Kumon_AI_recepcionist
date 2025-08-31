@@ -11,7 +11,7 @@ RESPOSTA OBRIGATÓRIA:
 Perfeito! Tenho esses horários disponíveis:
 
 {time_option1}
-{time_option2}  
+{time_option2}
 {time_option3}
 
 Qual desses fica melhor pra você? ⏰

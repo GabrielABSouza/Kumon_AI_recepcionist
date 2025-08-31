@@ -208,8 +208,9 @@ class UnifiedServiceResolver:
         """Attempt lazy initialization as last resort"""
         try:
             # Attempt to register and initialize common services
-            if service_name == "secure_workflow":
-                return await self._lazy_init_secure_workflow()
+            # REMOVED: SecureConversationWorkflow replaced by CeciliaWorkflow
+            # if service_name == "secure_workflow":
+            #     return await self._lazy_init_secure_workflow()
             elif service_name == "llm_service":
                 return await self._lazy_init_llm_service()
             elif service_name == "intent_classifier":
@@ -224,26 +225,27 @@ class UnifiedServiceResolver:
             self.logger.warning(f"Lazy initialization failed for '{service_name}': {e}")
             return None
 
-    async def _lazy_init_secure_workflow(self) -> Optional[Any]:
-        """Lazy initialize secure workflow service"""
-        try:
-            from ..workflows.secure_conversation_workflow import (
-                SecureConversationWorkflow,
-            )
-
-            self.logger.info("🔄 Lazy initializing SecureConversationWorkflow...")
-            workflow = SecureConversationWorkflow()
-
-            # Register in both systems for future access
-            self.service_factory._services["secure_workflow"] = workflow
-            self.optimized_startup_manager.service_instances["secure_workflow"] = workflow
-
-            self.logger.info("✅ SecureConversationWorkflow lazy initialized successfully")
-            return workflow
-
-        except Exception as e:
-            self.logger.error(f"Failed to lazy initialize secure_workflow: {e}")
-            return None
+    # REMOVED: SecureConversationWorkflow replaced by CeciliaWorkflow
+    # async def _lazy_init_secure_workflow(self) -> Optional[Any]:
+    #     """Lazy initialize secure workflow service"""
+    #     try:
+    #         from ..workflows.secure_conversation_workflow import (
+    #             SecureConversationWorkflow,
+    #         )
+    #
+    #         self.logger.info("🔄 Lazy initializing SecureConversationWorkflow...")
+    #         workflow = SecureConversationWorkflow()
+    #
+    #         # Register in both systems for future access
+    #         self.service_factory._services["secure_workflow"] = workflow
+    #         self.optimized_startup_manager.service_instances["secure_workflow"] = workflow
+    #
+    #         self.logger.info("✅ SecureConversationWorkflow lazy initialized successfully")
+    #         return workflow
+    #
+    #     except Exception as e:
+    #         self.logger.error(f"Failed to lazy initialize secure_workflow: {e}")
+    #         return None
 
     async def _lazy_init_llm_service(self) -> Optional[Any]:
         """Lazy initialize LLM service"""
@@ -392,7 +394,7 @@ class UnifiedServiceResolver:
             }
 
             # Check if critical services are resolvable
-            critical_services = ["secure_workflow", "llm_service"]
+            critical_services = ["llm_service"]  # "secure_workflow" removed - using CeciliaWorkflow
             service_health = {}
 
             for service_name in critical_services:
@@ -469,6 +471,7 @@ async def get_intent_classifier():
     return await unified_service_resolver.get_service("intent_classifier")
 
 
-async def get_secure_workflow():
-    """Get secure workflow service instance via unified resolver"""
-    return await unified_service_resolver.get_service("secure_workflow")
+# REMOVED: SecureConversationWorkflow replaced by CeciliaWorkflow
+# async def get_secure_workflow():
+#     """Get secure workflow service instance via unified resolver"""
+#     return await unified_service_resolver.get_service("secure_workflow")

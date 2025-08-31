@@ -14,7 +14,6 @@ from pydantic import BaseModel, Field
 from ..clients.evolution_api import InstanceInfo, WhatsAppMessage, evolution_api_client
 from ..core.config import settings
 from ..core.logger import app_logger
-from ..services.message_processor import MessageProcessor
 
 # Conversation flow is now handled by message processor
 
@@ -55,18 +54,11 @@ class SendButtonRequest(BaseModel):
     buttons: List[Dict[str, str]] = Field(..., description="List of buttons with text")
 
 
-# Initialize message processor - Use SECURE version if enabled
-from ..services.secure_message_processor import SecureMessageProcessor
+# Clean Architecture: Use MessagePreprocessor + direct workflow call
+from ..services.message_preprocessor import message_preprocessor
+from ..core.workflow import cecilia_workflow
 
-# Check if secure processing is enabled
-if getattr(settings, "USE_SECURE_PROCESSING", True):
-    # Use secure message processor with all security features
-    message_processor = SecureMessageProcessor()
-    app_logger.info("🛡️ Evolution route using SECURE Message Processor (Fase 5)")
-else:
-    # Fallback to legacy processor
-    message_processor = MessageProcessor()
-    app_logger.warning("⚠️ Evolution route using legacy Message Processor")
+app_logger.info("🔄 Evolution route using clean MessagePreprocessor + CeciliaWorkflow")
 
 
 @router.post("/instances")
@@ -730,22 +722,41 @@ async def process_message_background(message: WhatsAppMessage):
 
         app_logger.info(f"🔄 Processing message: '{message.message}' from {message.phone}")
 
-        # Use the message processor (secure or legacy based on config)
-        if isinstance(message_processor, SecureMessageProcessor):
-            # Process through secure workflow (now accepts Evolution format)
-            response = await message_processor.process_message(message)
-            ai_response = response.content if response else None
-        else:
-            # Legacy processor expects separate arguments
-            ai_response = await message_processor.process_message(
-                message=message.message, phone_number=message.phone, context=context
+        # Clean Architecture: Preprocessor first, then workflow
+        try:
+            # Step 1: Preprocess message
+            preprocessor_result = await message_preprocessor.process_message(message, {})
+            
+            if not preprocessor_result.success:
+                app_logger.warning(f"Preprocessing failed: {preprocessor_result.error_code}")
+                # Use original message for fallback
+                final_message = message
+            else:
+                # Use preprocessed message
+                final_message = preprocessor_result.message
+                app_logger.info("✅ Message preprocessed successfully")
+
+            # Step 2: Process through workflow
+            workflow_result = await cecilia_workflow.process_message(
+                phone_number=final_message.phone,
+                user_message=final_message.message,
             )
 
-        if ai_response:
-            app_logger.info(f"✅ Message processor returned response: '{ai_response[:100]}...'")
-        else:
-            # Fallback to a generic welcome message if conversation flow fails
-            app_logger.warning(f"⚠️ Conversation flow returned empty response, using fallback")
+            ai_response = workflow_result.get("response") if workflow_result else None
+
+            if ai_response:
+                app_logger.info(f"✅ Workflow returned response: '{ai_response[:100]}...'")
+            else:
+                # Fallback to a generic welcome message if workflow fails
+                app_logger.warning(f"⚠️ Workflow returned empty response, using fallback")
+                ai_response = (
+                    "Olá! Bem-vindo ao Kumon Vila A! 😊\n\n"
+                    "Sou a sua assistente virtual e estou aqui para ajudá-lo com informações sobre nossa metodologia de ensino.\n\n"
+                    "Para começar, você está buscando o Kumon para você mesmo ou para outra pessoa? 🤔"
+                )
+
+        except Exception as e:
+            app_logger.error(f"Error in preprocessing/workflow: {str(e)}")
             ai_response = (
                 "Olá! Bem-vindo ao Kumon Vila A! 😊\n\n"
                 "Sou a sua assistente virtual e estou aqui para ajudá-lo com informações sobre nossa metodologia de ensino.\n\n"

@@ -182,11 +182,11 @@ class Settings(BaseSettings):
     ENROLLMENT_FEE: float = 100.00  # R$ 100 enrollment fee
 
     # LangSmith Configuration
-    LANGSMITH_API_KEY: str = ""
-    LANGSMITH_PROJECT: str = "kumon-assistant"
-    LANGSMITH_ENDPOINT: str = "https://api.smith.langchain.com"
-    LANGCHAIN_TRACING_V2: bool = True
+    # LangSmith removed - using local templates only
 
+    # Message Processing Configuration  
+    USE_INTEGRATED_PROCESSING: bool = True   # MessagePreprocessor + LangGraph + Security (UNIFIED)
+    
     # Workflow Configuration
     USE_LANGGRAPH_WORKFLOW: bool = False
     WORKFLOW_ROLLOUT_PERCENTAGE: float = 0.1
@@ -212,9 +212,7 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRATION_MINUTES: int = 30
 
-    # Security Configuration (Fase 5)
-    USE_SECURE_PROCESSING: bool = True
-    SECURE_ROLLOUT_PERCENTAGE: float = 100.0
+    # Security Configuration - Integrated in main processor
     SECURITY_LOGGING_ENABLED: bool = True
     SECURITY_MONITORING_ENABLED: bool = True
 
@@ -382,8 +380,7 @@ class Settings(BaseSettings):
                 warnings.append("Anthropic API key not configured - no LLM fallback available")
             if not self.TWILIO_ACCOUNT_SID or not self.TWILIO_AUTH_TOKEN:
                 warnings.append("Twilio credentials not configured - no WhatsApp/SMS fallback")
-            if not self.LANGSMITH_API_KEY:
-                warnings.append("LangSmith API key not configured - no observability")
+            # LangSmith removed - using local templates only
             if self.DEBUG:
                 warnings.append("DEBUG mode enabled in production - should be disabled")
 
@@ -454,11 +451,4 @@ except ImportError:
     # Railway config not available, use defaults
     pass
 
-# Configure LangChain environment variables for hub.pull() to work
-# LangChain Hub requires these OS environment variables, not just pydantic settings
-if settings.LANGSMITH_API_KEY:
-    os.environ["LANGCHAIN_API_KEY"] = settings.LANGSMITH_API_KEY
-    os.environ["LANGSMITH_API_KEY"] = settings.LANGSMITH_API_KEY
-    os.environ["LANGSMITH_PROJECT"] = settings.LANGSMITH_PROJECT
-    os.environ["LANGSMITH_ENDPOINT"] = settings.LANGSMITH_ENDPOINT
-    os.environ["LANGCHAIN_TRACING_V2"] = str(settings.LANGCHAIN_TRACING_V2).lower()
+# LangSmith environment variables removed - using local templates only

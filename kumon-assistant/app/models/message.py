@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field
 from enum import Enum
+from dataclasses import dataclass
 
 
 class MessageType(str, Enum):
@@ -61,3 +62,17 @@ class ConversationState(BaseModel):
     student_name: Optional[str] = None
     parent_name: Optional[str] = None
     contact_info: Optional[Dict[str, str]] = None 
+
+
+@dataclass
+class ProcessingMetrics:
+    """Message processing performance metrics"""
+
+    total_messages: int = 0
+    processed_messages: int = 0
+    blocked_messages: int = 0
+    escalated_messages: int = 0
+    error_messages: int = 0
+    avg_processing_time: float = 0.0
+    security_incidents: int = 0
+    validation_failures: int = 0

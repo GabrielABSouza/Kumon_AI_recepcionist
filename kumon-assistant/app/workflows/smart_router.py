@@ -15,14 +15,15 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from ..core.dependencies import intent_classifier
 from ..core.logger import app_logger
-from .intent_classifier import IntentResult, IntentCategory, IntentSubcategory
+from .intent_classifier import IntentCategory, IntentSubcategory
 from .context_manager import (
     ConversationContextManager,
     TopicTransition,
     context_manager,
 )
-from .states import ConversationState, ConversationStep, WorkflowStage
-from ..core.state.models import ConversationStage
+from .states import ConversationStep
+from ..core.state.models import ConversationStage, CeciliaState as ConversationState
+from .contracts import IntentResult, RoutingDecision
 
 
 class RoutingPriority(Enum):
@@ -44,21 +45,7 @@ class RoutingStrategy(Enum):
     ESCALATION = "escalation"  # Escalate to human
 
 
-@dataclass
-class RoutingDecision:
-    """Complete routing decision with reasoning"""
-
-    target_node: str
-    target_stage: WorkflowStage
-    target_step: ConversationStep
-    strategy: RoutingStrategy
-    priority: RoutingPriority
-    confidence: float
-    reasoning: str
-    context_used: Dict[str, Any]
-    fallback_options: List[str]
-    requires_context_update: bool = True
-    estimated_completion_probability: float = 0.5
+# RoutingDecision now imported from contracts.py
 
 
 @dataclass
@@ -147,23 +134,23 @@ class SmartConversationRouter:
             ),
         ]
 
-    def _build_stage_progressions(self) -> Dict[WorkflowStage, Dict[str, Any]]:
+    def _build_stage_progressions(self) -> Dict[ConversationStage, Dict[str, Any]]:
         """Build stage progression logic"""
         return {
-            WorkflowStage.GREETING: {
-                "next_stages": [WorkflowStage.INFORMATION_GATHERING, WorkflowStage.SCHEDULING],
+            ConversationStage.GREETING: {
+                "next_stages": [ConversationStage.INFORMATION_GATHERING, ConversationStage.SCHEDULING],
                 "completion_criteria": ["name_collected", "interest_identified"],
                 "bypass_conditions": ["direct_scheduling_request"],
                 "typical_duration": timedelta(minutes=2),
             },
-            WorkflowStage.INFORMATION_GATHERING: {
-                "next_stages": [WorkflowStage.SCHEDULING, WorkflowStage.INFORMATION_GATHERING],
+            ConversationStage.INFORMATION_GATHERING: {
+                "next_stages": [ConversationStage.SCHEDULING, ConversationStage.INFORMATION_GATHERING],
                 "completion_criteria": ["program_explained", "pricing_discussed"],
                 "bypass_conditions": ["direct_booking_request"],
                 "typical_duration": timedelta(minutes=5),
             },
-            WorkflowStage.SCHEDULING: {
-                "next_stages": [WorkflowStage.COMPLETED],
+            ConversationStage.SCHEDULING: {
+                "next_stages": [ConversationStage.COMPLETED],
                 "completion_criteria": ["appointment_booked", "contact_collected"],
                 "bypass_conditions": [],
                 "typical_duration": timedelta(minutes=3),
@@ -184,7 +171,17 @@ class SmartConversationRouter:
         try:
             self.routing_stats["total_decisions"] += 1
 
-            app_logger.info(f"Making routing decision for {conversation_state['phone_number']}")
+            # Structured telemetry for routing start
+            app_logger.info(
+                f"[SMART_ROUTER] Starting routing decision",
+                extra={
+                    "component": "smart_router",
+                    "operation": "make_routing_decision",
+                    "phone_number": conversation_state.get("phone_number", "unknown")[-4:],
+                    "current_stage": conversation_state.get("current_stage", ConversationStage.GREETING).value,
+                    "message_length": len(conversation_state.get("user_message", ""))
+                }
+            )
 
             # Step 1: Classify intent with context
             intent_result = await self.intent_classifier.classify_intent(
@@ -233,9 +230,21 @@ class SmartConversationRouter:
                     detected_topics=self._extract_topics_from_intent(intent_result),
                 )
 
+            # Structured telemetry for final routing decision
             app_logger.info(
-                f"Routing decision: {optimized_decision.target_node} "
-                f"(confidence: {optimized_decision.confidence:.2f})"
+                f"[SMART_ROUTER] Routing decision completed",
+                extra={
+                    "component": "smart_router",
+                    "operation": "routing_completed",
+                    "target_node": optimized_decision.target_node,
+                    "threshold_action": optimized_decision.threshold_action,
+                    "final_confidence": optimized_decision.final_confidence,
+                    "intent_confidence": optimized_decision.intent_confidence,
+                    "pattern_confidence": optimized_decision.pattern_confidence,
+                    "rule_applied": optimized_decision.rule_applied,
+                    "business_rule_triggered": business_decision is not None,
+                    "mandatory_data_override": getattr(optimized_decision, "mandatory_data_override", False)
+                }
             )
 
             self.routing_stats["successful_routes"] += 1
@@ -243,17 +252,16 @@ class SmartConversationRouter:
 
         except Exception as e:
             app_logger.error(f"Error in routing decision: {e}")
-            # Return safe fallback decision - use current stage since FALLBACK doesn't exist in new enum
+            # Return safe fallback decision
             return RoutingDecision(
                 target_node="fallback",
-                target_stage=conversation_state.get("current_stage", ConversationStage.GREETING),
-                target_step=ConversationStep.CLARIFICATION_ATTEMPT,
-                strategy=RoutingStrategy.RECOVERY,
-                priority=RoutingPriority.MEDIUM,
-                confidence=0.3,
+                threshold_action="fallback_level1",
+                final_confidence=0.3,
+                intent_confidence=0.2,
+                pattern_confidence=0.2,
+                rule_applied="error_fallback",
                 reasoning=f"Error in routing: {str(e)}",
-                context_used={},
-                fallback_options=["greeting", "information"],
+                timestamp=datetime.now()
             )
 
     def _apply_business_rules(
@@ -339,8 +347,8 @@ class SmartConversationRouter:
                 word in user_message for word in ["tchau", "obrigado", "bye", "goodbye"]
             ),
             # State-based conditions
-            "information_stage": conversation_state["stage"] == WorkflowStage.INFORMATION_GATHERING,
-            "scheduling_stage": conversation_state["stage"] == WorkflowStage.SCHEDULING,
+            "information_stage": conversation_state.get("current_stage") == ConversationStage.INFORMATION_GATHERING,
+            "scheduling_stage": conversation_state.get("current_stage") == ConversationStage.SCHEDULING,
             "confusion_count": metrics.clarification_attempts,
             "topic_jump": (
                 topic_transition == TopicTransition.NEW_TOPIC if topic_transition else False
@@ -401,79 +409,74 @@ class SmartConversationRouter:
         if action == "escalate_to_human":
             return RoutingDecision(
                 target_node="human_handoff",
-                target_stage=WorkflowStage.COMPLETED,
-                target_step=ConversationStep.CONVERSATION_ENDED,
-                strategy=RoutingStrategy.ESCALATION,
-                priority=RoutingPriority.CRITICAL,
-                confidence=0.95,
+                threshold_action="escalate_human",
+                final_confidence=0.95,
+                intent_confidence=rule_context.get("intent_confidence", 0.8),
+                pattern_confidence=rule_context.get("pattern_confidence", 0.8),
+                rule_applied=rule.name,
                 reasoning=f"Business rule: {rule.name}",
-                context_used=rule_context,
-                fallback_options=[],
+                timestamp=datetime.now()
             )
 
         elif action == "inform_weekday_only":
             return RoutingDecision(
                 target_node="scheduling",
-                target_stage=WorkflowStage.SCHEDULING,
-                target_step=ConversationStep.COLLECT_PREFERENCES,
-                strategy=RoutingStrategy.DIRECT,
-                priority=RoutingPriority.HIGH,
-                confidence=0.9,
+                threshold_action="proceed",
+                final_confidence=0.9,
+                intent_confidence=rule_context.get("intent_confidence", 0.8),
+                pattern_confidence=rule_context.get("pattern_confidence", 0.8),
+                rule_applied=rule.name,
                 reasoning=f"Business rule: Weekend scheduling not available",
-                context_used=rule_context,
-                fallback_options=["information"],
+                timestamp=datetime.now()
             )
 
         elif action == "prioritize_scheduling":
             return RoutingDecision(
                 target_node="scheduling",
-                target_stage=WorkflowStage.SCHEDULING,
-                target_step=ConversationStep.SUGGEST_APPOINTMENT,
-                strategy=RoutingStrategy.DIRECT,
-                priority=RoutingPriority.HIGH,
-                confidence=0.9,
+                threshold_action="proceed",
+                final_confidence=0.9,
+                intent_confidence=rule_context.get("intent_confidence", 0.8),
+                pattern_confidence=rule_context.get("pattern_confidence", 0.8),
+                rule_applied=rule.name,
                 reasoning=f"Business rule: High-value lead prioritization",
-                context_used=rule_context,
-                fallback_options=["information"],
+                timestamp=datetime.now()
             )
 
         elif action == "complete_conversation":
             return RoutingDecision(
                 target_node="completed",
-                target_stage=WorkflowStage.COMPLETED,
-                target_step=ConversationStep.CONVERSATION_ENDED,
-                strategy=RoutingStrategy.DIRECT,
-                priority=RoutingPriority.HIGH,
-                confidence=0.95,
+                threshold_action="proceed",
+                final_confidence=0.95,
+                intent_confidence=rule_context.get("intent_confidence", 0.9),
+                pattern_confidence=rule_context.get("pattern_confidence", 0.9),
+                rule_applied=rule.name,
                 reasoning=f"Business rule: Conversation completion detected",
-                context_used=rule_context,
-                fallback_options=[],
+                timestamp=datetime.now()
             )
 
         elif action == "acknowledge_and_continue":
+            current_stage = conversation_state.get("current_stage", ConversationStage.GREETING)
             return RoutingDecision(
-                target_node=conversation_state["stage"].value,
-                target_stage=conversation_state["stage"],
-                target_step=conversation_state["step"],
-                strategy=RoutingStrategy.CONTEXTUAL,
-                priority=RoutingPriority.MEDIUM,
-                confidence=0.8,
+                target_node=current_stage.value,
+                threshold_action="proceed",
+                final_confidence=0.8,
+                intent_confidence=rule_context.get("intent_confidence", 0.7),
+                pattern_confidence=rule_context.get("pattern_confidence", 0.7),
+                rule_applied=rule.name,
                 reasoning=f"Business rule: Context jump acknowledgment",
-                context_used=rule_context,
-                fallback_options=["information"],
+                timestamp=datetime.now()
             )
 
         # Default fallback
         return RoutingDecision(
             target_node="fallback",
-            target_stage=WorkflowStage.FALLBACK,
-            target_step=ConversationStep.CLARIFICATION_ATTEMPT,
-            strategy=RoutingStrategy.RECOVERY,
-            priority=RoutingPriority.LOW,
-            confidence=0.5,
+            threshold_action="fallback_level1",
+            final_confidence=0.5,
+            intent_confidence=rule_context.get("intent_confidence", 0.4),
+            pattern_confidence=rule_context.get("pattern_confidence", 0.4),
+            rule_applied=rule.name,
             reasoning=f"Business rule executed but no specific action: {action}",
-            context_used=rule_context,
-            fallback_options=["greeting", "information"],
+            timestamp=datetime.now()
         )
 
     async def _make_contextual_decision(
@@ -485,11 +488,11 @@ class SmartConversationRouter:
     ) -> RoutingDecision:
         """Make contextual routing decision based on intent and context"""
         try:
-            current_stage = conversation_state["stage"]
-            current_step = conversation_state["step"]
+            current_stage = conversation_state.get("current_stage", ConversationStage.GREETING)
+            current_step = conversation_state.get("step", ConversationStep.WELCOME)
 
             # Use intent routing decision as base
-            base_target = intent_result.routing_decision or current_stage.value
+            base_target = getattr(intent_result, 'routing_decision', None) or current_stage.value
 
             # Adjust based on topic transition
             if topic_transition == TopicTransition.NEW_TOPIC:
@@ -509,41 +512,27 @@ class SmartConversationRouter:
                 confidence_adjustment = 0.1
                 strategy = RoutingStrategy.CONTEXTUAL
 
-            # Determine target stage and step
-            target_stage, target_step = self._determine_target_stage_step(
-                intent_result, current_stage, current_step
-            )
-
             # Calculate confidence
             base_confidence = intent_result.confidence
             final_confidence = min(0.95, base_confidence + confidence_adjustment)
 
-            # Determine priority
-            priority = self._determine_priority(intent_result, conversation_state)
-
             # Build reasoning
-            reasoning = f"Intent: {intent_result.category.value}"
+            reasoning = f"Intent: {intent_result.category}"
             if intent_result.subcategory:
-                reasoning += f"/{intent_result.subcategory.value}"
+                reasoning += f"/{intent_result.subcategory}"
             reasoning += f", Transition: {topic_transition.value}"
             if references:
                 reasoning += f", References resolved: {len(references)}"
 
             return RoutingDecision(
                 target_node=base_target,
-                target_stage=target_stage,
-                target_step=target_step,
-                strategy=strategy,
-                priority=priority,
-                confidence=final_confidence,
+                threshold_action="proceed",
+                final_confidence=final_confidence,
+                intent_confidence=base_confidence,
+                pattern_confidence=base_confidence,  # For now, same as intent
+                rule_applied=f"contextual_routing_{strategy.value}",
                 reasoning=reasoning,
-                context_used={
-                    "intent_category": intent_result.category.value,
-                    "topic_transition": topic_transition.value,
-                    "references_count": len(references),
-                    "current_stage": current_stage.value,
-                },
-                fallback_options=self._get_fallback_options(target_stage),
+                timestamp=datetime.now()
             )
 
         except Exception as e:
@@ -551,144 +540,22 @@ class SmartConversationRouter:
             # Return safe fallback
             return RoutingDecision(
                 target_node="fallback",
-                target_stage=WorkflowStage.FALLBACK,
-                target_step=ConversationStep.CLARIFICATION_ATTEMPT,
-                strategy=RoutingStrategy.RECOVERY,
-                priority=RoutingPriority.MEDIUM,
-                confidence=0.4,
+                threshold_action="fallback_level1",
+                final_confidence=0.4,
+                intent_confidence=0.3,
+                pattern_confidence=0.3,
+                rule_applied="contextual_error_fallback",
                 reasoning=f"Contextual decision error: {str(e)}",
-                context_used={},
-                fallback_options=["greeting"],
+                timestamp=datetime.now()
             )
 
-    def _determine_target_stage_step(
-        self,
-        intent_result: IntentResult,
-        current_stage: WorkflowStage,
-        current_step: ConversationStep,
-    ) -> Tuple[WorkflowStage, ConversationStep]:
-        """Determine target stage and step based on intent"""
-        category = intent_result.category
-        subcategory = intent_result.subcategory
+    # _determine_target_stage_step method removed - handled by ThresholdEngine now
 
-        # Map intents to stages and steps
-        if category == IntentCategory.GREETING:
-            if subcategory == IntentSubcategory.NAME_PROVIDING:
-                return WorkflowStage.GREETING, ConversationStep.COLLECT_NAME
-            else:
-                return WorkflowStage.GREETING, ConversationStep.WELCOME
+    # _determine_priority method removed - handled by ThresholdEngine now
 
-        elif category == IntentCategory.INFORMATION_REQUEST:
-            if subcategory in [
-                IntentSubcategory.PROGRAM_MATHEMATICS,
-                IntentSubcategory.PROGRAM_PORTUGUESE,
-            ]:
-                return WorkflowStage.INFORMATION_GATHERING, ConversationStep.PROVIDE_PROGRAM_INFO
-            elif subcategory == IntentSubcategory.PRICING_GENERAL:
-                return WorkflowStage.INFORMATION_GATHERING, ConversationStep.DISCUSS_PRICING
-            else:
-                return WorkflowStage.INFORMATION_GATHERING, ConversationStep.PROVIDE_PROGRAM_INFO
+    # _get_fallback_options method removed - handled by ThresholdEngine now
 
-        elif category == IntentCategory.SCHEDULING:
-            if subcategory == IntentSubcategory.DIRECT_BOOKING:
-                return WorkflowStage.SCHEDULING, ConversationStep.SUGGEST_APPOINTMENT
-            elif subcategory == IntentSubcategory.TIME_PREFERENCE:
-                return WorkflowStage.SCHEDULING, ConversationStep.COLLECT_PREFERENCES
-            else:
-                return WorkflowStage.SCHEDULING, ConversationStep.SUGGEST_APPOINTMENT
-
-        elif category == IntentCategory.CLARIFICATION:
-            # Return current stage for clarification since FALLBACK doesn't exist 
-            return current_stage, ConversationStep.CLARIFICATION_ATTEMPT
-
-        elif category == IntentCategory.DECISION:
-            # User made a decision - progress to next stage
-            if current_stage == WorkflowStage.GREETING:
-                return WorkflowStage.INFORMATION_GATHERING, ConversationStep.PROVIDE_PROGRAM_INFO
-            elif current_stage == WorkflowStage.INFORMATION_GATHERING:
-                return WorkflowStage.SCHEDULING, ConversationStep.SUGGEST_APPOINTMENT
-            else:
-                return current_stage, current_step
-
-        # Default: stay in current stage
-        return current_stage, current_step
-
-    def _determine_priority(
-        self, intent_result: IntentResult, conversation_state: ConversationState
-    ) -> RoutingPriority:
-        """Determine routing priority based on intent and context"""
-        category = intent_result.category
-
-        if category == IntentCategory.SCHEDULING:
-            return RoutingPriority.HIGH
-        elif category == IntentCategory.DECISION:
-            return RoutingPriority.HIGH
-        elif category == IntentCategory.OBJECTION:
-            return RoutingPriority.MEDIUM
-        elif category == IntentCategory.INFORMATION_REQUEST:
-            return RoutingPriority.MEDIUM
-        elif category == IntentCategory.CLARIFICATION:
-            return RoutingPriority.MEDIUM
-        else:
-            return RoutingPriority.LOW
-
-    def _get_fallback_options(self, target_stage: WorkflowStage) -> List[str]:
-        """Get fallback routing options for a target stage"""
-        fallback_map = {
-            ConversationStage.GREETING: ["information"],
-            ConversationStage.INFORMATION_GATHERING: ["greeting", "scheduling"],
-            ConversationStage.SCHEDULING: ["information"],
-            ConversationStage.COMPLETED: [],
-        }
-
-        return fallback_map.get(target_stage, ["fallback"])
-
-    def _optimize_routing_decision(
-        self, decision: RoutingDecision, conversation_state: ConversationState
-    ) -> RoutingDecision:
-        """Optimize routing decision based on conversation history and performance"""
-        try:
-            # Check if we're in a loop (same decision repeatedly)
-            from .states import ConversationMetrics
-
-            metrics = conversation_state.get("metrics", ConversationMetrics())
-            recent_flow = (
-                metrics.stage_transitions[-3:] if hasattr(metrics, "stage_transitions") else []
-            )
-
-            if len(recent_flow) >= 2 and all(
-                stage == decision.target_stage.value for stage in recent_flow
-            ):
-                # Potential loop detected - add variety
-                if decision.fallback_options:
-                    decision.target_node = decision.fallback_options[0]
-                    decision.reasoning += " (loop prevention)"
-                    decision.confidence *= 0.8
-
-            # Boost confidence for successful patterns
-            current_stage = conversation_state["stage"]
-            if (
-                current_stage == WorkflowStage.INFORMATION_GATHERING
-                and decision.target_stage == WorkflowStage.SCHEDULING
-            ):
-                # Natural progression - boost confidence
-                decision.confidence = min(0.95, decision.confidence + 0.1)
-                decision.estimated_completion_probability = 0.8
-
-            # Lower confidence for risky transitions
-            if (
-                current_stage == WorkflowStage.GREETING
-                and decision.target_stage == WorkflowStage.SCHEDULING
-            ):
-                # Skipping information stage - might be risky
-                decision.confidence *= 0.9
-                decision.estimated_completion_probability = 0.6
-
-            return decision
-
-        except Exception as e:
-            app_logger.error(f"Error optimizing routing decision: {e}")
-            return decision
+    # _optimize_routing_decision method removed - handled by ThresholdEngine now
 
     def _extract_topics_from_intent(self, intent_result: IntentResult) -> List[str]:
         """Extract topics from intent result for context updates"""

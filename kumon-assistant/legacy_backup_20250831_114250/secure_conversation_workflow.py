@@ -124,8 +124,8 @@ class SecureConversationWorkflow:
             phone_number: User identifier
             user_message: User's message content
             message_metadata: Additional message context
-            security_context: Pre-validated security context from secure_message_processor
-            sanitized_message: Pre-sanitized message from secure_message_processor
+            security_context: Pre-validated security context from integrated_message_processor
+            sanitized_message: Pre-sanitized message from integrated_message_processor
 
         Returns:
             Complete workflow result with security assessment

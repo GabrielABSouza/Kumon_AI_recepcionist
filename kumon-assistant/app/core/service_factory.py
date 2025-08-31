@@ -196,7 +196,7 @@ class ServiceFactory:
         service_order = [
             "llm_service",
             "intent_classifier",
-            "secure_workflow",
+            # "secure_workflow",  # REMOVED: Replaced by CeciliaWorkflow
             "langchain_rag_service",
         ]
 
@@ -271,9 +271,10 @@ async def get_intent_classifier():
     return await service_factory.get_service("intent_classifier")
 
 
-async def get_secure_workflow():
-    """Get secure workflow service instance"""
-    return await service_factory.get_service("secure_workflow")
+# REMOVED: SecureConversationWorkflow replaced by CeciliaWorkflow
+# async def get_secure_workflow():
+#     """Get secure workflow service instance"""
+#     return await service_factory.get_service("secure_workflow")
 
 
 async def get_intent_first_router():
@@ -292,7 +293,8 @@ def register_core_services():
     from ..services.langchain_rag import LangChainRAGService
     from ..services.production_llm_service import ProductionLLMService
     from ..workflows.intent_classifier import AdvancedIntentClassifier
-    from ..workflows.secure_conversation_workflow import SecureConversationWorkflow
+    # REMOVED: SecureConversationWorkflow replaced by CeciliaWorkflow
+    # from ..workflows.secure_conversation_workflow import SecureConversationWorkflow
 
     # Register LLM service (no dependencies)
     service_factory.register_service(
@@ -311,13 +313,13 @@ def register_core_services():
         async_init=False,
     )
 
-    # Register secure workflow (no dependencies)
-    service_factory.register_service(
-        name="secure_workflow",
-        service_class=SecureConversationWorkflow,
-        dependencies=[],
-        async_init=False,
-    )
+    # REMOVED: SecureConversationWorkflow replaced by CeciliaWorkflow
+    # service_factory.register_service(
+    #     name="secure_workflow",
+    #     service_class=SecureConversationWorkflow,
+    #     dependencies=[],
+    #     async_init=False,
+    # )
 
     # Register LangChain RAG service (depends on LLM service)
     service_factory.register_service(

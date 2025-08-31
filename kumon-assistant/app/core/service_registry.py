@@ -50,15 +50,16 @@ async def _initialize_intent_classifier():
     return classifier
 
 
-async def _initialize_secure_workflow():
-    """Initialize secure conversation workflow"""
-    from ..workflows.secure_conversation_workflow import SecureConversationWorkflow
-
-    workflow = SecureConversationWorkflow()
-    # CRITICAL FIX: Ensure service instance is stored for dependency injection
-    optimized_startup_manager.service_instances["secure_workflow"] = workflow
-    app_logger.info(f"✅ Secure workflow instance stored: {type(workflow).__name__}")
-    return workflow
+# REMOVED: SecureConversationWorkflow replaced by CeciliaWorkflow
+# async def _initialize_secure_workflow():
+#     """Initialize secure conversation workflow"""
+#     from ..workflows.secure_conversation_workflow import SecureConversationWorkflow
+#
+#     workflow = SecureConversationWorkflow()
+#     # CRITICAL FIX: Ensure service instance is stored for dependency injection
+#     optimized_startup_manager.service_instances["secure_workflow"] = workflow
+#     app_logger.info(f"✅ Secure workflow instance stored: {type(workflow).__name__}")
+#     return workflow
 
 
 async def _initialize_langchain_rag():
@@ -273,16 +274,17 @@ def register_all_services():
         )
     )
 
-    optimized_startup_manager.register_service(
-        ServiceConfig(
-            name="secure_workflow",
-            priority=ServicePriority.HIGH,
-            strategy=InitializationStrategy.LAZY,  # Loaded on first message
-            timeout_seconds=10.0,
-            dependencies=[],
-            initialization_function=_initialize_secure_workflow,
-        )
-    )
+    # REMOVED: SecureConversationWorkflow replaced by CeciliaWorkflow
+    # optimized_startup_manager.register_service(
+    #     ServiceConfig(
+    #         name="secure_workflow",
+    #         priority=ServicePriority.HIGH,
+    #         strategy=InitializationStrategy.LAZY,  # Loaded on first message
+    #         timeout_seconds=10.0,
+    #         dependencies=[],
+    #         initialization_function=_initialize_secure_workflow,
+    #     )
+    # )
 
     optimized_startup_manager.register_service(
         ServiceConfig(

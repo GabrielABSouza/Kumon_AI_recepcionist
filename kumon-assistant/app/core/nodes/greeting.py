@@ -163,7 +163,7 @@ class GreetingNode:
             
             updates = {
                 "child_name": child_name,
-                "current_stage": WorkflowStage.QUALIFICATION,
+                "current_stage": ConversationStage.QUALIFICATION,
                 "current_step": ConversationStep.CHILD_AGE_INQUIRY,
                 "last_bot_response": response,
                 "data": {**state["data"], "child_name": child_name}

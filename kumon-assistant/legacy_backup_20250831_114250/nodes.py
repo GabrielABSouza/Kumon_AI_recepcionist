@@ -19,11 +19,10 @@ from ..prompts.manager import prompt_manager
 from ..core.service_factory import get_langchain_rag_service
 from ..services.langgraph_llm_adapter import KumonLLMService
 from ..clients.google_calendar import GoogleCalendarClient
-from .states import (
-    ConversationState, 
-    WorkflowStage, 
-    ConversationStep, 
-    UserContext
+from ..core.state.models import (
+    CeciliaState as ConversationState,
+    ConversationStage, 
+    ConversationStep
 )
 from .context_manager import context_manager
 # Legacy intelligent_fallback removed - now integrated in threshold handlers
@@ -119,18 +118,18 @@ async def greeting_node(state: ConversationState) -> ConversationState:
                     user_context.interest_type = "child"
                     await track_qualified_lead(phone_number, metadata={"interest_type": "child", "parent_name": user_context.parent_name})
                     prompt_name = "kumon:greeting:response:child_interest"
-                    next_stage = WorkflowStage.INFORMATION
+                    next_stage = ConversationStage.INFORMATION_GATHERING
                     next_step = ConversationStep.PROVIDE_PROGRAM_INFO
                 elif any(word in user_message for word in ["eu", "mim", "para mim", "myself", "me"]):
                     user_context.interest_type = "self"
                     await track_qualified_lead(phone_number, metadata={"interest_type": "self", "parent_name": user_context.parent_name})
                     prompt_name = "kumon:greeting:response:self_interest"
-                    next_stage = WorkflowStage.INFORMATION  
+                    next_stage = ConversationStage.INFORMATION_GATHERING  
                     next_step = ConversationStep.PROVIDE_PROGRAM_INFO
                 else:
                     prompt_name = "kumon:greeting:clarification:interest_type"
                     response = await prompt_manager.get_prompt(prompt_name, conversation_state=state)
-                    next_stage = WorkflowStage.GREETING
+                    next_stage = ConversationStage.GREETING
                     next_step = ConversationStep.IDENTIFY_INTEREST
                     
                 if 'prompt_name' in locals() and 'response' not in locals():
@@ -143,7 +142,7 @@ async def greeting_node(state: ConversationState) -> ConversationState:
                 # Fallback for any other step within greeting
                 prompt_name = "kumon:greeting:clarification:general"
                 response = await prompt_manager.get_prompt(prompt_name, conversation_state=state)
-                next_stage = WorkflowStage.INFORMATION
+                next_stage = ConversationStage.INFORMATION_GATHERING
                 next_step = ConversationStep.PROVIDE_PROGRAM_INFO
 
             # Set prompt for LLM and ensure skip_llm is False
@@ -156,7 +155,7 @@ async def greeting_node(state: ConversationState) -> ConversationState:
                 "prompt_used": prompt_name,
             }
             if 'next_stage' in locals():
-                updated_state["stage"] = next_stage
+                updated_state["current_stage"] = next_stage
             if 'next_step' in locals():
                 updated_state["step"] = next_step
 
@@ -217,7 +216,7 @@ async def information_node(state: ConversationState) -> ConversationState:
             
             return {
                 **state,
-                "stage": WorkflowStage.SCHEDULING,
+                "current_stage": ConversationStage.SCHEDULING,
                 "step": ConversationStep.SUGGEST_APPOINTMENT,
                 "next_action": "schedule_appointment",
                 "user_context": user_context
@@ -364,7 +363,7 @@ async def scheduling_node(state: ConversationState) -> ConversationState:
                     **state,
                     "ai_response": response,
                     "user_context": user_context,
-                    "stage": WorkflowStage.COMPLETED,
+                    "current_stage": ConversationStage.COMPLETED,
                     "step": ConversationStep.CONVERSATION_ENDED,
                     "conversation_ended": True,
                     "validation_passed": True,
@@ -431,7 +430,7 @@ async def fallback_node(state: ConversationState) -> ConversationState:
                 **state,
                 "ai_response": "Vou conectá-lo com nossa equipe para um atendimento personalizado! 📞 WhatsApp: (51) 99692-1999",
                 "requires_human": True,
-                "stage": WorkflowStage.COMPLETED,
+                "current_stage": ConversationStage.COMPLETED,
                 "step": ConversationStep.CONVERSATION_ENDED,
                 "conversation_ended": True,
                 "validation_passed": True,

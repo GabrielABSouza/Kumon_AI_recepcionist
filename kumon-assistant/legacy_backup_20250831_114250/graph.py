@@ -27,11 +27,11 @@ from .nodes import (
     information_node,
     scheduling_node,
 )
-from .states import (
-    ConversationState,
+from ..core.state.models import (
+    CeciliaState as ConversationState,
+    ConversationStage,
     ConversationStep,
-    WorkflowStage,
-    create_initial_state,
+    create_initial_cecilia_state as create_initial_state,
 )
 
 
@@ -187,7 +187,7 @@ Nossa equipe terá todo prazer em ajudá-lo! 😊"""
             "ai_response": response,
             "requires_human": True,
             "conversation_ended": True,
-            "stage": WorkflowStage.COMPLETED,
+            "current_stage": ConversationStage.COMPLETED,
             "step": ConversationStep.CONVERSATION_ENDED,
             "validation_passed": True,
             "prompt_used": "kumon:fallback:handoff:explicit_request",
@@ -217,7 +217,7 @@ Nossa equipe terá todo prazer em ajudá-lo! 😊"""
         return {
             **state,
             "conversation_ended": True,
-            "stage": WorkflowStage.COMPLETED,
+            "current_stage": ConversationStage.COMPLETED,
             "step": ConversationStep.CONVERSATION_ENDED,
         }
 

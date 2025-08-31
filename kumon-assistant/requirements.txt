@@ -18,7 +18,7 @@ langchain-community==0.3.7
 langchain-openai==0.2.8
 langchain-core==0.3.17
 langchain-text-splitters==0.3.2
-langsmith==0.1.143
+# langsmith==0.1.143 # Removed - using local templates only
 langgraph==0.2.45
 sentence-transformers==3.3.0
 transformers==4.46.0

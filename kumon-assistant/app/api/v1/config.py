@@ -146,7 +146,7 @@ async def get_environment_info() -> Dict[str, Any]:
                 "anthropic": bool(settings.ANTHROPIC_API_KEY),
                 "evolution": bool(settings.EVOLUTION_API_KEY),
                 "twilio": bool(settings.TWILIO_ACCOUNT_SID and settings.TWILIO_AUTH_TOKEN),
-                "langsmith": bool(settings.LANGSMITH_API_KEY)
+                # "langsmith": removed - using local templates only
             },
             
             # Database Configuration (sanitized)

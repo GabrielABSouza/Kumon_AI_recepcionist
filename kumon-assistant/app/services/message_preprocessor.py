@@ -1,7 +1,7 @@
 """
-Message Preprocessor - Input sanitization, rate limiting, authentication validation, and session context preparation gateway
+Message Preprocessor - Input sanitization, rate limiting, and authentication validation gateway
 
-Implements the complete specification from TECHNICAL_ARCHITECTURE.md
+Implements pure preprocessing without orchestration - focused on security and format compliance
 """
 
 import base64
@@ -16,7 +16,6 @@ import pytz
 from ..clients.evolution_api import WhatsAppMessage
 from ..core.config import settings
 from ..core.logger import app_logger
-from ..core.state.models import CeciliaState, ConversationStage, ConversationStep
 from ..services.enhanced_cache_service import CacheLayer, enhanced_cache_service
 
 
@@ -26,7 +25,7 @@ class PreprocessorResponse:
 
     success: bool
     message: Optional[WhatsAppMessage]
-    prepared_context: Optional[CeciliaState]
+    prepared_context: Optional[Dict[str, Any]] = None  # Reserved for future orchestrator integration
     preprocessed: bool = True  # Flag to mark if message has been preprocessed
     error_code: Optional[str] = None
     error_message: Optional[str] = None
@@ -270,171 +269,6 @@ class AuthValidator:
             return False
 
 
-class SessionPreparator:
-    """
-    Prepare session context for LangGraph workflow integration
-    """
-
-    async def prepare_context(self, message: WhatsAppMessage) -> CeciliaState:
-        """
-        Create or retrieve session context for LangGraph workflow
-
-        Args:
-            message: WhatsApp message to process
-
-        Returns:
-            Prepared CeciliaState for LangGraph workflow
-        """
-        try:
-            # Check for existing session context
-            cache_key = f"session:{message.phone}"
-            existing_context = await enhanced_cache_service.get(cache_key, CacheLayer.L2)
-
-            if existing_context:
-                # Load existing context
-                context_data = json.loads(existing_context)
-                app_logger.debug(f"Loaded existing session context for {message.phone}")
-
-                # Update with current message and convert enum strings back to enums
-                context_data.update(
-                    {"last_user_message": message.message, "phone_number": message.phone}
-                )
-
-                # Convert string enum values back to enums
-                if context_data.get("current_stage"):
-                    context_data["current_stage"] = ConversationStage(context_data["current_stage"])
-                if context_data.get("current_step"):
-                    context_data["current_step"] = ConversationStep(context_data["current_step"])
-
-                # Convert datetime string back to datetime object
-                if context_data.get("conversation_metrics", {}).get("created_at"):
-                    try:
-                        context_data["conversation_metrics"]["created_at"] = datetime.fromisoformat(
-                            context_data["conversation_metrics"]["created_at"]
-                        )
-                    except Exception:
-                        context_data["conversation_metrics"]["created_at"] = datetime.now()
-
-                # Increment message count
-                if "conversation_metrics" in context_data:
-                    context_data["conversation_metrics"]["message_count"] += 1
-
-                return CeciliaState(**context_data)
-            else:
-                # Create new session context
-                app_logger.info(f"Creating new session context for {message.phone}")
-
-                # Create complete CeciliaState with all required fields
-                context = CeciliaState(
-                    # IDENTIFICATION
-                    phone_number=message.phone,
-                    conversation_id=f"conv_{message.phone}_{int(datetime.now().timestamp())}",
-                    # FLOW CONTROL
-                    current_stage=ConversationStage.GREETING,
-                    current_step=ConversationStep.WELCOME,
-                    messages=[],
-                    last_user_message=message.message,
-                    # COLLECTED DATA
-                    collected_data={},
-                    # VALIDATION SYSTEM
-                    data_validation={
-                        "extraction_attempts": {},
-                        "pending_confirmations": [],
-                        "validation_history": [],
-                        "last_extraction_error": None,
-                    },
-                    # METRICS AND AUDIT
-                    conversation_metrics={
-                        "failed_attempts": 0,
-                        "consecutive_confusion": 0,
-                        "same_question_count": 0,
-                        "message_count": 1,
-                        "created_at": datetime.now(),
-                        "last_successful_collection": None,
-                        "problematic_fields": [],
-                    },
-                    decision_trail={
-                        "last_decisions": [],
-                        "edge_function_calls": [],
-                        "validation_failures": [],
-                    },
-                )
-
-                # Cache the new context (convert to dict for JSON serialization)
-                context_dict = {
-                    # IDENTIFICATION
-                    "phone_number": context["phone_number"],
-                    "conversation_id": context["conversation_id"],
-                    # FLOW CONTROL
-                    "current_stage": (
-                        context["current_stage"].value if context["current_stage"] else None
-                    ),
-                    "current_step": (
-                        context["current_step"].value if context["current_step"] else None
-                    ),
-                    "messages": context["messages"],
-                    "last_user_message": context["last_user_message"],
-                    # COLLECTED DATA
-                    "collected_data": context["collected_data"],
-                    # VALIDATION SYSTEM
-                    "data_validation": context["data_validation"],
-                    # METRICS AND AUDIT
-                    "conversation_metrics": {
-                        **context["conversation_metrics"],
-                        "created_at": (
-                            context["conversation_metrics"]["created_at"].isoformat()
-                            if context["conversation_metrics"]["created_at"]
-                            else None
-                        ),
-                    },
-                    "decision_trail": context["decision_trail"],
-                }
-                await enhanced_cache_service.set(
-                    cache_key,
-                    json.dumps(context_dict),
-                    CacheLayer.L2,
-                    ttl=3600,  # 1 hour session TTL
-                )
-
-                return context
-
-        except Exception as e:
-            app_logger.error(f"Error preparing session context: {str(e)}")
-            # Return complete fallback context
-            return CeciliaState(
-                # IDENTIFICATION
-                phone_number=message.phone,
-                conversation_id=f"conv_{message.phone}_fallback_{int(datetime.now().timestamp())}",
-                # FLOW CONTROL
-                current_stage=ConversationStage.GREETING,
-                current_step=ConversationStep.WELCOME,
-                messages=[],
-                last_user_message=message.message,
-                # COLLECTED DATA
-                collected_data={},
-                # VALIDATION SYSTEM
-                data_validation={
-                    "extraction_attempts": {},
-                    "pending_confirmations": [],
-                    "validation_history": [],
-                    "last_extraction_error": None,
-                },
-                # METRICS AND AUDIT
-                conversation_metrics={
-                    "failed_attempts": 0,
-                    "consecutive_confusion": 0,
-                    "same_question_count": 0,
-                    "message_count": 1,
-                    "created_at": datetime.now(),
-                    "last_successful_collection": None,
-                    "problematic_fields": [],
-                },
-                decision_trail={
-                    "last_decisions": [],
-                    "edge_function_calls": [],
-                    "validation_failures": [],
-                },
-            )
 
 
 class BusinessHoursValidator:
@@ -526,15 +360,13 @@ class BusinessHoursValidator:
 
 class MessagePreprocessor:
     """
-    Main preprocessor coordinator that orchestrates all preprocessing steps
+    Pure message preprocessing - sanitization, rate limiting, and authentication validation
     """
 
     def __init__(self):
         self.sanitizer = MessageSanitizer()
         self.rate_limiter = RateLimiter()
         self.auth_validator = AuthValidator()
-        self.session_preparator = SessionPreparator()
-        self.business_hours_validator = BusinessHoursValidator()
 
     async def process_message(
         self, message: WhatsAppMessage, headers: Dict[str, str]
@@ -598,15 +430,10 @@ class MessagePreprocessor:
                 media_type=message.media_type,
             )
 
-            # Step 5: Session context preparation
-            prepared_context = await self.session_preparator.prepare_context(
-                sanitized_whatsapp_message
-            )
-
             processing_time = self._get_processing_time(start_time)
 
             app_logger.info(
-                f"Preprocessing pipeline completed successfully for {message.phone}",
+                f"✅ Preprocessing completed for {message.phone}",
                 extra={
                     "processing_time_ms": processing_time,
                     "sanitized_length": len(sanitized_message),
@@ -617,8 +444,8 @@ class MessagePreprocessor:
             return PreprocessorResponse(
                 success=True,
                 message=sanitized_whatsapp_message,
-                prepared_context=prepared_context,
-                preprocessed=True,  # Full preprocessing pipeline completed successfully
+                prepared_context=None,  # Session context moved to orchestrator
+                preprocessed=True,
                 processing_time_ms=processing_time,
             )
 

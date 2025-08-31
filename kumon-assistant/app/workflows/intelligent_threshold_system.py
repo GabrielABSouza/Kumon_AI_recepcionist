@@ -14,8 +14,15 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from ..core.logger import app_logger
 from ..prompts.manager import prompt_manager
-from .states import ConversationState, ConversationStep, WorkflowStage
-from ..core.state.models import ConversationStage
+from ..core.state.models import CeciliaState as ConversationState, ConversationStage, ConversationStep
+from .contracts import (
+    ThresholdDecision, 
+    STAGE_PREREQUISITES, 
+    STAGE_CONFIDENCE_MULTIPLIERS,
+    CONFIDENCE_WEIGHTS,
+    check_mandatory_data_requirements,
+    get_fallback_stage_for_missing_data
+)
 
 from langchain.prompts import ChatPromptTemplate
 from langchain.schema import BaseMessage
@@ -93,12 +100,8 @@ class IntelligentThresholdSystem:
             "escalate_human": self._escalate_to_human
         }
         
-        # Multiplicadores por estágio da conversa
-        self.stage_multipliers = {
-            "greeting": 1.2,      # Mais permissivo - fácil de classificar
-            "information": 0.9,   # Mais restritivo - pode ser ambíguo
-            "scheduling": 1.0,    # Padrão - intenção geralmente clara
-        }
+        # Multiplicadores por estágio da conversa - usando enums canônicos
+        self.stage_multipliers = STAGE_CONFIDENCE_MULTIPLIERS
         
         # Padrões de confusão (extraído do intelligent_fallback)
         self.confusion_patterns = {
@@ -125,6 +128,156 @@ class IntelligentThresholdSystem:
         self.llm_service_cache = None
         
         app_logger.info("Intelligent Threshold System initialized")
+
+    async def decide(
+        self,
+        intent_confidence: float,
+        pattern_confidence: float, 
+        current_stage: ConversationStage,
+        collected_data: Dict[str, Any],
+        target_intent: str = "unknown"
+    ) -> ThresholdDecision:
+        """
+        Main decision method following orchestration_flow.md spec
+        
+        PRIORITY 1: Mandatory data collection (overrides everything)
+        PRIORITY 2: Confidence model + stage multipliers
+        
+        Args:
+            intent_confidence: From IntentClassifier [0,1]
+            pattern_confidence: From PatternScorer [0,1] 
+            current_stage: Current conversation stage
+            collected_data: Data collected so far
+            target_intent: Target intent from classification
+            
+        Returns:
+            ThresholdDecision with action and target_node
+        """
+        
+        # PRIORITY 1: Check mandatory data requirements
+        if target_intent in ["scheduling", "information", "confirmation"]:
+            # Map intent to stage for prerequisite checking
+            target_stage_map = {
+                "scheduling": ConversationStage.SCHEDULING,
+                "information": ConversationStage.INFORMATION_GATHERING,
+                "confirmation": ConversationStage.CONFIRMATION
+            }
+            
+            target_stage = target_stage_map.get(target_intent, current_stage)
+            requirements_met, missing_fields = check_mandatory_data_requirements(
+                target_stage, collected_data
+            )
+            
+            if not requirements_met:
+                fallback_stage = get_fallback_stage_for_missing_data(target_stage)
+                
+                # Structured telemetry for mandatory data override
+                app_logger.info(
+                    f"[THRESHOLD_ENGINE] Mandatory data collection override",
+                    extra={
+                        "component": "threshold_engine",
+                        "operation": "mandatory_data_override",
+                        "target_intent": target_intent,
+                        "missing_fields": missing_fields,
+                        "target_stage": target_stage.value,
+                        "fallback_stage": fallback_stage.value,
+                        "confidence_override": 1.0,
+                        "intent_confidence": intent_confidence,
+                        "pattern_confidence": pattern_confidence
+                    }
+                )
+                
+                return ThresholdDecision(
+                    action="proceed",
+                    target_node=fallback_stage.value,
+                    final_confidence=1.0,  # Maximum confidence override
+                    rule_applied="mandatory_data_collection_override",
+                    reasoning=f"Missing required data for {target_intent}: {missing_fields}",
+                    intent_confidence=intent_confidence,
+                    pattern_confidence=pattern_confidence,
+                    stage_override=True,
+                    mandatory_data_override=True
+                )
+        
+        # PRIORITY 2: Standard confidence model
+        # Combine confidences with weights
+        combined_confidence = (
+            CONFIDENCE_WEIGHTS["intent"] * intent_confidence + 
+            CONFIDENCE_WEIGHTS["pattern"] * pattern_confidence
+        )
+        
+        # Apply stage multiplier
+        stage_multiplier = self.stage_multipliers.get(current_stage, 1.0)
+        
+        # Calculate penalties from conversation state
+        penalties = self._calculate_accumulated_penalties({"current_stage": current_stage})
+        
+        # Final effective confidence
+        final_confidence = (combined_confidence * stage_multiplier) - penalties
+        final_confidence = max(0.0, min(1.0, final_confidence))  # Clamp to [0,1]
+        
+        # Find applicable rule
+        for rule in sorted(self.rules, key=lambda r: r.threshold, reverse=True):
+            if final_confidence >= rule.threshold:
+                # Map target_intent to target_node
+                target_node = self._map_intent_to_node(target_intent, current_stage)
+                
+                # Structured telemetry for threshold decision
+                app_logger.info(
+                    f"[THRESHOLD_ENGINE] Threshold decision made",
+                    extra={
+                        "component": "threshold_engine",
+                        "operation": "threshold_decision",
+                        "rule_applied": rule.name,
+                        "target_node": target_node,
+                        "final_confidence": final_confidence,
+                        "rule_threshold": rule.threshold,
+                        "intent_confidence": intent_confidence,
+                        "pattern_confidence": pattern_confidence,
+                        "combined_confidence": combined_confidence,
+                        "stage_multiplier": stage_multiplier,
+                        "penalties_applied": penalties,
+                        "current_stage": current_stage.value,
+                        "target_intent": target_intent
+                    }
+                )
+                
+                return ThresholdDecision(
+                    action=rule.action,
+                    target_node=target_node,
+                    final_confidence=final_confidence,
+                    rule_applied=rule.name,
+                    reasoning=f"Combined confidence {final_confidence:.2f} >= {rule.threshold:.2f}",
+                    intent_confidence=intent_confidence,
+                    pattern_confidence=pattern_confidence,
+                    stage_override=False,
+                    mandatory_data_override=False
+                )
+        
+        # Fallback to human handoff
+        return ThresholdDecision(
+            action="escalate_human",
+            target_node="human_handoff",
+            final_confidence=final_confidence,
+            rule_applied="confidence_too_low",
+            reasoning=f"Final confidence {final_confidence:.2f} below all thresholds",
+            intent_confidence=intent_confidence,
+            pattern_confidence=pattern_confidence,
+            stage_override=False,
+            mandatory_data_override=False
+        )
+        
+    def _map_intent_to_node(self, intent: str, current_stage: ConversationStage) -> str:
+        """Map intent classification to LangGraph node"""
+        intent_to_node = {
+            "greeting": "greeting",
+            "information": "information", 
+            "scheduling": "scheduling",
+            "confirmation": "completed",
+            "handoff": "human_handoff",
+            "fallback": "fallback"
+        }
+        return intent_to_node.get(intent, "fallback")
 
     async def determine_action(
         self, 
@@ -372,12 +525,11 @@ class IntelligentThresholdSystem:
         """Obter multiplicador baseado no estágio da conversa"""
         try:
             stage = conversation_state.get("current_stage")
-            if hasattr(stage, "value"):
-                stage_name = stage.value
+            if isinstance(stage, ConversationStage):
+                return self.stage_multipliers.get(stage, 1.0)
             else:
-                stage_name = str(stage) if stage else "unknown"
-            
-            return self.stage_multipliers.get(stage_name, 1.0)
+                app_logger.warning(f"Invalid stage type: {type(stage)}, using default multiplier")
+                return 1.0
             
         except Exception as e:
             app_logger.error(f"Error getting stage multiplier: {e}")

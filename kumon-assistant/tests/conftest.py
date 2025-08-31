@@ -135,7 +135,7 @@ def conversation_state_factory():
     """Factory for creating conversation states"""
     def create_state(phone_number="5511999999999", **kwargs):
         if IMPORTS_AVAILABLE:
-            from app.workflows.states import ConversationState, WorkflowStage, ConversationStep
+            from app.core.state.models import CeciliaState as ConversationState, ConversationStage as WorkflowStage, ConversationStep
             return ConversationState(
                 phone_number=phone_number,
                 session_id=kwargs.get("session_id", "test_session"),

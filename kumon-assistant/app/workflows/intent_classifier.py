@@ -19,7 +19,9 @@ from langchain.schema import BaseMessage
 from ..core.config import settings
 from ..core.logger import app_logger
 from ..services.business_metrics_service import track_response_time
-from .states import ConversationState, ConversationStep, WorkflowStage
+from ..core.state.models import CeciliaState as ConversationState, ConversationStage, ConversationStep
+from .contracts import IntentResult
+from .pattern_scorer import PatternScorer
 from .intelligent_threshold_system import intelligent_threshold_system
 
 
@@ -70,18 +72,7 @@ class IntentSubcategory(Enum):
     TECHNICAL_CONFUSION = "technical_confusion"
 
 
-@dataclass
-class IntentResult:
-    """Result of intent classification"""
-
-    category: IntentCategory
-    subcategory: Optional[IntentSubcategory]
-    confidence: float
-    context_entities: Dict[str, Any] = field(default_factory=dict)
-    requires_clarification: bool = False
-    suggested_responses: List[str] = field(default_factory=list)
-    routing_decision: Optional[str] = None
-    context_continuation: bool = False
+# IntentResult now imported from contracts.py - using standardized contract
 
 
 @dataclass
@@ -281,14 +272,14 @@ class AdvancedIntentClassifier:
                 response_time_ms,
                 {
                     "component": "intent_classifier",
-                    "category": final_result.category.value,
+                    "category": final_result.category,
                     "confidence": final_result.confidence,
                     "phone_number": phone_number[-4:] if len(phone_number) > 4 else "****",
                 },
             )
 
             app_logger.info(
-                f"Intent classified: {final_result.category.value} "
+                f"Intent classified: {final_result.category} "
                 f"({final_result.confidence:.2f})"
             )
 
@@ -298,10 +289,10 @@ class AdvancedIntentClassifier:
             app_logger.error(f"Error in intent classification: {e}")
             # Return fallback classification
             return IntentResult(
-                category=IntentCategory.CLARIFICATION,
-                subcategory=IntentSubcategory.TECHNICAL_CONFUSION,
+                category="clarification",
+                subcategory="technical_confusion", 
                 confidence=0.5,
-                requires_clarification=True,
+                context_entities={"error": str(e)}
             )
 
     async def _classify_with_intelligent_thresholds(
@@ -400,17 +391,25 @@ class AdvancedIntentClassifier:
             confidence = 0.0
             matched_patterns = []
 
-            # Check patterns with intelligent confidence scoring
-            for pattern in config["patterns"]:
-                match = re.search(pattern, message_lower)
-                if match:
-                    # Calculate confidence based on match quality
-                    matched_text = match.group(0)
-                    pattern_confidence = self._calculate_pattern_confidence(
-                        message_lower, matched_text, pattern
-                    )
-                    confidence += pattern_confidence
-                    matched_patterns.append(pattern)
+                # Use PatternScorer for pattern matching
+            pattern_scorer = PatternScorer()
+            route_patterns = pattern_scorer.route_patterns
+            
+            # Match against route patterns if available
+            if category.value in route_patterns:
+                route_config = route_patterns[category.value]
+                base_score = pattern_scorer._calculate_base_pattern_score(
+                    message_lower, route_config["patterns"], route_config["base_score"]
+                )
+                confidence += base_score
+                matched_patterns = [p for p in route_config["patterns"] if re.search(p, message_lower)]
+            else:
+                # Fallback to original pattern matching for categories not in PatternScorer
+                for pattern in config["patterns"]:
+                    match = re.search(pattern, message_lower)
+                    if match:
+                        confidence += 0.6  # Base confidence for pattern match
+                        matched_patterns.append(pattern)
 
             # Context boost
             if config.get("context_continuation") and context.current_topic:
@@ -431,64 +430,24 @@ class AdvancedIntentClassifier:
                 best_confidence = confidence
                 subcategory = self._determine_subcategory(category, message_lower, entities)
                 best_match = IntentResult(
-                    category=category,
-                    subcategory=subcategory,
+                    category=category.value if hasattr(category, 'value') else str(category),
+                    subcategory=subcategory.value if subcategory and hasattr(subcategory, 'value') else str(subcategory) if subcategory else None,
                     confidence=confidence,
-                    context_entities=entities,
-                    context_continuation=config.get("context_continuation", False),
+                    context_entities=entities
                 )
 
         # Default fallback - only if really no good match found
         if not best_match or best_confidence < 0.2:
             best_match = IntentResult(
-                category=IntentCategory.CLARIFICATION,
-                subcategory=IntentSubcategory.GENERAL_CONFUSION,
+                category="clarification",
+                subcategory="general_confusion",
                 confidence=0.5,
-                requires_clarification=True,
+                context_entities={"fallback_reason": "low_confidence"}
             )
 
         return best_match
 
-    def _calculate_pattern_confidence(self, message: str, matched_text: str, pattern: str) -> float:
-        """
-        Calculate confidence score based on match quality
-
-        Args:
-            message: Full user message (lowercase)
-            matched_text: The text that matched the pattern
-            pattern: The regex pattern that matched
-
-        Returns:
-            Confidence score between 0.0 and 1.0
-        """
-        # Remove extra whitespace for comparison
-        message_clean = message.strip()
-        matched_clean = matched_text.strip()
-
-        # Perfect exact matches get maximum confidence
-        exact_words = ["oi", "olá", "hi", "hello", "tchau", "obrigado", "obrigada", "valeu"]
-        if message_clean in exact_words:
-            return 1.0
-
-        # Strong direct matches (message is essentially just the matched part)
-        message_words = message_clean.split()
-        matched_words = matched_clean.split()
-
-        # If matched text covers most/all of the message
-        if len(matched_words) == len(message_words):
-            return 0.95
-
-        # If matched text is significant portion of message
-        word_ratio = len(matched_words) / len(message_words) if message_words else 0
-        if word_ratio >= 0.8:
-            return 0.9
-        elif word_ratio >= 0.6:
-            return 0.8
-        elif word_ratio >= 0.4:
-            return 0.7
-        else:
-            # Partial match but still relevant
-            return 0.6
+    # Pattern confidence calculation now handled by PatternScorer class
 
     def _extract_entities(self, message: str) -> Dict[str, List[str]]:
         """Extract entities from message"""
@@ -617,7 +576,7 @@ class AdvancedIntentClassifier:
             llm_response = await self.llm.ainvoke(
                 classification_prompt.format_messages(
                     context=context_str,
-                    initial_category=rule_result.category.value,
+                    initial_category=rule_result.category,
                     confidence=rule_result.confidence,
                     message=message,
                 )
@@ -635,13 +594,12 @@ class AdvancedIntentClassifier:
                     else:
                         # LLM disagrees, create new result with moderate confidence
                         rule_result = IntentResult(
-                            category=category,
+                            category=category.value if hasattr(category, 'value') else str(category),
                             subcategory=self._determine_subcategory(
                                 category, message.lower(), rule_result.context_entities
                             ),
                             confidence=0.7,
-                            context_entities=rule_result.context_entities,
-                            context_continuation=rule_result.context_continuation,
+                            context_entities=rule_result.context_entities
                         )
                     break
 
@@ -698,7 +656,7 @@ class AdvancedIntentClassifier:
 
         elif result.category == IntentCategory.GREETING:
             current_stage = state.get("stage") or state.get("current_stage")
-            if current_stage == WorkflowStage.GREETING:
+            if current_stage == ConversationStage.GREETING:
                 result.routing_decision = "greeting"
             else:
                 # User greeting in middle of conversation - acknowledge and continue
@@ -748,7 +706,7 @@ class AdvancedIntentClassifier:
 
         # Update current topic
         if result.subcategory:
-            context.current_topic = result.subcategory.value
+            context.current_topic = result.subcategory
 
     def get_context_summary(self, phone_number: str) -> Dict[str, Any]:
         """Get summary of conversation context for debugging"""

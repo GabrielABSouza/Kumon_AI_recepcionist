@@ -12,7 +12,7 @@ import re
 import asyncio
 
 from ..core.logger import app_logger
-from .states import ConversationState, WorkflowStage, ConversationStep
+from ..core.state.models import CeciliaState as ConversationState, ConversationStage, ConversationStep
 from .smart_router import smart_router
 
 
@@ -25,10 +25,10 @@ FallbackNext = Literal["greeting", "information", "scheduling", "human_handoff",
 
 async def smart_route_conversation(state: ConversationState) -> str:
     """
-    Phase 4: Smart routing with intelligent threshold system and advanced classification
+    Modular Architecture: Complete routing through new orchestration flow
     
-    This function integrates the intelligent threshold system with smart routing
-    for sophisticated decision-making based on confidence thresholds and context.
+    This function integrates the new modular components:
+    MessagePreprocessor → IntentClassifier (with PatternScorer) → ThresholdEngine → SmartRouter
     
     Args:
         state: Current conversation state
@@ -37,60 +37,57 @@ async def smart_route_conversation(state: ConversationState) -> str:
         str: Next node to route to
     """
     try:
-        app_logger.info(f"Smart routing for {state['phone_number']}")
-        
-        # Step 1: Get intent classification with confidence scoring
-        from ..core.dependencies import intent_classifier
-        intent_result = await intent_classifier.classify_intent(
-            state["user_message"], state
+        # Structured telemetry for orchestration start
+        app_logger.info(
+            f"[ORCHESTRATION] Starting message orchestration",
+            extra={
+                "component": "orchestration_flow",
+                "operation": "smart_route_conversation",
+                "phone_number": state.get("phone_number", "unknown")[-4:],
+                "current_stage": state.get("current_stage", ConversationStage.GREETING).value,
+                "message_preview": state.get("user_message", "")[:50]
+            }
         )
         
-        # Step 2: Process through intelligent threshold system
-        from .intelligent_threshold_system import intelligent_threshold_system
-        threshold_result = await intelligent_threshold_system.process_intent_with_thresholds(
-            intent_result, state
-        )
+        # Step 1: The SmartRouter handles the complete orchestration flow internally
+        # IntentClassifier -> PatternScorer -> ThresholdEngine are all integrated
         
-        app_logger.info(f"Threshold system result: action={threshold_result.action}, "
-                       f"confidence={threshold_result.final_confidence:.3f}, "
-                       f"target={threshold_result.target_node}")
+        # Step 2: Use new modular architecture: IntentClassifier -> PatternScorer -> ThresholdEngine -> SmartRouter
+        # The IntentClassifier already incorporates PatternScorer, so we now route through SmartRouter
+        routing_decision = await smart_router.make_routing_decision(state)
         
-        # Step 3: Handle threshold system actions
-        if threshold_result.action == "proceed":
-            # High confidence - proceed with intent routing
-            target_node = threshold_result.target_node
-            
-        elif threshold_result.action == "enhance_with_llm":
-            # Medium confidence - use LLM-enhanced classification
-            target_node = threshold_result.target_node
-            
-        elif threshold_result.action in ["fallback_level1", "fallback_level2"]:
-            # Low confidence - intelligent fallback
-            target_node = "fallback"
-            
-        elif threshold_result.action == "escalate_human":
-            # Very low confidence - human handoff
-            target_node = "human_handoff"
-            
-        else:
-            # Fallback to smart router for edge cases
-            app_logger.warning(f"Unknown threshold action: {threshold_result.action}")
-            routing_decision = await smart_router.make_routing_decision(state)
-            target_node = routing_decision.target_node
+        app_logger.info(f"Routing decision: action={routing_decision.threshold_action}, "
+                       f"confidence={routing_decision.final_confidence:.3f}, "
+                       f"target={routing_decision.target_node}")
+        
+        # Step 3: Extract target node from routing decision
+        target_node = routing_decision.target_node
         
         # Update state with routing information for debugging/analytics
         state["routing_info"] = {
             "target_node": target_node,
-            "confidence": threshold_result.final_confidence,
-            "original_confidence": intent_result.confidence,
-            "threshold_action": threshold_result.action,
-            "reasoning": threshold_result.reasoning,
-            "penalty_applied": threshold_result.penalty_applied,
-            "timestamp": "2024-08-11T19:55:00"  # Would be datetime.now().isoformat()
+            "confidence": routing_decision.final_confidence,
+            "intent_confidence": routing_decision.intent_confidence,
+            "pattern_confidence": routing_decision.pattern_confidence,
+            "threshold_action": routing_decision.threshold_action,
+            "reasoning": routing_decision.reasoning,
+            "rule_applied": routing_decision.rule_applied,
+            "timestamp": routing_decision.timestamp.isoformat()
         }
         
-        app_logger.info(f"Final routing decision: {target_node} "
-                       f"(confidence: {threshold_result.final_confidence:.3f})")
+        # Structured telemetry for orchestration completion
+        app_logger.info(
+            f"[ORCHESTRATION] Message orchestration completed",
+            extra={
+                "component": "orchestration_flow",
+                "operation": "orchestration_completed",
+                "target_node": target_node,
+                "final_confidence": routing_decision.final_confidence,
+                "threshold_action": routing_decision.threshold_action,
+                "rule_applied": routing_decision.rule_applied,
+                "processing_chain": "MessagePreprocessor→IntentClassifier→PatternScorer→ThresholdEngine→SmartRouter"
+            }
+        )
         
         return target_node
         
@@ -306,7 +303,7 @@ def should_end_conversation(state: ConversationState) -> bool:
         # Explicit end conditions
         if (state["conversation_ended"] or 
             state["requires_human"] or
-            state["stage"] == WorkflowStage.COMPLETED):
+            state["current_stage"] == ConversationStage.COMPLETED):
             return True
         
         # Timeout conditions
