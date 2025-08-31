@@ -211,9 +211,12 @@ class AuthValidator:
                 railway_headers_present = x_railway_edge and any(
                     header.startswith("x-railway") for header in headers.keys()
                 )
+                # Real Evolution API user agents in production
                 evolution_user_agent = (
                     "okhttp" in user_agent.lower() or 
-                    ("evolution" in user_agent.lower() and "api" in user_agent.lower())
+                    ("evolution" in user_agent.lower() and "api" in user_agent.lower()) or
+                    user_agent.lower() in ["", "evolution", "go-http-client", "axios"] or  # Common webhook clients
+                    len(user_agent) < 50  # Basic webhook clients have short user agents
                 )
                 
                 # ALL criteria must match for webhook authentication bypass
