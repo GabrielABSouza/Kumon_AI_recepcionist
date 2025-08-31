@@ -112,18 +112,27 @@ class ResponsePlanner:
         
         # Get intent from routing_info if available, otherwise derive from target_node
         routing_info = state.get("routing_info", {})
-        intent = routing_info.get("intent_category")
+        raw_intent = routing_info.get("intent_category")
         
-        if not intent:
-            # Fallback: derive intent from target_node
-            if decision.target_node == "greeting":
-                intent = "welcome"
-            elif decision.target_node == "information":
-                intent = "general"
-            elif decision.target_node == "scheduling":
-                intent = "appointment_start"
-            else:
-                intent = "general"
+        # Map classification intents to template intents
+        intent_mapping = {
+            "greeting": "welcome",
+            "information_request": "general", 
+            "scheduling": "appointment_start",
+            "clarification": "general",
+            "handoff": "general"
+        }
+        
+        if raw_intent and raw_intent in intent_mapping:
+            intent = intent_mapping[raw_intent]
+        elif decision.target_node == "greeting":
+            intent = "welcome"
+        elif decision.target_node == "information":
+            intent = "general"
+        elif decision.target_node == "scheduling":
+            intent = "appointment_start"
+        else:
+            intent = "general"
         
         # Map to template name
         template_key = (stage.lower(), intent.lower())

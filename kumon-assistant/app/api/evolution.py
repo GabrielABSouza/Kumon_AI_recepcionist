@@ -848,6 +848,16 @@ async def process_message_background(message: WhatsAppMessage, headers: Optional
                 user_message=final_message.message,
             )
 
+            # Check if DeliveryService already sent the message
+            delivery_service_info = workflow_result.get("delivery_service", {}) if workflow_result else {}
+            delivery_success = delivery_service_info.get("delivery_success", False)
+
+            if delivery_success:
+                app_logger.info(f"✅ DeliveryService already sent message successfully (ID: {delivery_service_info.get('delivery_id')})")
+                app_logger.info(f"✅ Response sent successfully to {message.phone}")
+                return  # EXIT - Don't send duplicate message
+
+            # DeliveryService failed or wasn't used - use evolution.py fallback
             ai_response = workflow_result.get("response") if workflow_result else None
 
             if ai_response:
@@ -861,7 +871,7 @@ async def process_message_background(message: WhatsAppMessage, headers: Optional
             app_logger.error(f"Error in preprocessing/workflow: {str(e)}")
             ai_response = _get_official_technical_fallback_template()
 
-        # Send response back via WhatsApp
+        # Send response back via WhatsApp (only if DeliveryService didn't send it)
         app_logger.info(f"📤 Sending response to {message.phone}: '{ai_response[:100]}...'")
         await evolution_api_client.send_text_message(
             instance_name=message.instance, phone=message.phone, message=ai_response

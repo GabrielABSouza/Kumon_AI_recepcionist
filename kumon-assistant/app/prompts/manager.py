@@ -24,6 +24,7 @@ from langchain.prompts import PromptTemplate
 
 from ..core.config import settings
 from ..core.logger import app_logger
+from ..core.safety.template_safety import ensure_safe_template
 from .template_variables import template_variable_resolver
 
 
@@ -95,7 +96,8 @@ class PromptManager:
                     app_logger.info(
                         f"Applied {len(resolved_variables)} variables to template: {name}"
                     )
-                    return formatted_prompt
+                    # CRITICAL: Apply safety filter before returning
+                    return ensure_safe_template(formatted_prompt, self._get_context_from_name(name))
                 else:
                     app_logger.info(f"No variables to apply for template: {name}")
 
@@ -104,11 +106,27 @@ class PromptManager:
                 # Fallback to simple string formatting if available
                 if variables:
                     try:
-                        return prompt_template.format(**variables)
+                        formatted_response = prompt_template.format(**variables)
+                        return ensure_safe_template(formatted_response, self._get_context_from_name(name))
                     except Exception as e2:
                         app_logger.error(f"Fallback formatting also failed: {e2}")
 
-        return prompt_template
+        # CRITICAL: Always apply safety filter before returning any template
+        final_response = ensure_safe_template(prompt_template, self._get_context_from_name(name))
+        return final_response
+
+    def _get_context_from_name(self, template_name: str) -> str:
+        """Extract context from template name for safety filtering"""
+        if "greeting" in template_name.lower():
+            return "greeting"
+        elif "information" in template_name.lower():
+            return "information"
+        elif "scheduling" in template_name.lower():
+            return "scheduling"
+        elif "handoff" in template_name.lower():
+            return "general"
+        else:
+            return "general"
 
     # LangSmith fetch method removed - using local templates only
 
