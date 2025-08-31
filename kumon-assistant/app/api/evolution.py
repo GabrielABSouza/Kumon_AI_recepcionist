@@ -4,6 +4,8 @@ Evolution API integration endpoints for WhatsApp
 
 import asyncio
 import json
+import os
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 # Import service factory for RAG service
@@ -59,6 +61,42 @@ from ..services.message_preprocessor import message_preprocessor
 from ..core.workflow import cecilia_workflow
 
 app_logger.info("🔄 Evolution route using clean MessagePreprocessor + CeciliaWorkflow")
+
+
+# ========== OFFICIAL TEMPLATE LOADERS ==========
+def _get_official_welcome_template() -> str:
+    """Load official welcome template from prompts/templates"""
+    try:
+        template_path = Path(__file__).parent.parent / "prompts" / "templates" / "greeting" / "welcome_initial.txt"
+        if template_path.exists():
+            return template_path.read_text(encoding='utf-8').strip()
+        else:
+            app_logger.warning("Welcome template not found, using fallback")
+            return "Olá! Bem-vindo ao Kumon Vila A! 😊\n\nMeu nome é Cecília e estou aqui para ajudá-lo com informações sobre nossa metodologia de ensino.\n\nPara começar, qual é o seu nome? 😊"
+    except Exception as e:
+        app_logger.error(f"Error loading welcome template: {str(e)}")
+        return "Olá! Bem-vindo ao Kumon Vila A! 😊\n\nMeu nome é Cecília e estou aqui para ajudá-lo com informações sobre nossa metodologia de ensino.\n\nPara começar, qual é o seu nome? 😊"
+
+
+def _get_official_technical_fallback_template() -> str:
+    """Load official technical fallback template from prompts/templates"""
+    try:
+        template_path = Path(__file__).parent.parent / "prompts" / "templates" / "fallback" / "cecilia_fallback_technical.txt"
+        if template_path.exists():
+            content = template_path.read_text(encoding='utf-8')
+            # Extract the response part (after "RESPOSTA OBRIGATÓRIA:")
+            lines = content.split('\n')
+            for i, line in enumerate(lines):
+                if "RESPOSTA OBRIGATÓRIA:" in line and i + 1 < len(lines):
+                    return lines[i + 1].strip()
+            # If no specific response found, use the general fallback message
+            return "Opa, tive um probleminha aqui! Pode repetir o que você disse? Assim consigo te ajudar da melhor maneira! 😊"
+        else:
+            app_logger.warning("Technical fallback template not found, using fallback")
+            return "Opa, tive um probleminha aqui! Pode repetir o que você disse? Assim consigo te ajudar da melhor maneira! 😊"
+    except Exception as e:
+        app_logger.error(f"Error loading technical fallback template: {str(e)}")
+        return "Opa, tive um probleminha aqui! Pode repetir o que você disse? Assim consigo te ajudar da melhor maneira! 😊"
 
 
 @router.post("/instances")
@@ -730,15 +768,27 @@ async def process_message_background(message: WhatsAppMessage, headers: Optional
             preprocessor_result = await message_preprocessor.process_message(message, actual_headers)
             
             if not preprocessor_result.success:
-                app_logger.warning(f"Preprocessing failed: {preprocessor_result.error_code}")
-                # Use original message for fallback
-                final_message = message
+                app_logger.critical(
+                    f"🚨 SECURITY BREACH BLOCKED: Message processing terminated due to preprocessing failure",
+                    extra={
+                        "security_incident": True,
+                        "incident_type": "preprocessing_failure",
+                        "error_code": preprocessor_result.error_code,
+                        "phone_number": message.phone,
+                        "message_preview": message.message[:50],
+                        "threat_level": "critical"
+                    }
+                )
+                
+                # 🛡️ SECURITY: TERMINATE PROCESSING IMMEDIATELY ON AUTH_FAILED
+                # No workflow execution, no response sent to potentially malicious source
+                return
             else:
                 # Use preprocessed message
                 final_message = preprocessor_result.message
                 app_logger.info("✅ Message preprocessed successfully")
 
-            # Step 2: Process through workflow
+            # Step 2: Process through workflow (only if preprocessing succeeded)
             workflow_result = await cecilia_workflow.process_message(
                 phone_number=final_message.phone,
                 user_message=final_message.message,
@@ -749,21 +799,13 @@ async def process_message_background(message: WhatsAppMessage, headers: Optional
             if ai_response:
                 app_logger.info(f"✅ Workflow returned response: '{ai_response[:100]}...'")
             else:
-                # Fallback to a generic welcome message if workflow fails
-                app_logger.warning(f"⚠️ Workflow returned empty response, using fallback")
-                ai_response = (
-                    "Olá! Bem-vindo ao Kumon Vila A! 😊\n\n"
-                    "Sou a sua assistente virtual e estou aqui para ajudá-lo com informações sobre nossa metodologia de ensino.\n\n"
-                    "Para começar, você está buscando o Kumon para você mesmo ou para outra pessoa? 🤔"
-                )
+                # Fallback using official template
+                app_logger.warning(f"⚠️ Workflow returned empty response, using official fallback template")
+                ai_response = _get_official_welcome_template()
 
         except Exception as e:
             app_logger.error(f"Error in preprocessing/workflow: {str(e)}")
-            ai_response = (
-                "Olá! Bem-vindo ao Kumon Vila A! 😊\n\n"
-                "Sou a sua assistente virtual e estou aqui para ajudá-lo com informações sobre nossa metodologia de ensino.\n\n"
-                "Para começar, você está buscando o Kumon para você mesmo ou para outra pessoa? 🤔"
-            )
+            ai_response = _get_official_technical_fallback_template()
 
         # Send response back via WhatsApp
         app_logger.info(f"📤 Sending response to {message.phone}: '{ai_response[:100]}...'")
@@ -778,11 +820,7 @@ async def process_message_background(message: WhatsAppMessage, headers: Optional
 
         # Send error message to user
         try:
-            error_response = (
-                "Olá! Bem-vindo ao Kumon Vila A! 😊\n\n"
-                "Desculpe, houve um pequeno problema técnico. "
-                "Você está buscando o Kumon para você mesmo ou para outra pessoa?"
-            )
+            error_response = _get_official_technical_fallback_template()
             await evolution_api_client.send_text_message(
                 instance_name=message.instance, phone=message.phone, message=error_response
             )
