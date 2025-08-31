@@ -101,7 +101,7 @@ def universal_edge_router(
             smart_router_adapter.decide_route(state, f"route_from_{current_node}")
         )
         
-        # Store routing decision in state for later use
+        # Store routing decision in state for nodes to use
         state["routing_decision"] = {
             "target_node": routing_decision.target_node,
             "threshold_action": routing_decision.threshold_action,
@@ -111,8 +111,18 @@ def universal_edge_router(
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
         
-        # ResponsePlanner will generate response based on threshold_action later
-        # (only if needed - when threshold_action != "enhance_with_llm")
+        # PHASE 2: Generate response based on threshold_action
+        # If NOT enhance_with_llm, generate response NOW (before node execution)
+        if routing_decision.threshold_action != "enhance_with_llm":
+            logger.info(f"Generating response via ResponsePlanner (action: {routing_decision.threshold_action})")
+            loop.run_until_complete(
+                response_planner.plan_and_generate(state, routing_decision)
+            )
+            # Response is now in state["planned_response"]
+            logger.info(f"Response generated, ready for delivery")
+        else:
+            logger.info(f"Skipping response generation - node will handle (enhance_with_llm)")
+            # Node will execute to gather data/RAG, then ResponsePlanner will generate
         
         target = routing_decision.target_node
         
