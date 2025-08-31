@@ -113,7 +113,7 @@ class SmartRouterAdapter:
                 mandatory_data_override=getattr(routing_decision, 'mandatory_data_override', False)
             )
             
-            # Store routing_info in state for telemetry
+            # Store routing_info in state for telemetry and ResponsePlanner
             state["routing_info"] = {
                 "target_node": core_decision.target_node,
                 "final_confidence": core_decision.confidence,
@@ -122,6 +122,7 @@ class SmartRouterAdapter:
                 "threshold_action": core_decision.threshold_action,
                 "rule_applied": core_decision.rule_applied,
                 "reasoning": core_decision.reasoning,
+                "intent_category": intent_result.category,  # For ResponsePlanner template mapping
                 "timestamp": datetime.now().isoformat(),
                 "adapter_version": "1.0",
                 "source": "modular_smart_router"

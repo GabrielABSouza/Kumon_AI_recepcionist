@@ -86,7 +86,8 @@ class StateManager:
                 state["data_validation"][key] = value
             
             # Route metrics updates
-            elif key in ["failed_attempts", "consecutive_confusion", "same_question_count"]:
+            elif key in ["failed_attempts", "consecutive_confusion", "same_question_count", 
+                        "last_delivery", "last_activity", "delivery_success"]:
                 state["conversation_metrics"][key] = value
             
             # Log unrecognized updates

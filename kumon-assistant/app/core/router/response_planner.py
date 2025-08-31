@@ -1,4 +1,4 @@
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Union
 import time
 import logging
 from ...prompts.manager import prompt_manager
@@ -7,6 +7,7 @@ from ...core.service_factory import get_langchain_rag_service
 from ...services.production_llm_service import ProductionLLMService
 from ..state.models import CeciliaState
 from ...workflows.contracts import RoutingDecision
+from .smart_router_adapter import CoreRoutingDecision
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,7 @@ class ResponsePlanner:
             ("information", "programs"): "kumon:information:programs:overview"
         }
     
-    async def plan_and_generate(self, state: CeciliaState, decision: RoutingDecision) -> None:
+    async def plan_and_generate(self, state: CeciliaState, decision: Union[RoutingDecision, CoreRoutingDecision]) -> None:
         """
         Planeja e gera resposta baseada na decisão do SmartRouter.
         Popula state["planned_response"] e state["response_metadata"].
@@ -104,11 +105,25 @@ class ResponsePlanner:
                 "generation_time_ms": round((time.time() - start_time) * 1000, 2)
             }
     
-    async def _generate_template(self, state: CeciliaState, decision: RoutingDecision) -> str:
+    async def _generate_template(self, state: CeciliaState, decision: Union[RoutingDecision, CoreRoutingDecision]) -> str:
         """Gera resposta usando PromptManager (templates)"""
         # Determine template name based on stage + intent
         stage = state.get("current_stage", "unknown")
-        intent = decision.intent_category.value if decision.intent_category else "general"
+        
+        # Get intent from routing_info if available, otherwise derive from target_node
+        routing_info = state.get("routing_info", {})
+        intent = routing_info.get("intent_category")
+        
+        if not intent:
+            # Fallback: derive intent from target_node
+            if decision.target_node == "greeting":
+                intent = "welcome"
+            elif decision.target_node == "information":
+                intent = "general"
+            elif decision.target_node == "scheduling":
+                intent = "appointment_start"
+            else:
+                intent = "general"
         
         # Map to template name
         template_key = (stage.lower(), intent.lower())
@@ -138,7 +153,7 @@ class ResponsePlanner:
         
         return response
     
-    async def _generate_llm_rag(self, state: CeciliaState, decision: RoutingDecision) -> str:
+    async def _generate_llm_rag(self, state: CeciliaState, decision: Union[RoutingDecision, CoreRoutingDecision]) -> str:
         """Gera resposta usando LLM + RAG opcional"""
         user_message = state.get("last_user_message", "")
         
@@ -190,7 +205,7 @@ Be warm, professional, and focus on how Kumon can help the student.
         
         return response
     
-    async def _generate_fallback(self, state: CeciliaState, decision: RoutingDecision) -> str:
+    async def _generate_fallback(self, state: CeciliaState, decision: Union[RoutingDecision, CoreRoutingDecision]) -> str:
         """Gera resposta de fallback simples"""
         fallback_level = decision.threshold_action
         

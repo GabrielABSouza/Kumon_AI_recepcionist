@@ -496,10 +496,27 @@ class IntelligentThresholdSystem:
         """Obter multiplicador baseado no estágio da conversa"""
         try:
             stage = conversation_state.get("current_stage")
+            
+            # Handle ConversationStage enum instances
             if isinstance(stage, ConversationStage):
                 return self.stage_multipliers.get(stage, 1.0)
+            
+            # Handle string values - try to convert to enum
+            elif isinstance(stage, str):
+                try:
+                    stage_enum = ConversationStage(stage.lower())
+                    return self.stage_multipliers.get(stage_enum, 1.0)
+                except ValueError:
+                    app_logger.warning(f"Unknown stage value: {stage}, using default multiplier")
+                    return 1.0
+            
+            # Handle enum class (not instance) - this was the original issue
+            elif stage == ConversationStage or str(type(stage)) == "<enum 'ConversationStage'>":
+                app_logger.warning(f"Received enum class instead of instance: {stage}, using default multiplier")
+                return 1.0
+            
             else:
-                app_logger.warning(f"Invalid stage type: {type(stage)}, using default multiplier")
+                app_logger.warning(f"Invalid stage type: {type(stage)} ({stage}), using default multiplier")
                 return 1.0
             
         except Exception as e:
