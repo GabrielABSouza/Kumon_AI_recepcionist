@@ -24,8 +24,7 @@ from .contracts import (
     get_fallback_stage_for_missing_data
 )
 
-from langchain.prompts import ChatPromptTemplate
-from langchain.schema import BaseMessage
+# LangChain imports removed - ThresholdSystem only decides, doesn't execute LLM
 
 
 @dataclass
@@ -124,8 +123,7 @@ class IntelligentThresholdSystem:
             ]
         }
         
-        # LLM service cache
-        self.llm_service_cache = None
+# LLM service cache removed - ThresholdSystem doesn't call LLM
         
         app_logger.info("Intelligent Threshold System initialized")
 
@@ -337,49 +335,16 @@ class IntelligentThresholdSystem:
 
     async def _enhance_with_llm(self, result, conversation_state: ConversationState, rule: ThresholdRule):
         """
-        Handler para enhancement com LLM usando abordagem context-based
+        Handler para enhance_with_llm: apenas retorna decisão para SmartRouter
         
-        Integra com LLM service existente e aplica confidence boost baseado
-        em contexto conversacional específico.
+        ThresholdSystem não executa LLM - apenas decide que é necessário.
+        SmartRouter receberá esta decisão e enviará para CeciliaWorkflow executar nodes.
         """
-        app_logger.info("Enhancing classification with LLM (context-based approach)")
+        app_logger.info("Decision: enhance_with_llm - delegating to SmartRouter/CeciliaWorkflow")
         
-        # Check if LLM service is available
-        llm_service = await self._get_llm_service()
-        if not llm_service:
-            app_logger.debug("LLM service not available, applying minimal boost")
-            return self._apply_minimal_boost(result)
-        
-        try:
-            # Build enhanced context for LLM
-            context_info = self._extract_conversation_context(conversation_state)
-            
-            # Create enhancement-focused prompt
-            enhancement_prompt = self._build_enhancement_prompt(
-                result, context_info, conversation_state
-            )
-            
-            # Get LLM response
-            llm_response = await llm_service.ainvoke(enhancement_prompt)
-            
-            # Parse and analyze LLM result
-            llm_enhancement = self._parse_llm_enhancement(llm_response, result)
-            
-            # Apply context-based confidence calculation
-            enhanced_result = self._apply_contextual_confidence_boost(
-                result, conversation_state, llm_enhancement
-            )
-            
-            app_logger.info(
-                f"LLM enhancement applied: {result.confidence:.2f} -> {enhanced_result.confidence:.2f} "
-                f"(strategy: {llm_enhancement.get('strategy', 'standard')})"
-            )
-            
-            return enhanced_result
-            
-        except Exception as e:
-            app_logger.error(f"LLM enhancement failed: {e}")
-            return self._apply_minimal_boost(result)
+        # Não faz nada - apenas sinaliza que precisa de enhancement
+        # O SmartRouter receberá threshold_action="enhance_with_llm" e delegará para CeciliaWorkflow
+        return result
 
     async def _apply_fallback_level1(self, result, conversation_state: ConversationState, rule: ThresholdRule):
         """
@@ -535,215 +500,7 @@ class IntelligentThresholdSystem:
             app_logger.error(f"Error getting stage multiplier: {e}")
             return 1.0
 
-    # ========== MÉTODOS AUXILIARES PARA LLM ENHANCEMENT ==========
-
-    async def _get_llm_service(self):
-        """Get LLM service with lazy loading and caching"""
-        if self.llm_service_cache:
-            return self.llm_service_cache
-        
-        try:
-            from ..core.unified_service_resolver import unified_service_resolver
-            self.llm_service_cache = await unified_service_resolver.get_service("llm_service")
-            
-            if self.llm_service_cache:
-                app_logger.info("LLM service acquired for threshold enhancement")
-            return self.llm_service_cache
-            
-        except Exception as e:
-            app_logger.debug(f"LLM service not available: {e}")
-            return None
-
-    def _extract_conversation_context(self, conversation_state: ConversationState) -> Dict[str, Any]:
-        """Extract relevant context information for LLM enhancement"""
-        try:
-            # Use CeciliaState structure
-            metrics = conversation_state.get("conversation_metrics", {})
-            stage = conversation_state.get("current_stage")
-            validation = conversation_state.get("data_validation", {})
-            
-            return {
-                "stage": stage.value if hasattr(stage, "value") else str(stage),
-                "confusion_count": metrics.get("consecutive_confusion", 0),
-                "message_count": metrics.get("message_count", 0),
-                "clarification_attempts": len(validation.get("pending_confirmations", [])),
-                "user_message": conversation_state.get("last_user_message", ""),
-                "phone_number": conversation_state.get("phone_number", "unknown")[-4:]
-            }
-        except Exception as e:
-            app_logger.error(f"Error extracting context: {e}")
-            return {"stage": "unknown", "confusion_count": 0}
-
-    def _build_enhancement_prompt(self, result, context_info: Dict[str, Any], conversation_state: ConversationState):
-        """Build enhancement-focused prompt for LLM"""
-        
-        enhancement_prompt = ChatPromptTemplate.from_messages([
-            (
-                "system",
-                """Você está refinando uma classificação de intenção existente do Kumon Assistant.
-
-                IMPORTANTE: Sua tarefa é MELHORAR uma classificação já existente, não classificar do zero.
-
-                Categorias disponíveis:
-                - greeting: saudações, apresentação, nomes
-                - information_request: dúvidas sobre programas, preços, metodologia  
-                - scheduling: agendamentos, horários, visitas
-                - clarification: confusão, pedidos de esclarecimento
-                - objection: objeções sobre preço, localização
-                - decision: decisões positivas, interesse
-                - complaint: reclamações, problemas
-
-                Analise se a classificação inicial está correta ou se deve ser ajustada.
-                Responda com: CONFIRMA [categoria] ou MUDA [categoria] [motivo_breve]"""
-            ),
-            (
-                "human",
-                """CLASSIFICAÇÃO INICIAL:
-                Intent: {current_intent}
-                Confidence: {current_confidence:.2f}
-                
-                CONTEXTO DA CONVERSA:
-                - Estágio: {stage}
-                - Confusões anteriores: {confusion_count}
-                - Tentativas de clarificação: {clarification_attempts}
-                
-                MENSAGEM DO USUÁRIO:
-                "{user_message}"
-                
-                Sua análise:"""
-            )
-        ])
-
-        return enhancement_prompt.format_messages(
-            current_intent=result.category.value,
-            current_confidence=result.confidence,
-            stage=context_info.get("stage", "unknown"),
-            confusion_count=context_info.get("confusion_count", 0),
-            clarification_attempts=context_info.get("clarification_attempts", 0),
-            user_message=context_info.get("user_message", "")[:100]  # Limit message length
-        )
-
-    def _parse_llm_enhancement(self, llm_response, original_result) -> Dict[str, Any]:
-        """Parse LLM response and extract enhancement information"""
-        try:
-            response_text = llm_response.content.strip().lower()
-            
-            if response_text.startswith("confirma"):
-                return {
-                    "agrees": True,
-                    "new_category": None,
-                    "reasoning": "LLM confirmed original classification",
-                    "strategy": "confirmation",
-                    "provides_clarification": False
-                }
-            
-            elif response_text.startswith("muda"):
-                # Extract new category from "MUDA [categoria] [motivo]"
-                parts = response_text.split()
-                if len(parts) >= 2:
-                    new_category_str = parts[1]
-                    reasoning = " ".join(parts[2:]) if len(parts) > 2 else "LLM suggested change"
-                    
-                    return {
-                        "agrees": False,
-                        "new_category": new_category_str,
-                        "reasoning": reasoning,
-                        "strategy": "category_change", 
-                        "provides_clarification": True,
-                        "high_confidence": len(reasoning) > 10  # More detailed reasoning = higher confidence
-                    }
-            
-            # Fallback for unclear responses
-            return {
-                "agrees": True,
-                "new_category": None,
-                "reasoning": "LLM response unclear, keeping original",
-                "strategy": "fallback",
-                "provides_clarification": False
-            }
-            
-        except Exception as e:
-            app_logger.error(f"Error parsing LLM response: {e}")
-            return {
-                "agrees": True,
-                "new_category": None,
-                "reasoning": "Error parsing LLM response",
-                "strategy": "error_fallback",
-                "provides_clarification": False
-            }
-
-    def _apply_contextual_confidence_boost(
-        self, 
-        original_result, 
-        conversation_state: ConversationState, 
-        llm_enhancement: Dict[str, Any]
-    ):
-        """Apply context-based confidence boost (Approach 3)"""
-        
-        # Extract context
-        context_info = self._extract_conversation_context(conversation_state)
-        base_boost = 0.1  # Conservative base boost
-        
-        # Factors that increase confidence in LLM
-        if context_info.get("confusion_count", 0) > 1:
-            base_boost += 0.05  # LLM better for confusing cases
-            app_logger.debug("Confidence boost: user confusion detected")
-        
-        if llm_enhancement.get("provides_clarification", False):
-            base_boost += 0.05  # LLM provided useful explanation
-            app_logger.debug("Confidence boost: LLM provided clarification")
-        
-        if llm_enhancement.get("high_confidence", False):
-            base_boost += 0.05  # LLM was confident in its analysis
-            app_logger.debug("Confidence boost: LLM high confidence")
-        
-        # Factors that decrease confidence in LLM
-        if context_info.get("stage") == "greeting":
-            base_boost -= 0.05  # Pattern matching better for greetings
-            app_logger.debug("Confidence reduction: greeting stage")
-        
-        if context_info.get("message_count", 0) == 1:
-            base_boost -= 0.03  # Pattern matching usually good for first messages
-            app_logger.debug("Confidence reduction: first message")
-        
-        # Apply enhancement
-        if llm_enhancement.get("agrees", True):
-            # LLM confirms original classification
-            new_confidence = min(0.85, original_result.confidence + base_boost)
-            app_logger.info(f"LLM confirmed classification with boost: +{base_boost:.2f}")
-            
-        else:
-            # LLM suggests different category
-            new_category_str = llm_enhancement.get("new_category", "")
-            
-            # Try to map to actual IntentCategory
-            from .intent_classifier import IntentCategory
-            new_category = None
-            for cat in IntentCategory:
-                if cat.value == new_category_str:
-                    new_category = cat
-                    break
-            
-            if new_category:
-                # Create new result with LLM suggestion
-                original_result.category = new_category
-                original_result.subcategory = None  # Reset subcategory
-                new_confidence = 0.75 + (base_boost * 0.5)  # Base LLM confidence + context
-                app_logger.info(f"LLM changed classification to {new_category.value}")
-            else:
-                # Invalid category, keep original with small boost
-                new_confidence = min(0.65, original_result.confidence + 0.05)
-                app_logger.warning(f"LLM suggested invalid category: {new_category_str}")
-        
-        # Never exceed reasonable limits
-        original_result.confidence = max(0.1, min(0.95, new_confidence))
-        return original_result
-
-    def _apply_minimal_boost(self, result):
-        """Apply minimal confidence boost when LLM not available"""
-        result.confidence = min(0.65, result.confidence + 0.05)
-        app_logger.info(f"Applied minimal boost: {result.confidence:.2f}")
-        return result
+    # LLM enhancement methods removed - ThresholdSystem only decides, doesn't execute
 
 
 # Instância global

@@ -120,7 +120,7 @@ class ResponsePlanner:
             logger.warning(f"No specific template for {template_key}, using {template_name}")
         
         # Resolve template variables
-        variables = template_variable_resolver(state)
+        variables = template_variable_resolver.get_template_variables(state)
         
         # Get template response
         response = await prompt_manager.get_prompt(
@@ -163,7 +163,7 @@ class ResponsePlanner:
                 logger.warning(f"RAG retrieval failed: {e}")
         
         # Build enhanced prompt
-        variables = template_variable_resolver(state)
+        variables = template_variable_resolver.get_template_variables(state)
         system_context = self._build_system_context(state, variables)
         
         enhanced_prompt = f"""
@@ -203,7 +203,7 @@ Be warm, professional, and focus on how Kumon can help the student.
             template_name = "kumon:fallback:level2:basic"
         
         try:
-            variables = template_variable_resolver(state)
+            variables = template_variable_resolver.get_template_variables(state)
             response = await prompt_manager.get_prompt(
                 name=template_name,
                 variables=variables,
@@ -225,7 +225,7 @@ Be warm, professional, and focus on how Kumon can help the student.
     async def _generate_handoff(self, state: CeciliaState) -> str:
         """Gera resposta de transferência humana"""
         try:
-            variables = template_variable_resolver(state)
+            variables = template_variable_resolver.get_template_variables(state)
             response = await prompt_manager.get_prompt(
                 name="kumon:handoff:transfer:human_contact",
                 variables=variables,

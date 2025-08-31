@@ -54,15 +54,12 @@ class CeciliaWorkflow:
     
     def __init__(self):
         """Inicializa o workflow com PostgreSQL persistence e orchestrator integration"""
-        # Wave 3: Use PostgreSQL checkpointer for persistent state
-        self.use_postgres_persistence = getattr(settings, 'USE_POSTGRES_PERSISTENCE', True)
+        # TEMPORARY: Disable PostgreSQL checkpointing until workflow_checkpoints table is created
+        # TODO: Re-enable after creating workflow_checkpoints table in Railway
+        self.use_postgres_persistence = False  # Temporarily disabled
         
-        if self.use_postgres_persistence:
-            self.checkpointer = postgres_checkpointer
-            logger.info("🗄️ Using PostgreSQL checkpointer for persistent state")
-        else:
-            self.checkpointer = MemorySaver()
-            logger.info("⚠️ Using memory checkpointer (non-persistent)")
+        self.checkpointer = MemorySaver()
+        logger.info("⚠️ Using memory checkpointer (PostgreSQL checkpointing disabled temporarily)")
         
         self.workflow = self._create_workflow()
         self.app = self.workflow.compile(checkpointer=self.checkpointer)
@@ -546,8 +543,54 @@ class CeciliaWorkflow:
                 input_data = StateManager.create_initial_state(phone_number, user_message)
                 logger.info(f"🆕 Created fresh initial state for {phone_number}")
             
-            # Executar workflow
-            result = await self.app.ainvoke(input_data, config=config)
+            # CRITICAL FIX: Consultar SmartRouter ANTES de executar LangGraph
+            from .router.smart_router_adapter import smart_router_adapter
+            
+            # 1. Consultar SmartRouter para decidir se precisa do LangGraph
+            routing_decision = await smart_router_adapter.decide_route(
+                state=input_data,
+                current_function="cecilia_workflow_process"
+            )
+            
+            logger.info(f"🤖 SmartRouter decision: {routing_decision.threshold_action}")
+            
+            # 2. Só executar LangGraph se threshold_action == "enhance_with_llm"
+            if routing_decision.threshold_action == "enhance_with_llm":
+                logger.info(f"🚀 Executing LangGraph workflow - target node: {routing_decision.target_node}")
+                
+                # Adicionar routing decision ao state antes de executar LangGraph
+                input_data["routing_decision"] = {
+                    "target_node": routing_decision.target_node,
+                    "threshold_action": routing_decision.threshold_action,
+                    "confidence": routing_decision.confidence,
+                    "reasoning": routing_decision.reasoning,
+                    "rule_applied": routing_decision.rule_applied
+                }
+                
+                # Executar LangGraph que irá para o node correto
+                result = await self.app.ainvoke(input_data, config=config)
+                
+            else:
+                logger.info(f"⚡ Bypassing LangGraph, using planned response")
+                # Usar resposta plannedresponse diretamente sem executar nodes
+                result = input_data.copy()  # Manter estado original
+                
+                # Adicionar routing decision ao resultado
+                result["routing_decision"] = {
+                    "target_node": routing_decision.target_node,
+                    "threshold_action": routing_decision.threshold_action,
+                    "confidence": routing_decision.confidence,
+                    "reasoning": routing_decision.reasoning,
+                    "rule_applied": routing_decision.rule_applied
+                }
+                
+                # Gerar resposta planejada usando ResponsePlanner
+                from .router.response_planner import response_planner
+                planned_response = await response_planner.plan_response(
+                    state=result,
+                    routing_decision=routing_decision
+                )
+                result["planned_response"] = planned_response
             
             # PHASE 3: Use DeliveryService for atomic message delivery and state updates
             # Extract data for delivery

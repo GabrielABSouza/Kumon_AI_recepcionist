@@ -88,8 +88,18 @@ class SmartRouterAdapter:
             if smart_router is None:
                 return self._fallback_decision(state, "smart_router_unavailable")
             
-            # Call modular SmartRouter
-            routing_decision = await smart_router.make_routing_decision(state)
+            # 1. Classify intent first (SmartRouterAdapter responsibility)
+            from ...core.dependencies import intent_classifier
+            
+            intent_result = await intent_classifier.classify_intent(
+                state["last_user_message"], state
+            )
+            
+            # 2. Call modular SmartRouter with classified data
+            routing_decision = await smart_router.make_routing_decision(
+                state=state,
+                intent_result=intent_result
+            )
             
             # Convert to CoreRoutingDecision
             core_decision = CoreRoutingDecision(
