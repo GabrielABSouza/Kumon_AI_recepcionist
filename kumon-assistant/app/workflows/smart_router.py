@@ -40,6 +40,18 @@ class SmartConversationRouter:
 
         app_logger.info("Smart Conversation Router initialized (simplified)")
 
+    def _get_stage_value(self, stage):
+        """Safely extract value from stage (handle both Enum and string)"""
+        if hasattr(stage, 'value'):
+            return stage.value
+        return str(stage) if stage else "unknown"
+    
+    def _get_enum_value(self, enum_obj):
+        """Safely extract value from enum (handle both Enum and string)"""
+        if hasattr(enum_obj, 'value'):
+            return enum_obj.value
+        return str(enum_obj) if enum_obj else "unknown"
+
 
     async def make_routing_decision(self, state: ConversationState, intent_result: IntentResult) -> RoutingDecision:
         """
@@ -67,8 +79,8 @@ class SmartConversationRouter:
                     "component": "smart_router",
                     "operation": "make_routing_decision",
                     "phone_number": state.get("phone_number", "unknown")[-4:],
-                    "current_stage": state.get("current_stage", ConversationStage.GREETING).value,
-                    "intent_category": intent_result.category.value,
+                    "current_stage": self._get_stage_value(state.get("current_stage", ConversationStage.GREETING)),
+                    "intent_category": self._get_enum_value(intent_result.category),
                     "intent_confidence": intent_result.confidence
                 }
             )
@@ -83,7 +95,7 @@ class SmartConversationRouter:
                 pattern_confidence=intent_result.confidence,  # Use same confidence for now
                 current_stage=state.get("current_stage", ConversationStage.GREETING),
                 collected_data=state.get("collected_data", {}),
-                target_intent=intent_result.category.value
+                target_intent=self._get_enum_value(intent_result.category)
             )
 
             # Step 3: Convert ThresholdDecision to RoutingDecision
