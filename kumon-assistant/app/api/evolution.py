@@ -848,48 +848,16 @@ async def process_message_background(message: WhatsAppMessage, headers: Optional
                 user_message=final_message.message,
             )
 
-            # Check if DeliveryService already sent the message
-            delivery_service_info = workflow_result.get("delivery_service", {}) if workflow_result else {}
-            delivery_success = delivery_service_info.get("delivery_success", False)
-
-            if delivery_success:
-                app_logger.info(f"✅ DeliveryService already sent message successfully (ID: {delivery_service_info.get('delivery_id')})")
-                app_logger.info(f"✅ Response sent successfully to {message.phone}")
-                return  # EXIT - Don't send duplicate message
-
-            # DeliveryService failed or wasn't used - use evolution.py fallback
-            ai_response = workflow_result.get("response") if workflow_result else None
-
-            if ai_response:
-                app_logger.info(f"✅ Workflow returned response: '{ai_response[:100]}...'")
-            else:
-                # Fallback using official template
-                app_logger.warning(f"⚠️ Workflow returned empty response, using official fallback template")
-                ai_response = _get_official_welcome_template()
+            # DeliveryService handles ALL message sending - Evolution API only processes workflow
+            app_logger.info("✅ Workflow processing completed - DeliveryService handles response delivery")
 
         except Exception as e:
             app_logger.error(f"Error in preprocessing/workflow: {str(e)}")
-            ai_response = _get_official_technical_fallback_template()
-
-        # Send response back via WhatsApp (only if DeliveryService didn't send it)
-        app_logger.info(f"📤 Sending response to {message.phone}: '{ai_response[:100]}...'")
-        await evolution_api_client.send_text_message(
-            instance_name=message.instance, phone=message.phone, message=ai_response
-        )
-
-        app_logger.info(f"✅ Response sent successfully to {message.phone}")
+            # Even for errors, let DeliveryService handle it - no sending from evolution.py
 
     except Exception as e:
         app_logger.error(f"❌ Error processing message in background: {str(e)}")
-
-        # Send error message to user
-        try:
-            error_response = _get_official_technical_fallback_template()
-            await evolution_api_client.send_text_message(
-                instance_name=message.instance, phone=message.phone, message=error_response
-            )
-        except Exception as send_error:
-            app_logger.error(f"❌ Failed to send error message: {str(send_error)}")
+        # DeliveryService handles ALL message sending, including error responses
 
 
 @router.get("/health")
