@@ -149,9 +149,9 @@ class UserProfile:
     # Identity
     user_id: str
     phone_number: str
-    created_at: datetime
-    updated_at: datetime
-    last_interaction: datetime
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    last_interaction: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     
     # Personal information
     parent_name: Optional[str] = None

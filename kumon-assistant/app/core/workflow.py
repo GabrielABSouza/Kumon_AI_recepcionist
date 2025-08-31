@@ -473,33 +473,44 @@ class CeciliaWorkflow:
             session_id = None
             active_session = None
             
-            # CRITICAL FIX: Check Redis for existing session first
+            # CORRECT APPROACH: CeciliaWorkflow manages conversation sessions after receiving preprocessed messages
             try:
                 from ..services.conversation_memory_service import conversation_memory_service
+                
+                # Validate that ConversationMemoryService is ready (should be initialized by main.py)
+                if not conversation_memory_service._initialized or conversation_memory_service.postgres_pool is None:
+                    logger.error(f"🚨 ConversationMemoryService not ready for {phone_number} - startup initialization failed")
+                    raise RuntimeError("ConversationMemoryService not properly initialized during startup")
+                
+                logger.info(f"📞 CeciliaWorkflow managing conversation session for {phone_number}")
+                
+                # Check for existing active session
                 active_session = await conversation_memory_service.get_active_session_by_phone(phone_number)
                 
                 if active_session:
-                    # Load existing conversation state from Redis
-                    existing_state = active_session.to_workflow_state()
+                    # Load existing conversation session
+                    existing_state = self._convert_session_to_workflow_state(active_session)
                     session_id = active_session.session_id
-                    logger.info(f"✅ Loaded existing Redis session for {phone_number}: {session_id}")
+                    logger.info(f"🔄 Loaded existing conversation session: {session_id}")
                 else:
-                    # Create new session for first-time users
-                    logger.info(f"🆕 Creating new session for phone: {phone_number}")
+                    # Create new conversation session (this is the correct place to do it)
+                    logger.info(f"🆕 CeciliaWorkflow creating new conversation session for {phone_number}")
                     session = await conversation_memory_service.create_session(
                         phone_number=phone_number,
-                        user_name=None,  # Will be extracted from conversation
+                        user_name=None,  # Will be extracted during conversation
                         initial_message=user_message
                     )
                     session_id = session.session_id
                     active_session = session
-                    logger.info(f"✅ Created new Redis session: {session_id}")
+                    logger.info(f"✅ CeciliaWorkflow created conversation session: {session_id}")
                     
-            except Exception as redis_error:
-                logger.error(f"🚨 Redis integration error for {phone_number}: {redis_error}")
-                # Fallback to PostgreSQL persistence if Redis fails
+            except Exception as memory_error:
+                logger.error(f"🚨 CeciliaWorkflow session management failed for {phone_number}: {memory_error}")
+                logger.error(f"Error details: {type(memory_error).__name__}: {str(memory_error)}")
+                # Use PostgreSQL fallback if conversation memory fails
                 active_session = None
                 session_id = None
+                logger.warning(f"⚠️ Using PostgreSQL fallback for {phone_number}")
             
             # Fallback to PostgreSQL if Redis not available or disabled
             if not active_session and self.use_postgres_persistence:
@@ -731,6 +742,52 @@ class CeciliaWorkflow:
         except Exception as e:
             logger.error(f"Error resetting conversation {thread_id}: {str(e)}")
             return False
+    
+    def _convert_session_to_workflow_state(self, active_session) -> Dict[str, Any]:
+        """
+        Convert ConversationMemoryService session to workflow state
+        
+        Args:
+            active_session: Session object from conversation_memory_service
+            
+        Returns:
+            Dict compatible with WorkflowState
+        """
+        try:
+            # Map conversation session to workflow state format
+            workflow_state = {
+                "current_stage": active_session.current_stage or "greeting",
+                "current_step": active_session.current_step or "welcome",
+                "state_data": {
+                    "phone_number": active_session.phone_number,
+                    "session_id": active_session.session_id,
+                    "user_profile": {
+                        "phone_number": active_session.phone_number,
+                        "user_name": getattr(active_session, 'user_name', None),
+                        "created_at": active_session.created_at.isoformat() if hasattr(active_session, 'created_at') else None
+                    }
+                },
+                "conversation_history": [],
+                "user_profile": {
+                    "phone_number": active_session.phone_number,
+                    "user_name": getattr(active_session, 'user_name', None)
+                },
+                "last_activity": active_session.last_activity.isoformat() if hasattr(active_session, 'last_activity') else None
+            }
+            
+            logger.debug(f"Converted session {active_session.session_id} to workflow state")
+            return workflow_state
+            
+        except Exception as e:
+            logger.error(f"Failed to convert session to workflow state: {e}")
+            # Return minimal state as fallback
+            return {
+                "current_stage": "greeting",
+                "current_step": "welcome",
+                "state_data": {"phone_number": getattr(active_session, 'phone_number', 'unknown')},
+                "conversation_history": [],
+                "user_profile": {}
+            }
 
 
 # handoff_node agora está em nodes/handoff.py

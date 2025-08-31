@@ -67,33 +67,26 @@ def should_route_to_validation(state: CeciliaState) -> bool:
         return True
 
 
-def route_from_greeting(
-    state: CeciliaState
-) -> Literal["qualification", "scheduling", "validation", "handoff", "emergency_progression"]:
+def universal_edge_router(
+    state: CeciliaState,
+    current_node: str,
+    valid_targets: list
+) -> str:
     """
-    Roteamento após node de saudação COM CIRCUIT BREAKER + SmartRouter Integration
+    Universal edge router - SINGLE source of routing truth via SmartRouter
     
-    New Architecture: Core safety checks + Modular SmartRouter for intelligent routing
+    All routing decisions flow through SmartRouter:
+    1. SmartRouter makes decision (includes circuit breaker, handoff logic)
+    2. ResponsePlanner generates response if needed
+    3. Return target node
+    
+    Args:
+        state: Current conversation state
+        current_node: Node we're routing from
+        valid_targets: Valid target nodes for this edge
     """
-    logger.info(f"Routing from greeting for {state['phone_number']}")
+    logger.info(f"Universal routing from {current_node} for {state['phone_number']}")
     
-    # CRÍTICO: Verificar circuit breaker PRIMEIRO (mantém segurança do core)
-    circuit_check = StateManager.check_circuit_breaker(state)
-    
-    if circuit_check["should_activate"]:
-        logger.warning(f"Circuit breaker activated in greeting for {state['phone_number']}")
-        
-        action = circuit_check["recommended_action"]
-        circuit_updates = StateManager.apply_circuit_breaker_action(state, action)
-        StateManager.update_state(state, circuit_updates)
-        
-        return "emergency_progression"
-    
-    # PRIORIDADE MÁXIMA: Verificar falha de conversa (mantém lógica de segurança)
-    if condition_checker.should_handoff(state):
-        return "handoff"
-    
-    # NEW: Use SmartRouter for intelligent routing decisions
     try:
         # Run async SmartRouter in sync context (LangGraph compatibility)
         import asyncio
@@ -102,420 +95,98 @@ def route_from_greeting(
         except RuntimeError:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            
+        
+        # SmartRouter is the ONLY decision maker
         routing_decision = loop.run_until_complete(
-            smart_router_adapter.decide_route(state, "route_from_greeting")
+            smart_router_adapter.decide_route(state, f"route_from_{current_node}")
         )
         
-        # NEW: Plan and generate response BEFORE routing to node
-        loop.run_until_complete(
-            response_planner.plan_and_generate(state, routing_decision)
-        )
+        # Store routing decision in state for later use
+        state["routing_decision"] = {
+            "target_node": routing_decision.target_node,
+            "threshold_action": routing_decision.threshold_action,
+            "confidence": routing_decision.confidence,
+            "reasoning": routing_decision.reasoning,
+            "from_node": current_node,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
         
-        # Map decision to valid return values for this edge
+        # ResponsePlanner will generate response based on threshold_action later
+        # (only if needed - when threshold_action != "enhance_with_llm")
+        
         target = routing_decision.target_node
         
-        # Ensure target is valid for this edge
-        valid_targets = ["qualification", "scheduling", "validation", "handoff", "emergency_progression"]
+        # Validate target is allowed for this edge
         if target not in valid_targets:
-            logger.warning(f"SmartRouter returned invalid target '{target}' for greeting, defaulting to qualification")
-            target = "qualification"
+            logger.warning(
+                f"SmartRouter returned '{target}' which is not valid for {current_node}. "
+                f"Valid targets: {valid_targets}. Defaulting to {valid_targets[0]}"
+            )
+            target = valid_targets[0]
         
         logger.info(
-            f"SmartRouter decision for greeting: {target} (confidence: {routing_decision.confidence:.2f})"
+            f"SmartRouter decision: {current_node} → {target} "
+            f"(confidence: {routing_decision.confidence:.2f}, action: {routing_decision.threshold_action})"
         )
         
         return target
         
     except Exception as e:
-        logger.error(f"SmartRouter failed in route_from_greeting: {e}, using fallback")
+        logger.error(f"SmartRouter failed in universal router: {e}, using safe fallback")
         
-        # FALLBACK: Maintain critical legacy logic for safety
-        if intent_detector.detect_booking_intent(state.get("last_user_message", "")):
-            logger.info(f"Fallback: Booking intent detected for {state['phone_number']}")
-            return "scheduling"
-        
-        # Intelligent validation routing
-        if should_route_to_validation(state):
-            return "validation"
-        
-        # Default: qualificação
-        return "qualification"
+        # CRITICAL FALLBACK: If SmartRouter completely fails, safe default
+        # This should rarely happen as SmartRouter has its own fallbacks
+        if "handoff" in valid_targets:
+            return "handoff"  # Safest option when system fails
+        return valid_targets[0]  # First valid target as last resort
+
+
+def route_from_greeting(
+    state: CeciliaState
+) -> Literal["qualification", "scheduling", "validation", "handoff", "emergency_progression"]:
+    """Route from greeting node - delegates to universal router"""
+    valid_targets = ["qualification", "scheduling", "validation", "handoff", "emergency_progression"]
+    return universal_edge_router(state, "greeting", valid_targets)
 
 
 def route_from_qualification(
     state: CeciliaState
 ) -> Literal["information", "scheduling", "validation", "handoff", "emergency_progression"]:
-    """Roteamento após qualificação COM CIRCUIT BREAKER + SmartRouter Integration"""
-    logger.info(f"Routing from qualification for {state['phone_number']}")
-    
-    # CRÍTICO: Verificar circuit breaker PRIMEIRO
-    circuit_check = StateManager.check_circuit_breaker(state)
-    
-    if circuit_check["should_activate"]:
-        action = circuit_check["recommended_action"]
-        circuit_updates = StateManager.apply_circuit_breaker_action(state, action)
-        StateManager.update_state(state, circuit_updates)
-        return "emergency_progression"
-    
-    # PRIORIDADE MÁXIMA: Verificar falha de conversa
-    if condition_checker.should_handoff(state):
-        return "handoff"
-    
-    # NEW: Use SmartRouter for intelligent routing decisions
-    try:
-        import asyncio
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            
-        routing_decision = loop.run_until_complete(
-            smart_router_adapter.decide_route(state, "route_from_qualification")
-        )
-        
-        # NEW: Plan and generate response BEFORE routing to node
-        loop.run_until_complete(
-            response_planner.plan_and_generate(state, routing_decision)
-        )
-        
-        target = routing_decision.target_node
-        
-        # Ensure target is valid for this edge
-        valid_targets = ["information", "scheduling", "validation", "handoff", "emergency_progression"]
-        if target not in valid_targets:
-            logger.warning(f"SmartRouter returned invalid target '{target}' for qualification, defaulting to information")
-            target = "information"
-        
-        logger.info(
-            f"SmartRouter decision for qualification: {target} (confidence: {routing_decision.confidence:.2f})"
-        )
-        
-        return target
-        
-    except Exception as e:
-        logger.error(f"SmartRouter failed in route_from_qualification: {e}, using fallback")
-        
-        # FALLBACK: Maintain critical legacy logic
-        if intent_detector.detect_booking_intent(state.get("last_user_message", "")):
-            return "scheduling"
-        
-        # Check completion status
-        required_data = ["student_age", "education_level"]
-        has_required = all(get_collected_field(state, field) for field in required_data)
-        
-        if has_required:
-            return "information"
-        
-        return "validation" if should_route_to_validation(state) else "information"
+    """Route from qualification node - delegates to universal router"""
+    valid_targets = ["information", "scheduling", "validation", "handoff", "emergency_progression"]
+    return universal_edge_router(state, "qualification", valid_targets)
 
 
 def route_from_information(
     state: CeciliaState
 ) -> Literal["information", "scheduling", "validation", "handoff", "emergency_progression"]:
-    """Roteamento após node de informações + SmartRouter Integration"""
-    logger.info(f"Routing from information for {state['phone_number']}")
-    
-    # CRÍTICO: Verificar circuit breaker PRIMEIRO
-    circuit_check = StateManager.check_circuit_breaker(state)
-    
-    if circuit_check["should_activate"]:
-        action = circuit_check["recommended_action"]
-        circuit_updates = StateManager.apply_circuit_breaker_action(state, action)
-        StateManager.update_state(state, circuit_updates)
-        return "emergency_progression"
-    
-    # PRIORIDADE MÁXIMA: Verificar falha de conversa
-    if condition_checker.should_handoff(state):
-        return "handoff"
-    
-    # NEW: Use SmartRouter for intelligent routing decisions
-    try:
-        import asyncio
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            
-        routing_decision = loop.run_until_complete(
-            smart_router_adapter.decide_route(state, "route_from_information")
-        )
-        
-        # NEW: Plan and generate response BEFORE routing to node
-        loop.run_until_complete(
-            response_planner.plan_and_generate(state, routing_decision)
-        )
-        
-        target = routing_decision.target_node
-        
-        # Ensure target is valid for this edge
-        valid_targets = ["information", "scheduling", "validation", "handoff", "emergency_progression"]
-        if target not in valid_targets:
-            logger.warning(f"SmartRouter returned invalid target '{target}' for information, defaulting to scheduling")
-            target = "scheduling"
-        
-        logger.info(
-            f"SmartRouter decision for information: {target} (confidence: {routing_decision.confidence:.2f})"
-        )
-        
-        return target
-        
-    except Exception as e:
-        logger.error(f"SmartRouter failed in route_from_information: {e}, using fallback")
-        
-        # FALLBACK: Maintain critical legacy logic
-        if intent_detector.detect_booking_intent(state.get("last_user_message", "")):
-            return "scheduling"
-        
-        return "validation" if should_route_to_validation(state) else "scheduling"
-        return "scheduling"
-    
-    # Detectar pulo de perguntas
-    if intent_detector.detect_skip_questions(state["last_user_message"]):
-        return "scheduling"
-    
-    # Verificar se deve sugerir agendamento
-    should_suggest = _should_suggest_appointment(state)
-    if should_suggest:
-        return "scheduling"
-    
-    # Continuar com informações ou validar
-    return "validation" if should_route_to_validation(state) else "information"
+    """Route from information node - delegates to universal router"""
+    valid_targets = ["information", "scheduling", "validation", "handoff", "emergency_progression"]
+    return universal_edge_router(state, "information", valid_targets)
 
 
 def route_from_scheduling(
     state: CeciliaState
 ) -> Literal["scheduling", "confirmation", "validation", "handoff", "emergency_progression"]:
-    """Roteamento após scheduling + SmartRouter Integration"""
-    logger.info(f"Routing from scheduling for {state['phone_number']}")
-    
-    # CRÍTICO: Verificar circuit breaker PRIMEIRO
-    circuit_check = StateManager.check_circuit_breaker(state)
-    
-    if circuit_check["should_activate"]:
-        action = circuit_check["recommended_action"]
-        circuit_updates = StateManager.apply_circuit_breaker_action(state, action)
-        StateManager.update_state(state, circuit_updates)
-        return "emergency_progression"
-    
-    # PRIORIDADE MÁXIMA: Verificar falha de conversa (mais tolerante no scheduling)
-    if condition_checker.should_handoff(state, stage_context="scheduling"):
-        return "handoff"
-    
-    # NEW: Use SmartRouter for intelligent routing decisions
-    try:
-        import asyncio
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            
-        routing_decision = loop.run_until_complete(
-            smart_router_adapter.decide_route(state, "route_from_scheduling")
-        )
-        
-        # NEW: Plan and generate response BEFORE routing to node
-        loop.run_until_complete(
-            response_planner.plan_and_generate(state, routing_decision)
-        )
-        
-        target = routing_decision.target_node
-        
-        # Ensure target is valid for this edge
-        valid_targets = ["scheduling", "confirmation", "validation", "handoff", "emergency_progression"]
-        if target not in valid_targets:
-            logger.warning(f"SmartRouter returned invalid target '{target}' for scheduling, defaulting to confirmation")
-            target = "confirmation"
-        
-        logger.info(
-            f"SmartRouter decision for scheduling: {target} (confidence: {routing_decision.confidence:.2f})"
-        )
-        
-        return target
-        
-    except Exception as e:
-        logger.error(f"SmartRouter failed in route_from_scheduling: {e}, using fallback")
-        
-        # FALLBACK: Maintain critical legacy logic
-        if get_collected_field(state, "selected_slot") and get_collected_field(state, "contact_email"):
-            return "confirmation"
-        
-        return "validation" if should_route_to_validation(state) else "scheduling"
+    """Route from scheduling node - delegates to universal router"""
+    valid_targets = ["scheduling", "confirmation", "validation", "handoff", "emergency_progression"]
+    return universal_edge_router(state, "scheduling", valid_targets)
 
 
 def route_from_validation(
     state: CeciliaState
 ) -> Literal["greeting", "qualification", "information", "scheduling", "confirmation", "handoff", "retry_validation", "emergency_progression"]:
-    """Roteamento após validação + SmartRouter Integration"""
-    logger.info(f"Routing from validation for {state['phone_number']}")
-    
-    # CRÍTICO: Verificar circuit breaker PRIMEIRO
-    circuit_check = StateManager.check_circuit_breaker(state)
-    
-    if circuit_check["should_activate"]:
-        action = circuit_check["recommended_action"]
-        circuit_updates = StateManager.apply_circuit_breaker_action(state, action)
-        StateManager.update_state(state, circuit_updates)
-        return "emergency_progression"
-    
-    # PRIORIDADE MÁXIMA: Verificar falha de conversa
-    if condition_checker.should_handoff(state):
-        return "handoff"
-    
-    # NEW: Use SmartRouter for intelligent routing decisions
-    try:
-        import asyncio
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            
-        routing_decision = loop.run_until_complete(
-            smart_router_adapter.decide_route(state, "route_from_validation")
-        )
-        
-        target = routing_decision.target_node
-        
-        # Ensure target is valid for this edge
-        valid_targets = ["greeting", "qualification", "information", "scheduling", "confirmation", "handoff", "retry_validation", "emergency_progression"]
-        if target not in valid_targets:
-            logger.warning(f"SmartRouter returned invalid target '{target}' for validation, using stage fallback")
-            # Fallback based on current stage
-            current_stage = state["current_stage"]
-            if current_stage == ConversationStage.GREETING:
-                target = "greeting"
-            elif current_stage == ConversationStage.QUALIFICATION:
-                target = "qualification"
-            elif current_stage == ConversationStage.INFORMATION_GATHERING:
-                target = "information"
-            elif current_stage == ConversationStage.SCHEDULING:
-                target = "scheduling"
-            else:
-                target = "qualification"
-        
-        logger.info(
-            f"SmartRouter decision for validation: {target} (confidence: {routing_decision.confidence:.2f})"
-        )
-        
-        return target
-        
-    except Exception as e:
-        logger.error(f"SmartRouter failed in route_from_validation: {e}, using fallback")
-        
-        # FALLBACK: Se validação passou, voltar para estágio atual
-        if not should_route_to_validation(state):
-            current_stage = state["current_stage"]
-            
-            if current_stage == ConversationStage.GREETING:
-                return "greeting"
-            elif current_stage == ConversationStage.QUALIFICATION:
-                return "qualification"
-            elif current_stage == ConversationStage.INFORMATION_GATHERING:
-                return "information"
-            elif current_stage == ConversationStage.SCHEDULING:
-                return "scheduling"
-        elif current_stage == ConversationStage.CONFIRMATION:
-            return "confirmation"
-    
-    # Se ainda precisa validação e não excedeu tentativas
-    if condition_checker.should_retry_validation(state):
-        return "retry_validation"
-    
-    # Default: voltar para greeting
-    return "greeting"
+    """Route from validation node - delegates to universal router"""
+    valid_targets = ["greeting", "qualification", "information", "scheduling", "confirmation", "handoff", "retry_validation", "emergency_progression"]
+    return universal_edge_router(state, "validation", valid_targets)
 
 
 def route_from_emergency_progression(
     state: CeciliaState
 ) -> Literal["information", "scheduling", "handoff", "END"]:
-    """Roteamento após emergency progression do circuit breaker + SmartRouter Integration"""
-    logger.info(f"Emergency progression routing for {state['phone_number']}")
-    
-    # NEW: Use SmartRouter for intelligent emergency routing decisions
-    try:
-        import asyncio
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            
-        routing_decision = loop.run_until_complete(
-            smart_router_adapter.decide_route(state, "route_from_emergency_progression")
-        )
-        
-        target = routing_decision.target_node
-        
-        # Ensure target is valid for this edge
-        valid_targets = ["information", "scheduling", "handoff", "END"]
-        if target not in valid_targets:
-            logger.warning(f"SmartRouter returned invalid target '{target}' for emergency_progression, defaulting to handoff")
-            target = "handoff"
-        
-        logger.info(
-            f"SmartRouter emergency decision: {target} (confidence: {routing_decision.confidence:.2f})"
-        )
-        
-        return target
-        
-    except Exception as e:
-        logger.error(f"SmartRouter failed in route_from_emergency_progression: {e}, using fallback")
-        
-        # FALLBACK: Get the last circuit breaker action from decision trail
-        last_decisions = state["decision_trail"]["last_decisions"]
-        circuit_breaker_action = None
-        
-        # Find the most recent circuit breaker action
-        for decision in reversed(last_decisions):
-            if decision.get("type") == "circuit_breaker_action":
-                circuit_breaker_action = decision.get("action")
-                break
-    
-    logger.info(f"Found circuit breaker action: {circuit_breaker_action}")
-    
-    # Route based on circuit breaker action
-    if circuit_breaker_action == "handoff":
-        logger.info(f"Emergency progression → handoff for {state['phone_number']}")
-        return "handoff"
-    elif circuit_breaker_action == "emergency_scheduling":
-        logger.info(f"Emergency progression → scheduling for {state['phone_number']}")
-        return "scheduling"
-    elif circuit_breaker_action == "information_bypass":
-        logger.info(f"Emergency progression → information for {state['phone_number']}")
-        return "information"
-    
-    # Fallback logic based on conversation state
-    collected_data = state["collected_data"]
-    metrics = state["conversation_metrics"]
-    
-    # If conversation has been going on too long, handoff
-    if metrics["message_count"] > 20:
-        logger.warning(f"Emergency progression → handoff (message count exceeded): {state['phone_number']}")
-        return "handoff"
-    
-    # If we have basic info, try scheduling
-    has_basic_info = any([
-        collected_data.get("parent_name"),
-        collected_data.get("child_name"),
-        collected_data.get("student_age")
-    ])
-    
-    if has_basic_info:
-        logger.info(f"Emergency progression → scheduling (has basic info): {state['phone_number']}")
-        return "scheduling"
-    
-    # If no info collected and many failures, handoff
-    if metrics["failed_attempts"] >= 4:
-        logger.warning(f"Emergency progression → handoff (too many failures): {state['phone_number']}")
-        return "handoff"
-    
-    # Default: try to collect information first
-    logger.info(f"Emergency progression → information (default): {state['phone_number']}")
-    return "information"
+    """Route from emergency progression node - delegates to universal router"""
+    valid_targets = ["information", "scheduling", "handoff", "END"]
+    return universal_edge_router(state, "emergency_progression", valid_targets)
 
 
 def emergency_progression_node(state: CeciliaState) -> CeciliaState:
@@ -612,46 +283,10 @@ def emergency_progression_node(state: CeciliaState) -> CeciliaState:
 
 def route_from_confirmation(
     state: CeciliaState
-) -> Literal["completed", "validation"]:
-    """Roteamento após confirmação final + SmartRouter Integration"""
-    logger.info(f"Routing from confirmation for {state['phone_number']}")
-    
-    # NEW: Use SmartRouter for intelligent routing decisions
-    try:
-        import asyncio
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            
-        routing_decision = loop.run_until_complete(
-            smart_router_adapter.decide_route(state, "route_from_confirmation")
-        )
-        
-        target = routing_decision.target_node
-        
-        # Ensure target is valid for this edge (simple case)
-        valid_targets = ["completed", "validation"]
-        if target not in valid_targets:
-            logger.warning(f"SmartRouter returned invalid target '{target}' for confirmation, defaulting to completed")
-            target = "completed"
-        
-        logger.info(
-            f"SmartRouter decision for confirmation: {target} (confidence: {routing_decision.confidence:.2f})"
-        )
-        
-        return target
-        
-    except Exception as e:
-        logger.error(f"SmartRouter failed in route_from_confirmation: {e}, using fallback")
-        
-        # FALLBACK: Se ainda precisa validação, validar primeiro
-        if should_route_to_validation(state):
-            return "validation"
-        
-        # Caso contrário, conversa completa
-        return "completed"
+) -> Literal["handoff", "END"]:
+    """Route from confirmation node - delegates to universal router"""
+    valid_targets = ["handoff", "END"]
+    return universal_edge_router(state, "confirmation", valid_targets)
 
 
 

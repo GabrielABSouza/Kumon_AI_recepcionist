@@ -654,26 +654,31 @@ async def startup_event():
                 conversation_memory_service,
             )
 
-            # Add timeout for memory service initialization
+            # Initialize ONLY the service connections (Redis/PostgreSQL) - NOT sessions
             await asyncio.wait_for(
                 conversation_memory_service.initialize(),
                 timeout=30.0 if os.getenv("RAILWAY_ENVIRONMENT") else 60.0,
             )
-            app_logger.info("✅ Conversation memory system initialized successfully")
+            app_logger.info("✅ ConversationMemoryService connections initialized (Redis/PostgreSQL)")
 
-            # Perform health check
+            # Perform health check to ensure service is ready for session creation
             health_status = await conversation_memory_service.health_check()
-            app_logger.info(f"Memory system health: {health_status}")
+            app_logger.info(f"Memory service health: {health_status}")
+            
+            if health_status.get("status") == "healthy":
+                app_logger.info("🔗 ConversationMemoryService ready for CeciliaWorkflow session management")
+            else:
+                app_logger.warning(f"⚠️ ConversationMemoryService unhealthy: {health_status}")
 
         except asyncio.TimeoutError:
             timeout_val = 30 if os.getenv("RAILWAY_ENVIRONMENT") else 60
             app_logger.error(
-                f"❌ Memory service initialization timed out after {timeout_val} seconds"
+                f"❌ ConversationMemoryService initialization timed out after {timeout_val} seconds"
             )
-            app_logger.warning("Continuing with in-memory conversation storage")
+            app_logger.warning("CeciliaWorkflow will use fallback session management")
         except Exception as e:
-            app_logger.error(f"❌ Failed to initialize conversation memory system: {e}")
-            app_logger.warning("Continuing with in-memory conversation storage")
+            app_logger.error(f"❌ Failed to initialize ConversationMemoryService: {e}")
+            app_logger.warning("CeciliaWorkflow will use fallback session management")
 
     # Initialize Wave 2: Enhanced Cache System
     try:

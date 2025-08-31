@@ -577,24 +577,23 @@ class InformationNode:
             scheduling_check = self._can_progress_to_scheduling(state)
             
             if scheduling_check["can_progress"]:
-                # Can progress to scheduling
+                # Can progress to scheduling - return only business updates (no response)
                 return {
                     "current_stage": ConversationStage.SCHEDULING,
                     "current_step": ConversationStep.DATE_PREFERENCE
                 }
             else:
-                # Need more data - stay in information gathering
-                response = "Entendo! Me conte mais sobre o que você gostaria de saber sobre o Kumon. 🤔"
-                return self._create_response(state, response, {})
+                # Need more data - stay in information gathering, return only business updates
+                return {
+                    "current_stage": ConversationStage.INFORMATION_GATHERING,
+                    "current_step": ConversationStep.INFORMATION_GATHERING
+                }
         else:
-            # Continue with information gathering
-            response = "Que bom saber mais sobre seu interesse no Kumon! Como posso te ajudar com mais informações? 😊"
-            return self._create_response(state, response, {})
-        
-        # Fallback - should not reach here but ensure we always have a response
-        logger.warning("Information node reached unexpected fallback")
-        response = "Estou aqui para te ajudar com informações sobre o Kumon. O que você gostaria de saber?"
-        return self._create_response(state, response, {})
+            # Continue with information gathering - return only business updates
+            return {
+                "current_stage": ConversationStage.INFORMATION_GATHERING,
+                "current_step": ConversationStep.INFORMATION_GATHERING
+            }
 
 # Entry point para LangGraph
 async def information_node(state: CeciliaState) -> CeciliaState:
