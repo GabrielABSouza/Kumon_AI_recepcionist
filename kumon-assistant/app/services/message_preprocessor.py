@@ -205,26 +205,71 @@ class AuthValidator:
                 x_forwarded_host = headers.get("x-forwarded-host", "")
                 x_railway_edge = headers.get("x-railway-edge", "")
 
-                # Evolution API webhook patterns for Railway deployment
+                # 🚨 SECURITY: Stricter Evolution API webhook validation for Railway deployment
+                # Multiple criteria must match to prevent spoofing
+                railway_domain_match = ("railway.app" in host or "railway.app" in x_forwarded_host)
+                railway_headers_present = x_railway_edge and any(
+                    header.startswith("x-railway") for header in headers.keys()
+                )
+                evolution_user_agent = (
+                    "okhttp" in user_agent.lower() or 
+                    ("evolution" in user_agent.lower() and "api" in user_agent.lower())
+                )
+                
+                # ALL criteria must match for webhook authentication bypass
                 is_evolution_webhook = (
-                    ("railway.app" in host or "railway.app" in x_forwarded_host)
-                    and (
-                        "okhttp" in user_agent.lower()
-                        or "evolution" in user_agent.lower()
-                        or any(header.startswith("x-railway") for header in headers.keys())
-                    )
-                    and x_railway_edge  # Railway-specific header
+                    railway_domain_match and 
+                    railway_headers_present and
+                    evolution_user_agent and
+                    len(headers) > 3  # Legitimate webhooks have multiple headers
                 )
 
                 if is_evolution_webhook:
                     app_logger.info(
-                        "✅ Evolution API webhook detected via Railway infrastructure - authentication bypassed"
-                    )
-                    app_logger.debug(
-                        f"Host: {host}, User-Agent: {user_agent}, Railway Edge: {bool(x_railway_edge)}"
+                        "✅ Evolution API webhook authenticated via Railway infrastructure",
+                        extra={
+                            "security_bypass": "evolution_webhook",
+                            "host": host,
+                            "user_agent": user_agent[:50],  # Truncate for security
+                            "railway_headers": len([h for h in headers.keys() if h.startswith("x-railway")]),
+                            "total_headers": len(headers)
+                        }
                     )
                     return True
+                else:
+                    # Log failed webhook authentication attempts for security monitoring
+                    app_logger.warning(
+                        "🚨 Potential webhook spoofing attempt detected",
+                        extra={
+                            "security_incident": True,
+                            "railway_domain": railway_domain_match,
+                            "railway_headers": railway_headers_present, 
+                            "evolution_ua": evolution_user_agent,
+                            "header_count": len(headers),
+                            "host": host,
+                            "user_agent": user_agent[:50]
+                        }
+                    )
 
+                # 🚨 SECURITY AUDIT: Log unauthorized access attempt
+                app_logger.critical(
+                    "🚨 SECURITY BREACH ATTEMPT: Unauthorized API access denied",
+                    extra={
+                        "security_incident": True,
+                        "incident_type": "unauthorized_access",
+                        "available_headers": list(headers.keys()),
+                        "header_count": len(headers),
+                        "host": host,
+                        "user_agent": user_agent[:100],  # More context for investigation
+                        "x_forwarded_for": headers.get("x-forwarded-for", ""),
+                        "x_real_ip": headers.get("x-real-ip", ""),
+                        "referer": headers.get("referer", ""),
+                        "timestamp": datetime.now().isoformat(),
+                        "threat_level": "high"
+                    }
+                )
+                
+                # Also log to warning for backward compatibility
                 app_logger.warning("No API key found in request headers")
                 app_logger.warning(f"Available headers: {list(headers.keys())}")
                 return False

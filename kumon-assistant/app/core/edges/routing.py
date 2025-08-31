@@ -15,6 +15,7 @@ from .intent_detection import IntentDetector
 from .conditions import ConditionChecker
 from .validation_routing import kumon_validation_router
 from ..router.smart_router_adapter import smart_router_adapter
+from ..router.response_planner import response_planner
 import logging
 
 logger = logging.getLogger(__name__)
@@ -106,6 +107,11 @@ def route_from_greeting(
             smart_router_adapter.decide_route(state, "route_from_greeting")
         )
         
+        # NEW: Plan and generate response BEFORE routing to node
+        loop.run_until_complete(
+            response_planner.plan_and_generate(state, routing_decision)
+        )
+        
         # Map decision to valid return values for this edge
         target = routing_decision.target_node
         
@@ -169,6 +175,11 @@ def route_from_qualification(
             smart_router_adapter.decide_route(state, "route_from_qualification")
         )
         
+        # NEW: Plan and generate response BEFORE routing to node
+        loop.run_until_complete(
+            response_planner.plan_and_generate(state, routing_decision)
+        )
+        
         target = routing_decision.target_node
         
         # Ensure target is valid for this edge
@@ -230,6 +241,11 @@ def route_from_information(
             
         routing_decision = loop.run_until_complete(
             smart_router_adapter.decide_route(state, "route_from_information")
+        )
+        
+        # NEW: Plan and generate response BEFORE routing to node
+        loop.run_until_complete(
+            response_planner.plan_and_generate(state, routing_decision)
         )
         
         target = routing_decision.target_node
@@ -299,6 +315,11 @@ def route_from_scheduling(
             
         routing_decision = loop.run_until_complete(
             smart_router_adapter.decide_route(state, "route_from_scheduling")
+        )
+        
+        # NEW: Plan and generate response BEFORE routing to node
+        loop.run_until_complete(
+            response_planner.plan_and_generate(state, routing_decision)
         )
         
         target = routing_decision.target_node

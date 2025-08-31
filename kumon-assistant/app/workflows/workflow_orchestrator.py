@@ -503,7 +503,11 @@ class WorkflowOrchestrator:
             }
             
             # Send to performance monitor (if available)
-            await performance_monitor.track_workflow_execution(metrics)
+            try:
+                from ..monitoring.performance_monitor import performance_monitor
+                await performance_monitor.track_workflow_execution(metrics)
+            except ImportError:
+                app_logger.debug("Performance monitor not available - metrics not recorded")
             
         except Exception as e:
             app_logger.error(f"Failed to send workflow metrics: {e}")
@@ -524,8 +528,12 @@ class WorkflowOrchestrator:
             }
             
             # Send to performance monitor if available
-            if hasattr(performance_monitor, 'track_conversation'):
-                await performance_monitor.track_conversation(conversation_metrics)
+            try:
+                from ..monitoring.performance_monitor import performance_monitor
+                if hasattr(performance_monitor, 'track_conversation'):
+                    await performance_monitor.track_conversation(conversation_metrics)
+            except ImportError:
+                app_logger.debug("Performance monitor not available for conversation tracking")
             
             app_logger.info(f"Tracked conversation metrics for {metrics.get('phone_number')}")
             

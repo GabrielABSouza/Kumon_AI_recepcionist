@@ -196,19 +196,26 @@ async def handle_evolution_webhook(request: Request):
 
         except Exception as e:
             app_logger.error(f"🚨 MessagePreprocessor critical failure: {str(e)}", exc_info=True)
-
-            # Fallback: Continue to pipeline with original message (degraded mode)
-            app_logger.warning("🔄 Fallback to Pipeline Orchestrator with original message")
-
-            from app.core.pipeline_orchestrator import pipeline_orchestrator
-
-            await pipeline_orchestrator.initialize()
-
-            pipeline_result = await pipeline_orchestrator.execute_pipeline(
-                message=parsed_message,  # Original message as fallback
-                headers=headers,
-                instance_name=settings.EVOLUTION_INSTANCE_NAME or "kumonvilaa",
+            
+            # 🚨 SECURITY CRITICAL: DO NOT bypass authentication on exceptions
+            # Log the security incident
+            app_logger.critical(
+                f"🚨 SECURITY ALERT: Message processing exception bypassed authentication checks",
+                extra={
+                    "phone": parsed_message.phone,
+                    "error": str(e),
+                    "headers_available": len(headers),
+                    "security_incident": True
+                }
             )
+            
+            # Return secure error response - DO NOT PROCEED TO WORKFLOW
+            return {
+                "status": "system_error", 
+                "message": "System temporarily unavailable. Please try again later.",
+                "error_code": "SYSTEM_ERROR",
+                "timestamp": datetime.now().isoformat()
+            }
 
         # Record pipeline execution for monitoring
         await pipeline_monitor.record_pipeline_execution(

@@ -283,8 +283,8 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
                     f"Processing message from {parsed_message.phone} via instance {parsed_message.instance}"
                 )
 
-                # Process message in background to avoid webhook timeout
-                background_tasks.add_task(process_message_background, parsed_message)
+                # Process message in background to avoid webhook timeout - PASS HEADERS
+                background_tasks.add_task(process_message_background, parsed_message, dict(request.headers))
 
                 return {
                     "success": True,
@@ -320,8 +320,8 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
                     f"Processing message from {parsed_message.phone} via instance {parsed_message.instance}"
                 )
 
-                # Process message in background to avoid webhook timeout
-                background_tasks.add_task(process_message_background, parsed_message)
+                # Process message in background to avoid webhook timeout - PASS HEADERS
+                background_tasks.add_task(process_message_background, parsed_message, dict(request.headers))
 
                 return {
                     "success": True,
@@ -407,8 +407,8 @@ async def handle_messages_upsert_direct(request: Request):
 
         app_logger.info(f"📱 Processing message from instance: {instance}")
 
-        # Process message immediately for debugging
-        await process_message_from_webhook(webhook_data)
+        # Process message immediately for debugging - PASS REQUEST HEADERS
+        await process_message_from_webhook(webhook_data, request.headers)
 
         return {"status": "ok", "message": "Message received and queued for processing"}
 
@@ -678,7 +678,7 @@ async def handle_new_jwt_token(request: Request):
         return {"success": False, "error": "Failed to process new-jwt-token webhook"}
 
 
-async def process_message_from_webhook(webhook_data: Dict[str, Any]):
+async def process_message_from_webhook(webhook_data: Dict[str, Any], headers: Optional[Dict] = None):
     """Process message from webhook data"""
     app_logger.info(f"DEBUG: STARTING process_message_from_webhook function")
     try:
@@ -694,8 +694,8 @@ async def process_message_from_webhook(webhook_data: Dict[str, Any]):
                 f"✅ Message parsed successfully: {parsed_message.phone} | '{parsed_message.message}'"
             )
 
-            # Process message in background to avoid webhook timeout
-            await process_message_background(parsed_message)
+            # Process message in background to avoid webhook timeout - PASS HEADERS
+            await process_message_background(parsed_message, headers or {})
         else:
             app_logger.info("ℹ️ No processable message found in webhook")
 
@@ -703,7 +703,7 @@ async def process_message_from_webhook(webhook_data: Dict[str, Any]):
         app_logger.error(f"❌ Error processing message from webhook: {str(e)}")
 
 
-async def process_message_background(message: WhatsAppMessage):
+async def process_message_background(message: WhatsAppMessage, headers: Optional[Dict] = None):
     """Process incoming WhatsApp message in background"""
     try:
         # Build context for the message
@@ -724,8 +724,10 @@ async def process_message_background(message: WhatsAppMessage):
 
         # Clean Architecture: Preprocessor first, then workflow
         try:
-            # Step 1: Preprocess message
-            preprocessor_result = await message_preprocessor.process_message(message, {})
+            # Step 1: Preprocess message - USE ACTUAL HEADERS FROM REQUEST
+            actual_headers = headers or {}
+            app_logger.info(f"🔍 DEBUG: Passing headers to preprocessor: {list(actual_headers.keys())}")
+            preprocessor_result = await message_preprocessor.process_message(message, actual_headers)
             
             if not preprocessor_result.success:
                 app_logger.warning(f"Preprocessing failed: {preprocessor_result.error_code}")

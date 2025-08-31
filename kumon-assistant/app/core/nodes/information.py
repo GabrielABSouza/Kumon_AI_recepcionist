@@ -23,6 +23,21 @@ class InformationNode:
         3. PERFORMANCE TARGET: 80% queries answered in <1s, 70% reduction in RAG calls
         """
         
+        # NEW ARCHITECTURE: Check if response is pre-planned by ResponsePlanner
+        if state.get("planned_response"):
+            response = state["planned_response"]
+            # Clear planned_response to avoid reuse
+            del state["planned_response"]
+            
+            # Apply business logic updates only (no response generation)
+            updates = self._get_business_updates_for_information(state)
+            
+            logger.info(f"✅ Using pre-planned response for information (ResponsePlanner)")
+            return self._create_response(state, response, updates)
+        
+        # LEGACY PATH: Original logic (will be removed in Fase 2)
+        logger.info(f"⚠️ Using legacy information logic (planned_response not found)")
+        
         user_message = state["last_user_message"]
         start_time = time.time()
         
@@ -100,7 +115,7 @@ class InformationNode:
                 
             else:
                 # Fallback para respostas específicas hardcoded
-                answer = self._get_specific_answer_fallback(user_message)
+                answer = await self._get_specific_answer_fallback(user_message, state)
                 question_category = self._categorize_question(user_message)
                 
                 if not answer:
@@ -111,7 +126,7 @@ class InformationNode:
         except Exception as e:
             logger.error(f"RAG query error: {str(e)}")
             # Fallback para respostas hardcoded em caso de erro RAG
-            answer = self._get_specific_answer_fallback(user_message)
+            answer = await self._get_specific_answer_fallback(user_message, state)
             question_category = self._categorize_question(user_message)
             
             if not answer:
@@ -321,25 +336,31 @@ class InformationNode:
         else:
             return "geral"
     
-    def _get_specific_answer_fallback(self, user_message: str) -> str:
+    async def _get_specific_answer_fallback(self, user_message: str, state: CeciliaState) -> str:
         """Respostas específicas como fallback quando RAG falha"""
         message_lower = user_message.lower()
         
+        # Verificar se SmartRouter permite uso de templates
+        routing_info = state.get("routing_info", {})
+        threshold_action = routing_info.get("threshold_action", "fallback_level1")
+        
         # BUSINESS CRITICAL: Updated pricing per PROJECT_SCOPE.md (R$ 375,00 + R$ 100,00)
         if any(word in message_lower for word in ["preço", "valor", "custa", "mensalidade", "investimento"]):
-            return (
-                "💰 **Investimento Kumon Vila A:**\n\n"
-                "• **Matemática ou Português**: R$ 375,00/mês por disciplina\n"
-                "• **Inglês**: R$ 375,00/mês\n"
-                "• **Taxa de matrícula**: R$ 100,00 (única vez)\n\n"
-                "**Incluso em todos os planos:**\n"
-                "• Material didático exclusivo Kumon 📚\n"
-                "• Acompanhamento pedagógico personalizado 👨‍🏫\n"
-                "• Relatórios de progresso detalhados 📊\n"
-                "• 2 aulas semanais na unidade (Segunda a Sexta, 8h às 18h) 🕐\n\n"
-                "🎓 **É um investimento no futuro do seu filho!**\n"
-                "📅 Quer agendar uma apresentação gratuita?"
-            )
+            if threshold_action in ["proceed", "enhance_with_llm"]:
+                try:
+                    response = await prompt_manager.get_prompt(
+                        name="kumon:information:pricing:complete_pricing",
+                        variables={},
+                        conversation_state=state
+                    )
+                    logger.info(f"✅ Using PromptManager for pricing_info (threshold_action={threshold_action})")
+                    return response
+                except Exception as e:
+                    logger.warning(f"⚠️ PromptManager failed for information:pricing, using fallback: {e}")
+                    return self._get_hardcoded_pricing_info()
+            else:
+                logger.info(f"⚡ Using hardcoded pricing (threshold_action={threshold_action})")
+                return self._get_hardcoded_pricing_info()
         
         # Adicionar outras respostas críticas conforme necessário
         return None
@@ -509,6 +530,71 @@ class InformationNode:
             "step": updated_state["current_step"],
             "intent": "information_gathering"
         }
+    
+    def _get_hardcoded_pricing_info(self) -> str:
+        """Resposta hardcoded segura para informações de preço"""
+        return (
+            "💰 **Investimento Kumon Vila A:**\n\n"
+            "• **Matemática ou Português**: R$ 375,00/mês por disciplina\n"
+            "• **Inglês**: R$ 375,00/mês\n"
+            "• **Taxa de matrícula**: R$ 100,00 (única vez)\n\n"
+            "**Incluso em todos os planos:**\n"
+            "• Material didático exclusivo Kumon 📚\n"
+            "• Acompanhamento pedagógico personalizado 👨‍🏫\n"
+            "• Relatórios de progresso detalhados 📊\n"
+            "• 2 aulas semanais na unidade (Segunda a Sexta, 8h às 18h) 🕐\n\n"
+            "🎓 **É um investimento no futuro do seu filho!**\n"
+            "📅 Quer agendar uma apresentação gratuita?"
+        )
+    
+    def _get_business_updates_for_information(self, state: CeciliaState) -> Dict[str, Any]:
+        """
+        Aplica apenas updates de negócio para information gathering.
+        Não gera resposta - apenas atualiza collected_data, stage/step, métricas.
+        """
+        user_message = state.get("last_user_message", "")
+        
+        # Increment message count for metrics
+        from ..state.models import increment_metric
+        increment_metric(state, "message_count")
+        
+        # Extract program interest if not already collected
+        if not get_collected_field(state, "programs_of_interest"):
+            program_interest = self._extract_program_interest(user_message)
+            if program_interest:
+                set_collected_field(state, "programs_of_interest", program_interest)
+        
+        # Track question category for analytics
+        question_category = self._categorize_question(user_message)
+        if not state.get("collected_data", {}).get("question_categories"):
+            state.setdefault("collected_data", {})["question_categories"] = []
+        state["collected_data"]["question_categories"].append(question_category)
+        
+        # Check if should suggest scheduling
+        should_suggest = self._should_suggest_scheduling(state)
+        
+        if should_suggest:
+            scheduling_check = self._can_progress_to_scheduling(state)
+            
+            if scheduling_check["can_progress"]:
+                # Can progress to scheduling
+                return {
+                    "current_stage": ConversationStage.SCHEDULING,
+                    "current_step": ConversationStep.DATE_PREFERENCE
+                }
+            else:
+                # Need more data - stay in information gathering
+                response = "Entendo! Me conte mais sobre o que você gostaria de saber sobre o Kumon. 🤔"
+                return self._create_response(state, response, {})
+        else:
+            # Continue with information gathering
+            response = "Que bom saber mais sobre seu interesse no Kumon! Como posso te ajudar com mais informações? 😊"
+            return self._create_response(state, response, {})
+        
+        # Fallback - should not reach here but ensure we always have a response
+        logger.warning("Information node reached unexpected fallback")
+        response = "Estou aqui para te ajudar com informações sobre o Kumon. O que você gostaria de saber?"
+        return self._create_response(state, response, {})
 
 # Entry point para LangGraph
 async def information_node(state: CeciliaState) -> CeciliaState:

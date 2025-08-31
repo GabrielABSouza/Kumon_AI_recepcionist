@@ -83,15 +83,24 @@ class SchedulingNode:
         
         # Saturday scheduling restriction (Legacy analysis requirement)
         if any(word in message_lower for word in ['sábado', 'sabado', 'saturday']):
-            response = (
-                "😔 Infelizmente **não atendemos aos sábados**.\n\n"
-                "Nossos horários de funcionamento são:\n"
-                "🕐 **Segunda a Sexta-feira, das 9h às 17h**\n\n"
-                "Qual período é melhor para você durante a semana?\n\n"
-                "**🌅 MANHÃ** (9h às 12h)\n"
-                "**🌆 TARDE** (14h às 17h)\n\n"
-                "Digite **MANHÃ** ou **TARDE** 😊"
-            )
+            # Verificar se SmartRouter permite uso de templates
+            routing_info = state.get("routing_info", {})
+            threshold_action = routing_info.get("threshold_action", "fallback_level1")
+            
+            if threshold_action in ["proceed", "enhance_with_llm"]:
+                try:
+                    response = await prompt_manager.get_prompt(
+                        name="kumon:scheduling:restriction:saturday_unavailable",
+                        variables={},
+                        conversation_state=state
+                    )
+                    logger.info(f"✅ Using PromptManager for saturday_restriction (threshold_action={threshold_action})")
+                except Exception as e:
+                    logger.warning(f"⚠️ PromptManager failed for scheduling:saturday_restriction, using fallback: {e}")
+                    response = self._get_hardcoded_saturday_restriction()
+            else:
+                logger.info(f"⚡ Using hardcoded response (threshold_action={threshold_action})")
+                response = self._get_hardcoded_saturday_restriction()
             updates = {}
             return self._create_response(state, response, updates)
         
@@ -457,6 +466,33 @@ class SchedulingNode:
         except Exception as e:
             logger.error(f"Error creating calendar event: {e}")
             return None
+    
+    def _get_hardcoded_scheduling_start(self, parent_name: str, student_ref: str) -> str:
+        """Resposta hardcoded segura para início do agendamento"""
+        return (
+            f"Perfeito, {parent_name}! Vamos agendar a apresentação para {student_ref}! 📅\n\n"
+            "Durante a visita você poderá:\n"
+            "• 📚 Conhecer nossa metodologia na prática\n"
+            "• 📝 Fazer uma avaliação diagnóstica gratuita\n"
+            "• 👩‍🏫 Conversar com nossa orientadora educacional\n"
+            "• 📋 Ver nossos materiais didáticos exclusivos\n\n"
+            "Qual período é melhor para você?\n\n"
+            "**🌅 MANHÃ** (9h às 12h)\n"
+            "**🌆 TARDE** (14h às 17h)\n\n"
+            "Digite **MANHÃ** ou **TARDE** 😊"
+        )
+    
+    def _get_hardcoded_saturday_restriction(self) -> str:
+        """Resposta hardcoded segura para restrição de sábado"""
+        return (
+            "😔 Infelizmente **não atendemos aos sábados**.\n\n"
+            "Nossos horários de funcionamento são:\n"
+            "🕐 **Segunda a Sexta-feira, das 9h às 17h**\n\n"
+            "Qual período é melhor para você durante a semana?\n\n"
+            "**🌅 MANHÃ** (9h às 12h)\n"
+            "**🌆 TARDE** (14h às 17h)\n\n"
+            "Digite **MANHÃ** ou **TARDE** 😊"
+        )
     
     def _create_response(self, state: CeciliaState, response: str, updates: Dict[str, Any]) -> Dict[str, Any]:
         """Cria resposta padronizada"""

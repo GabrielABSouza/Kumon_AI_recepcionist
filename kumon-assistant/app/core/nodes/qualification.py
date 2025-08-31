@@ -2,6 +2,7 @@ from typing import Dict, Any
 import re
 from ..state.models import CeciliaState, ConversationStage, ConversationStep, get_collected_field, set_collected_field
 from ..state.managers import StateManager
+from ...prompts.manager import prompt_manager
 import logging
 
 logger = logging.getLogger(__name__)
@@ -32,29 +33,55 @@ class QualificationNode:
             if age_match:
                 age = int(age_match.group(1))
                 
+                # Verificar se SmartRouter permite uso de templates
+                routing_info = state.get("routing_info", {})
+                threshold_action = routing_info.get("threshold_action", "fallback_level1")
+                
                 if age < 3:
-                    child_ref = "você" if is_for_self else f"o {child_name}"
-                    response = (
-                        f"Entendo! Para crianças menores de 3 anos, recomendamos aguardar um pouco mais. "
-                        f"O Kumon é mais eficaz a partir dos 3 anos, quando {child_ref} já tem maior concentração. 🧒\n\n"
-                        "Gostaria de saber mais sobre quando seria o momento ideal para começar?"
-                    )
+                    if threshold_action in ["proceed", "enhance_with_llm"]:
+                        try:
+                            response = await prompt_manager.get_prompt(
+                                name="kumon:qualification:age_feedback:too_young",
+                                variables={"child_name": child_name, "is_for_self": is_for_self},
+                                conversation_state=state
+                            )
+                            logger.info(f"✅ Using PromptManager for age_too_young (threshold_action={threshold_action})")
+                        except Exception as e:
+                            logger.warning(f"⚠️ PromptManager failed for qualification:age_too_young, using fallback: {e}")
+                            response = self._get_hardcoded_age_too_young(child_name, is_for_self)
+                    else:
+                        logger.info(f"⚡ Using hardcoded response (threshold_action={threshold_action})")
+                        response = self._get_hardcoded_age_too_young(child_name, is_for_self)
                 elif age <= 18:
-                    child_ref = "você" if is_for_self else f"o {child_name}"
-                    possessive = "sua" if is_for_self else f"do {child_name}"
-                    response = (
-                        f"Perfeito! Com {age} anos, {child_ref} está em uma idade excelente para o Kumon! 🎓\n\n"
-                        f"Em que série {child_ref} está atualmente? Ou se preferir, pode me contar um pouco sobre "
-                        f"o nível de conhecimento atual {possessive} em matemática ou português."
-                    )
+                    if threshold_action in ["proceed", "enhance_with_llm"]:
+                        try:
+                            response = await prompt_manager.get_prompt(
+                                name="kumon:qualification:age_feedback:ideal_age",
+                                variables={"age": age, "child_name": child_name, "is_for_self": is_for_self},
+                                conversation_state=state
+                            )
+                            logger.info(f"✅ Using PromptManager for age_ideal (threshold_action={threshold_action})")
+                        except Exception as e:
+                            logger.warning(f"⚠️ PromptManager failed for qualification:age_ideal, using fallback: {e}")
+                            response = self._get_hardcoded_age_ideal(age, child_name, is_for_self)
+                    else:
+                        logger.info(f"⚡ Using hardcoded response (threshold_action={threshold_action})")
+                        response = self._get_hardcoded_age_ideal(age, child_name, is_for_self)
                 else:
-                    child_ref = "você" if is_for_self else f"o {child_name}"
-                    possessive = "seu" if is_for_self else f"do {child_name}"
-                    response = (
-                        f"Que bom saber do interesse! Com {age} anos... nunca é tarde para aprender! 💪\n\n"
-                        f"Qual é o objetivo principal {possessive}? Reforçar conceitos básicos, se preparar para "
-                        f"concursos ou desenvolver habilidades específicas?"
-                    )
+                    if threshold_action in ["proceed", "enhance_with_llm"]:
+                        try:
+                            response = await prompt_manager.get_prompt(
+                                name="kumon:qualification:age_feedback:adult_age",
+                                variables={"age": age, "child_name": child_name, "is_for_self": is_for_self},
+                                conversation_state=state
+                            )
+                            logger.info(f"✅ Using PromptManager for age_adult (threshold_action={threshold_action})")
+                        except Exception as e:
+                            logger.warning(f"⚠️ PromptManager failed for qualification:age_adult, using fallback: {e}")
+                            response = self._get_hardcoded_age_adult(age, child_name, is_for_self)
+                    else:
+                        logger.info(f"⚡ Using hardcoded response (threshold_action={threshold_action})")
+                        response = self._get_hardcoded_age_adult(age, child_name, is_for_self)
                 
                 updates = {
                     "student_age": age,
@@ -336,6 +363,35 @@ class QualificationNode:
             score += 15
         
         return min(score, 100)  # Cap at 100
+    
+    def _get_hardcoded_age_too_young(self, child_name: str, is_for_self: bool) -> str:
+        """Resposta hardcoded segura para idade muito baixa"""
+        child_ref = "você" if is_for_self else f"o {child_name}"
+        return (
+            f"Entendo! Para crianças menores de 3 anos, recomendamos aguardar um pouco mais. "
+            f"O Kumon é mais eficaz a partir dos 3 anos, quando {child_ref} já tem maior concentração. 🧒\n\n"
+            "Gostaria de saber mais sobre quando seria o momento ideal para começar?"
+        )
+    
+    def _get_hardcoded_age_ideal(self, age: int, child_name: str, is_for_self: bool) -> str:
+        """Resposta hardcoded segura para idade ideal"""
+        child_ref = "você" if is_for_self else f"o {child_name}"
+        possessive = "sua" if is_for_self else f"do {child_name}"
+        return (
+            f"Perfeito! Com {age} anos, {child_ref} está em uma idade excelente para o Kumon! 🎓\n\n"
+            f"Em que série {child_ref} está atualmente? Ou se preferir, pode me contar um pouco sobre "
+            f"o nível de conhecimento atual {possessive} em matemática ou português."
+        )
+    
+    def _get_hardcoded_age_adult(self, age: int, child_name: str, is_for_self: bool) -> str:
+        """Resposta hardcoded segura para idade adulta"""
+        child_ref = "você" if is_for_self else f"o {child_name}"
+        possessive = "seu" if is_for_self else f"do {child_name}"
+        return (
+            f"Que bom saber do interesse! Com {age} anos... nunca é tarde para aprender! 💪\n\n"
+            f"Qual é o objetivo principal {possessive}? Reforçar conceitos básicos, se preparar para "
+            f"concursos ou desenvolver habilidades específicas?"
+        )
     
     def _create_response(
         self, 
