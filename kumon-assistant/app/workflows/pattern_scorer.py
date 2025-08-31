@@ -173,6 +173,16 @@ class PatternScorer:
             per_route = {}
             
             for route_name, route_config in self.route_patterns.items():
+                # STAGE-AWARE LOGIC: Prevent greeting re-classification when already in GREETING
+                if route_name == "greeting" and current_stage == ConversationStage.GREETING:
+                    # User is already in GREETING stage - don't re-classify name as greeting
+                    # Check if this looks like a name response
+                    name_pattern = r"^[A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,}(?:\s+[A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,})*$"
+                    if re.match(name_pattern, message.strip()):
+                        # This is a name response - score as information/response instead
+                        per_route[route_name] = 0.1  # Very low greeting score
+                        continue
+                
                 # Base pattern matching
                 base_score = self._calculate_base_pattern_score(
                     message_lower, route_config["patterns"], route_config["base_score"]
@@ -193,6 +203,13 @@ class PatternScorer:
                     boosted_score = min(1.0, boosted_score + intent_boosts["human_help"])
                 elif route_name == "clarification" and intent_boosts.get("confusion", 0) > 0:
                     boosted_score = min(1.0, boosted_score + intent_boosts["confusion"])
+                
+                # STAGE-AWARE BOOST: Name responses in GREETING should boost information score
+                if (route_name == "information" and current_stage == ConversationStage.GREETING):
+                    name_pattern = r"^[A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,}(?:\s+[A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,})*$"
+                    if re.match(name_pattern, message.strip()):
+                        # Boost information score for name responses in GREETING
+                        boosted_score = min(1.0, boosted_score + 0.6)  # Strong boost
                 
                 # Apply stage multipliers
                 stage_multiplier = STAGE_CONFIDENCE_MULTIPLIERS.get(current_stage, 1.0)
