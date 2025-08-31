@@ -34,7 +34,7 @@ from asyncpg import Pool, Connection
 from pydantic_settings import BaseSettings
 
 from ..models.conversation_memory import (
-    ConversationSession, ConversationMessage, UserProfile,
+    ConversationSession, ConversationMessage, UserProfile, ConversationMetrics,
     ConversationStage, ConversationStep, ConversationStatus,
     UserIntent, SentimentLabel, LeadScore,
     create_conversation_session, create_user_profile

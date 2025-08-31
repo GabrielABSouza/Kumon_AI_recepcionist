@@ -134,8 +134,72 @@ class PostgreSQLCheckpointSaver(BaseCheckpointSaver):
             app_logger.error(f"Failed to get checkpoint: {e}")
             return None
     
+    async def aget_tuple(self, config: Dict[str, Any]) -> Optional[CheckpointTuple]:
+        """
+        Get checkpoint tuple (async) - Required by LangGraph
+        """
+        try:
+            await self.initialize()
+            
+            thread_id = config.get("configurable", {}).get("thread_id")
+            if not thread_id:
+                return None
+                
+            # Get latest checkpoint for thread
+            checkpoint_data = await self.repository.get_latest_checkpoint(thread_id)
+            if not checkpoint_data:
+                return None
+                
+            # Convert to LangGraph format
+            checkpoint = Checkpoint(
+                v=1,
+                ts=checkpoint_data.created_at.isoformat(),
+                id=str(checkpoint_data.id),
+                channel_values=checkpoint_data.checkpoint_data.get("channel_values", {}),
+                channel_versions=checkpoint_data.checkpoint_data.get("channel_versions", {}),
+                versions_seen=checkpoint_data.checkpoint_data.get("versions_seen", {})
+            )
+            
+            metadata = CheckpointMetadata(
+                source="database",
+                step=0,
+                writes={}
+            )
+            
+            return CheckpointTuple(
+                config=config,
+                checkpoint=checkpoint,
+                metadata=metadata
+            )
+            
+        except Exception as e:
+            app_logger.error(f"Failed to get checkpoint tuple: {e}")
+            return None
+    
+    async def aget(self, config: Dict[str, Any]) -> Optional[Checkpoint]:
+        """Get checkpoint (async)"""
+        tuple_result = await self.aget_tuple(config)
+        return tuple_result.checkpoint if tuple_result else None
+    
     async def _async_get(self, config: Dict[str, Any]) -> Optional[Checkpoint]:
         """Async implementation of checkpoint retrieval"""
+        return await self.aget(config)
+        
+    def get_tuple(self, config: Dict[str, Any]) -> Optional[CheckpointTuple]:
+        """Get checkpoint tuple (sync)"""
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                app_logger.debug("Async get_tuple requested in sync context - returning None")
+                return None
+            else:
+                return loop.run_until_complete(self.aget_tuple(config))
+        except Exception as e:
+            app_logger.error(f"Failed to get checkpoint tuple sync: {e}")
+            return None
+
+    async def _async_get_legacy(self, config: Dict[str, Any]) -> Optional[Checkpoint]:
+        """Legacy async implementation of checkpoint retrieval"""
         try:
             await self.initialize()
             
@@ -339,6 +403,80 @@ class PostgreSQLCheckpointSaver(BaseCheckpointSaver):
                 "error": str(e)
             }
     
+    async def aput(self, config: Dict[str, Any], checkpoint: Checkpoint, metadata: CheckpointMetadata) -> None:
+        """Put checkpoint (async)"""
+        await self._async_put(config, checkpoint, metadata)
+    
+    async def alist(self, config: Dict[str, Any]) -> List[CheckpointTuple]:
+        """List checkpoints (async)"""
+        try:
+            await self.initialize()
+            
+            thread_id = config.get("configurable", {}).get("thread_id")
+            if not thread_id:
+                return []
+                
+            # Get all checkpoints for thread
+            checkpoints = await self.repository.get_checkpoint_history(thread_id)
+            results = []
+            
+            for checkpoint_data in checkpoints:
+                checkpoint = Checkpoint(
+                    v=1,
+                    ts=checkpoint_data["created_at"],
+                    id=str(checkpoint_data["id"]),
+                    channel_values=checkpoint_data.get("checkpoint_data", {}).get("channel_values", {}),
+                    channel_versions=checkpoint_data.get("checkpoint_data", {}).get("channel_versions", {}),
+                    versions_seen=checkpoint_data.get("checkpoint_data", {}).get("versions_seen", {})
+                )
+                
+                metadata = CheckpointMetadata(
+                    source="database",
+                    step=0,
+                    writes={}
+                )
+                
+                results.append(CheckpointTuple(
+                    config=config,
+                    checkpoint=checkpoint,
+                    metadata=metadata
+                ))
+                
+            return results
+            
+        except Exception as e:
+            app_logger.error(f"Failed to list checkpoints: {e}")
+            return []
+
+    async def aput_writes(self, config: Dict[str, Any], writes: List, task_id: str) -> None:
+        """Put writes (async) - stub implementation"""
+        pass
+    
+    def put_writes(self, config: Dict[str, Any], writes: List, task_id: str) -> None:
+        """Put writes (sync) - stub implementation"""  
+        pass
+
+    async def adelete_thread(self, config: Dict[str, Any]) -> None:
+        """Delete thread (async)"""
+        try:
+            await self.initialize()
+            thread_id = config.get("configurable", {}).get("thread_id")
+            if thread_id:
+                await self.repository.delete_workflow_state(thread_id)
+        except Exception as e:
+            app_logger.error(f"Failed to delete thread: {e}")
+
+    def delete_thread(self, config: Dict[str, Any]) -> None:
+        """Delete thread (sync)"""
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                app_logger.debug("Async delete_thread requested in sync context - skipping")
+            else:
+                loop.run_until_complete(self.adelete_thread(config))
+        except Exception as e:
+            app_logger.error(f"Failed to delete thread sync: {e}")
+
     async def cleanup(self):
         """Cleanup checkpointer resources"""
         try:
