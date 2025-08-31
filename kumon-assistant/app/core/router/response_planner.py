@@ -145,6 +145,7 @@ class ResponsePlanner:
         )
         
         # Store metadata
+        state["response_metadata"] = state.get("response_metadata", {})
         state["response_metadata"].update({
             "prompt_used": template_name,
             "variables_resolved": len(variables),
@@ -196,6 +197,7 @@ Be warm, professional, and focus on how Kumon can help the student.
         response = await llm_service.generate_response(enhanced_prompt)
         
         # Store metadata
+        state["response_metadata"] = state.get("response_metadata", {})
         state["response_metadata"].update({
             "prompt_used": "llm_enhanced",
             "rag_used": needs_rag,
@@ -225,6 +227,7 @@ Be warm, professional, and focus on how Kumon can help the student.
                 conversation_state=state
             )
             
+            state["response_metadata"] = state.get("response_metadata", {})
             state["response_metadata"].update({
                 "prompt_used": template_name,
                 "fallback_level": fallback_level,
@@ -247,6 +250,7 @@ Be warm, professional, and focus on how Kumon can help the student.
                 conversation_state=state
             )
             
+            state["response_metadata"] = state.get("response_metadata", {})
             state["response_metadata"].update({
                 "prompt_used": "kumon:handoff:transfer:human_contact",
                 "sources": ["handoff_template"]
