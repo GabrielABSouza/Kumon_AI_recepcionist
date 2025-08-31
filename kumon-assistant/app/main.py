@@ -48,8 +48,8 @@ from app.api.v1 import conversation, health, units, whatsapp
 from app.core.config import settings
 from app.core.logger import app_logger
 from app.services.cache_manager import cache_manager
-from app.workflows.development_workflow import development_workflow_manager
-from app.workflows.maintainability_engine import maintainability_engine
+# from app.workflows.development_workflow import development_workflow_manager  # File missing
+# from app.workflows.maintainability_engine import maintainability_engine  # File missing
 
 # Temporarily disable monitoring imports until dependencies are installed
 # from app.monitoring.performance_middleware import PerformanceMiddleware

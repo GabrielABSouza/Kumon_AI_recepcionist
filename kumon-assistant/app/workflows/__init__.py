@@ -12,9 +12,9 @@ This package contains the modular SmartRouter system:
 
 # Core SmartRouter components
 from .smart_router import smart_router
-from .intent_classifier import IntentClassifier
+from .intent_classifier import AdvancedIntentClassifier as IntentClassifier
 from .pattern_scorer import PatternScorer
-from .intelligent_threshold_system import ThresholdEngine
+from .intelligent_threshold_system import IntelligentThresholdSystem as ThresholdEngine
 from .context_manager import context_manager
 
 # Legacy orchestrator (being phased out)

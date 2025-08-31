@@ -211,7 +211,7 @@ class UnifiedServiceResolver:
             # REMOVED: SecureConversationWorkflow replaced by CeciliaWorkflow
             # if service_name == "secure_workflow":
             #     return await self._lazy_init_secure_workflow()
-            elif service_name == "llm_service":
+            if service_name == "llm_service":
                 return await self._lazy_init_llm_service()
             elif service_name == "intent_classifier":
                 return await self._lazy_init_intent_classifier()
