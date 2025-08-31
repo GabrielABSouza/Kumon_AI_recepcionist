@@ -18,7 +18,8 @@ from .models import (
     set_collected_field,
     increment_metric,
     add_decision_to_trail,
-    add_validation_failure
+    add_validation_failure,
+    safe_update_state
 )
 
 from .managers import (
@@ -39,5 +40,6 @@ __all__ = [
     "increment_metric",
     "add_decision_to_trail",
     "add_validation_failure",
+    "safe_update_state",
     "StateManager"
 ]

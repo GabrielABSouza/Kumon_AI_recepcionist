@@ -1,6 +1,7 @@
 from typing import Dict, Any
 from ..state.models import CeciliaState, ConversationStage, ConversationStep
 from ..state.managers import StateManager
+from ..state.models import safe_update_state
 import logging
 
 logger = logging.getLogger(__name__)
@@ -156,7 +157,8 @@ async def greeting_node(state: CeciliaState) -> CeciliaState:
     result = await node(state)
     
     # Atualizar estado com resposta
-    state.update(result["updated_state"])
+    # CRITICAL FIX: Use safe_update_state to preserve CeciliaState structure
+    safe_update_state(state, result["updated_state"])
     state["last_bot_response"] = result["response"]
     
     return state

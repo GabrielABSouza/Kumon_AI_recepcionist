@@ -2,6 +2,7 @@ from typing import Dict, Any, List
 import time
 from ..state.models import CeciliaState, ConversationStage, ConversationStep, get_collected_field, set_collected_field, increment_metric
 from ..state.managers import StateManager
+from ..state.models import safe_update_state
 from ...core.service_factory import get_langchain_rag_service  # FAQ Qdrant integration
 from ...services.intent_first_router import intent_first_router, IntentCategory
 import logging
@@ -601,7 +602,8 @@ async def information_node(state: CeciliaState) -> CeciliaState:
     node = InformationNode()
     result = await node(state)
     
-    state.update(result["updated_state"])
+    # CRITICAL FIX: Use safe_update_state to preserve CeciliaState structure
+    safe_update_state(state, result["updated_state"])
     state["last_bot_response"] = result["response"]
     
     return state

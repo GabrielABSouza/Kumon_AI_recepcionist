@@ -1,6 +1,7 @@
 from typing import Dict, Any, List
 from ..state.models import CeciliaState, get_collected_field, set_collected_field
 from ..state.managers import StateManager
+from ..state.models import safe_update_state
 import logging
 
 logger = logging.getLogger(__name__)
@@ -222,12 +223,14 @@ async def validation_node(state: CeciliaState) -> CeciliaState:
     # Atualizar estado baseado no resultado da validação
     if result["validation_result"] == "failed" and result["is_critical"]:
         # Critical failure - need to regenerate response
-        state.update(result["updated_state"])
+        # CRITICAL FIX: Use safe_update_state to preserve CeciliaState structure
+        safe_update_state(state, result["updated_state"])
         state["needs_regeneration"] = True
         state["validation_failure_reason"] = result["issues"]
     else:
         # Success or non-critical - proceed
-        state.update(result.get("updated_state", state))
+        # CRITICAL FIX: Use safe_update_state to preserve CeciliaState structure
+        safe_update_state(state, result.get("updated_state", {}))
         state["validation_passed"] = True
         if result.get("warnings"):
             state["validation_warnings"] = result["warnings"]

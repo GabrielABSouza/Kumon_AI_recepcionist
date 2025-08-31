@@ -7,6 +7,7 @@ Este node lida com a confirmação final do agendamento e encerramento da conver
 from typing import Dict, Any
 from ..state.models import CeciliaState, ConversationStage, ConversationStep, get_collected_field, set_collected_field
 from ..state.managers import StateManager
+from ..state.models import safe_update_state
 import logging
 
 logger = logging.getLogger(__name__)
@@ -82,7 +83,8 @@ async def confirmation_node(state: CeciliaState) -> CeciliaState:
     node = ConfirmationNode()
     result = await node(state)
     
-    state.update(result["updated_state"])
+    # CRITICAL FIX: Use safe_update_state to preserve CeciliaState structure
+    safe_update_state(state, result["updated_state"])
     state["last_bot_response"] = result["response"]
     
     return state

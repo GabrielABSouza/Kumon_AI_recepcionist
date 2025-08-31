@@ -2,6 +2,7 @@ from typing import Dict, Any
 import re
 from ..state.models import CeciliaState, ConversationStage, ConversationStep, get_collected_field, set_collected_field
 from ..state.managers import StateManager
+from ..state.models import safe_update_state
 from ...prompts.manager import prompt_manager
 import logging
 
@@ -260,7 +261,8 @@ class QualificationNode:
         """Gera resumo da qualificação e decide próximo passo"""
         
         if custom_updates:
-            state.update(custom_updates)
+            # CRITICAL FIX: Use safe_update_state to preserve CeciliaState structure
+            safe_update_state(state, custom_updates)
         
         # Collect all qualification data
         child_name = get_collected_field(state, "child_name") or ""
@@ -418,7 +420,8 @@ async def qualification_node(state: CeciliaState) -> CeciliaState:
     result = await node(state)
     
     # Atualizar estado com resposta
-    state.update(result["updated_state"])
+    # CRITICAL FIX: Use safe_update_state to preserve CeciliaState structure
+    safe_update_state(state, result["updated_state"])
     state["last_bot_response"] = result["response"]
     
     return state

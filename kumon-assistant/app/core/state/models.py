@@ -218,3 +218,18 @@ def add_validation_failure(state: CeciliaState, failure: Dict[str, Any]) -> None
     # Manter apenas últimas 5 falhas
     if len(state["decision_trail"]["validation_failures"]) > 5:
         state["decision_trail"]["validation_failures"] = state["decision_trail"]["validation_failures"][-5:]
+
+
+def safe_update_state(state: CeciliaState, updates: Dict[str, Any]) -> None:
+    """
+    Safely update CeciliaState without converting to dict
+    
+    CRITICAL: This preserves TypedDict structure. Using .update() converts
+    CeciliaState to plain dict and breaks attribute access in LangGraph nodes.
+    
+    Args:
+        state: The CeciliaState to update (modified in place)
+        updates: Dictionary of updates to apply
+    """
+    for key, value in updates.items():
+        state[key] = value

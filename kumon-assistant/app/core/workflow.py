@@ -534,14 +534,13 @@ class CeciliaWorkflow:
             input_data = StateManager.create_initial_state(phone_number, user_message)
             
             # Se existe estado anterior, incluir na entrada
+            # CRITICAL FIX: Don't use .update() as it converts CeciliaState to dict!
+            # Update fields directly to preserve TypedDict structure
             if existing_state:
-                input_data.update({
-                    "current_stage": existing_state.current_stage,
-                    "current_step": existing_state.current_step,
-                    "previous_state": existing_state.state_data,
-                    "conversation_history": existing_state.conversation_history,
-                    "user_profile": existing_state.user_profile
-                })
+                input_data["current_stage"] = existing_state.current_stage
+                input_data["current_step"] = existing_state.current_step
+                # Add previous state data to context if needed (but preserve CeciliaState structure)
+                input_data["conversation_id"] = existing_state.id or input_data["conversation_id"]
             
             # Executar workflow
             result = await self.app.ainvoke(input_data, config=config)
