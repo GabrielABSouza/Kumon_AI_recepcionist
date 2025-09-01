@@ -201,8 +201,17 @@ class DeliveryService:
     ) -> CeciliaState:
         """Apply state updates after successful delivery using canonical stage mapping"""
         
-        target_node = routing_decision["target_node"]
+        # PHASE 2.3: Use corrected target from routing_info (set by edges after validation)
+        routing_info = state.get("routing_info", {})
+        target_node = routing_info.get("target_node", routing_decision.get("target_node", "fallback"))
         current_stage = state.get("current_stage")
+        
+        # Log which target we're using
+        original_target = routing_info.get("original_target", routing_decision.get("target_node"))
+        if target_node != original_target:
+            logger.info(f"🔧 Using corrected target: {original_target} → {target_node}")
+        else:
+            logger.info(f"🎯 Using validated target: {target_node}")
         
         # PHASE 2.3: Use canonical stage mapping utility
         from ...core.state.stage_mapping import map_target_to_stage_step

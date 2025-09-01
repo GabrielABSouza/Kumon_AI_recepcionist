@@ -115,9 +115,9 @@ class GenderDetector:
         """Analyze gender from keyword patterns in messages"""
         
         all_text = " ".join([
-            msg.get("content", "").lower() 
+            self._get_message_content(msg).lower()
             for msg in messages 
-            if msg.get("role") == "user"
+            if self._get_message_role(msg) == "user"
         ])
         
         male_matches = sum(1 for pattern in self.male_patterns if re.search(pattern, all_text, re.IGNORECASE))
@@ -148,9 +148,9 @@ class GenderDetector:
         """Extract and analyze names mentioned in conversation"""
         
         all_text = " ".join([
-            msg.get("content", "") 
+            self._get_message_content(msg)
             for msg in messages 
-            if msg.get("role") == "user"
+            if self._get_message_role(msg) == "user"
         ])
         
         # Look for name patterns
@@ -204,6 +204,36 @@ class GenderDetector:
             "gender_confidence": context.confidence,
             "gender_method": context.detected_method
         }
+    
+    def _get_message_content(self, msg) -> str:
+        """Safely extract message content from both dict and LangChain BaseMessage objects"""
+        if hasattr(msg, "content"):
+            # LangChain BaseMessage object (HumanMessage, AIMessage, etc.)
+            return msg.content or ""
+        elif isinstance(msg, dict):
+            # Dictionary format
+            return msg.get("content", "")
+        else:
+            # Fallback for unknown types
+            return str(msg) if msg else ""
+    
+    def _get_message_role(self, msg) -> str:
+        """Safely extract message role from both dict and LangChain BaseMessage objects"""
+        if hasattr(msg, "type"):
+            # LangChain BaseMessage object - map types to roles
+            message_type = getattr(msg, "type", "").lower()
+            if "human" in message_type:
+                return "user"
+            elif "ai" in message_type:
+                return "assistant"
+            else:
+                return message_type
+        elif isinstance(msg, dict):
+            # Dictionary format
+            return msg.get("role", "")
+        else:
+            # Fallback
+            return ""
 
 
 # Global instance

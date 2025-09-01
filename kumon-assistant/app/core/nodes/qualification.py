@@ -123,13 +123,13 @@ class QualificationNode:
             )
             
             updates = {
-                "current_step": ConversationStep.SUBJECT_INTEREST
+                "current_step": ConversationStep.CHILD_AGE_INQUIRY
             }
             
             return self._create_response(state, response, updates)
         
-        # ========== SUBJECT_INTEREST - NOVO STEP ==========
-        elif current_step == ConversationStep.SUBJECT_INTEREST:
+        # ========== CHILD_AGE_INQUIRY - Age collection step ==========
+        elif current_step == ConversationStep.CHILD_AGE_INQUIRY:
             return await self._handle_subject_interest(state, user_message)
         
         # ========== LEARNING_GOALS - NOVO STEP ==========

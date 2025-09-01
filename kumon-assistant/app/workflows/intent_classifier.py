@@ -248,7 +248,7 @@ class AdvancedIntentClassifier:
             context = self._get_conversation_context(phone_number, conversation_state)
 
             # Step 1: Rule-based classification
-            rule_based_result = self._classify_with_rules(message, context)
+            rule_based_result = self._classify_with_rules(message, context, conversation_state)
 
             # Step 2: Apply intelligent threshold system
             final_result = await self._classify_with_intelligent_thresholds(
@@ -367,7 +367,7 @@ class AdvancedIntentClassifier:
 
         return context
 
-    def _classify_with_rules(self, message: str, context: ConversationContext) -> IntentResult:
+    def _classify_with_rules(self, message: str, context: ConversationContext, state: dict) -> IntentResult:
         """Rule-based intent classification with stage-aware logic"""
         message_lower = message.lower().strip()
         best_match = None
@@ -378,6 +378,10 @@ class AdvancedIntentClassifier:
         pattern_scorer = PatternScorer()
         entities = pattern_scorer.extract_entities(message)
 
+        # Get current stage from state (safely)
+        current_stage = state.get("current_stage")
+        from ..core.state.utils import safe_enum_value
+        
         # Check each intent category
         for category, config in self.intent_patterns.items():
             confidence = 0.0
@@ -395,11 +399,12 @@ class AdvancedIntentClassifier:
                 # STAGE-AWARE LOGIC: Prevent incorrect classification based on conversation stage
                 if category_value == "greeting":
                     # Suppress greeting classification in non-greeting stages
-                    if current_stage and "GREETING" not in str(current_stage):
+                    current_stage_str = safe_enum_value(current_stage) if current_stage else "unknown"
+                    if current_stage and "greeting" not in current_stage_str.lower():
                         # User is NOT in greeting stage - reduce greeting score significantly
                         confidence += 0.05  # Very low score
                         matched_patterns = []
-                    elif current_stage and str(current_stage) == "ConversationStage.GREETING":
+                    elif current_stage and "greeting" in current_stage_str.lower():
                         # Check if this looks like a name response
                         name_pattern = r"^[A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,}(?:\s+[A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,})*$"
                         if re.match(name_pattern, message.strip()):
@@ -428,7 +433,7 @@ class AdvancedIntentClassifier:
                     
                     # STAGE-AWARE BOOSTS based on expected responses per stage
                     if current_stage:
-                        stage_str = str(current_stage)
+                        stage_str = current_stage_str
                         
                         # GREETING stage: Name responses boost information_request
                         if (category_value == "information_request" and 
