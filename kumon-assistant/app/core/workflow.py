@@ -602,6 +602,8 @@ class CeciliaWorkflow:
             
             # PHASE 3: Use DeliveryService for atomic message delivery and state updates
             # Check if delivery is ready (new single-response pattern)
+            logger.info(f"🔍 DEBUG result.get('delivery_ready'): {result.get('delivery_ready') is not None}")
+            logger.info(f"🔍 DEBUG result keys: {result.keys()}")
             if result.get("delivery_ready"):
                 logger.info(f"🚀 Delivery ready detected - calling DeliveryService immediately")
                 delivery_info = result["delivery_ready"]
