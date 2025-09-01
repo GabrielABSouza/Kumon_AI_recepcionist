@@ -73,231 +73,87 @@ def universal_edge_router(
     valid_targets: list
 ) -> str:
     """
-    PHASE 2.3: Universal Routing Node with Single Response Pattern
+    PHASE 2.5: Simplified Universal Edge Router
     
-    New Flow: Stage Node → Routing Node (this edge) → DELIVERY → END
+    Architecture: Stage Node → Simple Edge → ROUTING Node → DELIVERY Node
     
-    Sequence:
-    1. smart_router_adapter.decide_route(state, edge_name)
-    2. response_planner.plan_and_generate(state, routing_decision) [without sending]
-    3. Store delivery_ready info for workflow.py
-    4. Return "DELIVERY" to stop LangGraph and trigger delivery in workflow.py
+    This edge is now simplified - it just sets context and routes to ROUTING node.
+    All routing logic moved to the dedicated ROUTING node.
     
     Args:
         state: Current conversation state (after Stage Node execution)
-        current_node: Stage Node we're routing from
-        valid_targets: Valid target nodes for this edge (should include "DELIVERY")
+        current_node: Stage Node we're routing from  
+        valid_targets: Valid target nodes (should include "ROUTING")
+        
+    Returns:
+        Always "ROUTING" to route to ROUTING node for decision making
     """
-    logger.info(f"🔄 Routing Node: {current_node} → DELIVERY for {state['phone_number']}")
+    phone_number = state.get("phone_number", "unknown")
+    logger.info(f"🔄 Simple Edge Router: {current_node} → ROUTING for {phone_number[-4:]}")
     
-    try:
-        # Run async operations in sync context (LangGraph compatibility)
-        import asyncio
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        
-        # STEP 1: SmartRouter decision
-        routing_decision = loop.run_until_complete(
-            smart_router_adapter.decide_route(state, f"route_from_{current_node}")
-        )
-        
-        # STEP 2: ResponsePlanner generates planned_response (without sending)
-        logger.info(f"🎯 Routing Node calling ResponsePlanner for {current_node}")
-        loop.run_until_complete(
-            response_planner.plan_and_generate(state, routing_decision)
-        )
-        # planned_response is now in state["planned_response"]
-        
-        # STEP 3: Store routing info in state for DELIVERY node to use
-        # NOTE: Edges cannot modify state in LangGraph, only nodes can
-        # So we store this info for the DELIVERY node to package
-        state["routing_decision"] = {
-            "target_node": routing_decision.target_node,
-            "threshold_action": routing_decision.threshold_action,
-            "confidence": routing_decision.confidence,
-            "reasoning": routing_decision.reasoning,
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }
-        state["last_node"] = current_node
-        # planned_response is already in state from ResponsePlanner
-        
-        logger.info(
-            f"✅ Routing Node: {current_node} → DELIVERY "
-            f"(target: {routing_decision.target_node}, action: {routing_decision.threshold_action}, confidence: {routing_decision.confidence:.2f})"
-        )
-        
-        # STEP 4: Return DELIVERY to stop LangGraph and trigger delivery in workflow.py
-        return "DELIVERY"
-        
-    except Exception as e:
-        logger.error(f"🚨 Routing Node error: {e}, using DELIVERY fallback")
-        
-        # Store fallback info for delivery
-        state["delivery_ready"] = {
-            "target_node": "handoff",  # Safe fallback
-            "routing_decision": {
-                "target_node": "handoff",
-                "threshold_action": "escalate_human",
-                "confidence": 0.0,
-                "reasoning": f"Emergency fallback due to routing error: {e}",
-                "timestamp": datetime.now(timezone.utc).isoformat()
-            },
-            "planned_response": "Desculpe, houve um problema técnico. Nossa equipe entrará em contato: (51) 99692-1999",
-            "from_node": current_node,
-            "error": str(e)
-        }
-        
-        return "DELIVERY"
+    # Store context for ROUTING node to use
+    state["last_node"] = current_node
+    state["routing_requested_at"] = datetime.now(timezone.utc).isoformat()
+    
+    logger.info(f"✅ Simple Edge: Routing {current_node} → ROUTING node")
+    
+    # Route to ROUTING node for actual decision making
+    return "ROUTING"
 
 
 def route_from_greeting(
     state: CeciliaState
-) -> Literal["qualification", "scheduling", "validation", "handoff", "emergency_progression"]:
-    """Route from greeting node - delegates to universal router"""
-    valid_targets = ["qualification", "scheduling", "validation", "handoff", "emergency_progression"]
+) -> Literal["ROUTING"]:
+    """Route from greeting node - goes to ROUTING node for decision making"""
+    valid_targets = ["ROUTING"]
     return universal_edge_router(state, "greeting", valid_targets)
 
 
 def route_from_qualification(
     state: CeciliaState
-) -> Literal["information", "scheduling", "validation", "handoff", "emergency_progression"]:
-    """Route from qualification node - delegates to universal router"""
-    valid_targets = ["information", "scheduling", "validation", "handoff", "emergency_progression"]
+) -> Literal["ROUTING"]:
+    """Route from qualification node - goes to ROUTING node for decision making"""
+    valid_targets = ["ROUTING"]
     return universal_edge_router(state, "qualification", valid_targets)
 
 
 def route_from_information(
     state: CeciliaState
-) -> Literal["information", "scheduling", "validation", "handoff", "emergency_progression"]:
-    """Route from information node - delegates to universal router"""
-    valid_targets = ["information", "scheduling", "validation", "handoff", "emergency_progression"]
+) -> Literal["ROUTING"]:
+    """Route from information node - goes to ROUTING node for decision making"""
+    valid_targets = ["ROUTING"]
     return universal_edge_router(state, "information", valid_targets)
 
 
 def route_from_scheduling(
     state: CeciliaState
-) -> Literal["scheduling", "confirmation", "validation", "handoff", "emergency_progression"]:
-    """Route from scheduling node - delegates to universal router"""
-    valid_targets = ["scheduling", "confirmation", "validation", "handoff", "emergency_progression"]
+) -> Literal["ROUTING"]:
+    """Route from scheduling node - goes to ROUTING node for decision making"""
+    valid_targets = ["ROUTING"]
     return universal_edge_router(state, "scheduling", valid_targets)
 
 
 def route_from_validation(
     state: CeciliaState
-) -> Literal["greeting", "qualification", "information", "scheduling", "confirmation", "handoff", "retry_validation", "emergency_progression"]:
-    """Route from validation node - delegates to universal router"""
-    valid_targets = ["greeting", "qualification", "information", "scheduling", "confirmation", "handoff", "retry_validation", "emergency_progression"]
+) -> Literal["ROUTING"]:
+    """Route from validation node - goes to ROUTING node for decision making"""
+    valid_targets = ["ROUTING"]
     return universal_edge_router(state, "validation", valid_targets)
 
 
 def route_from_emergency_progression(
     state: CeciliaState
-) -> Literal["information", "scheduling", "handoff", "END"]:
-    """Route from emergency progression node - delegates to universal router"""
-    valid_targets = ["information", "scheduling", "handoff", "END"]
+) -> Literal["ROUTING"]:
+    """Route from emergency progression node - goes to ROUTING node for decision making"""
+    valid_targets = ["ROUTING"]
     return universal_edge_router(state, "emergency_progression", valid_targets)
-
-
-def emergency_progression_node(state: CeciliaState) -> CeciliaState:
-    """
-    Node de emergência acionado pelo circuit breaker
-    Aplica as ações recomendadas pelo circuit breaker para destravar a conversa
-    """
-    logger.warning(f"Emergency progression activated for {state['phone_number']}")
-    
-    # Get the last circuit breaker action from decision trail
-    last_decisions = state["decision_trail"]["last_decisions"]
-    circuit_breaker_action = None
-    
-    # Find the most recent circuit breaker action
-    for decision in reversed(last_decisions):
-        if decision.get("type") == "circuit_breaker_action":
-            circuit_breaker_action = decision.get("action")
-            break
-    
-    # Generate appropriate response based on action
-    if circuit_breaker_action == "handoff":
-        response = (
-            "Vou conectar você com nossa equipe para um atendimento mais personalizado! 👩‍💼\n\n"
-            "📞 **(51) 99692-1999**\n"
-            "📧 **kumonvilaa@gmail.com**\n\n"
-            "Nossa equipe terá prazer em ajudá-lo! 😊"
-        )
-        # Update state for handoff
-        state["current_stage"] = ConversationStage.COMPLETED
-        state["current_step"] = ConversationStep.CONVERSATION_ENDED
-    
-    elif circuit_breaker_action == "emergency_scheduling":
-        response = (
-            "Entendo que você gostaria de agendar uma visita! 📅\n\n"
-            "Vou direcioná-lo para nosso agendamento.\n\n"
-            "Qual período é melhor para você?\n"
-            "**🌅 MANHÃ** ou **🌆 TARDE**?"
-        )
-        # Update state for scheduling
-        state["current_stage"] = ConversationStage.SCHEDULING
-        state["current_step"] = ConversationStep.DATE_PREFERENCE
-    
-    elif circuit_breaker_action == "information_bypass":
-        response = (
-            "Deixe-me compartilhar informações importantes sobre o Kumon! 📚\n\n"
-            "O que você gostaria de saber:\n"
-            "• Como funciona nossa metodologia\n"
-            "• Valores dos programas\n"
-            "• Benefícios para o aluno"
-        )
-        # Update state for information gathering
-        state["current_stage"] = ConversationStage.INFORMATION_GATHERING
-        state["current_step"] = ConversationStep.METHODOLOGY_EXPLANATION
-    
-    else:
-        # Default emergency response - reset to a safe state
-        response = (
-            "Vou simplificar nosso processo para ajudá-lo melhor! 😊\n\n"
-            "Como posso ajudar você hoje?\n"
-            "• Informações sobre o Kumon\n"
-            "• Agendamento de visita\n"
-            "• Falar com nossa equipe"
-        )
-        # Reset to information gathering as safe fallback
-        state["current_stage"] = ConversationStage.INFORMATION_GATHERING
-        state["current_step"] = ConversationStep.METHODOLOGY_EXPLANATION
-    
-    # Reset failure metrics to give the conversation a fresh start
-    state["conversation_metrics"]["failed_attempts"] = 0
-    state["conversation_metrics"]["consecutive_confusion"] = 0
-    state["conversation_metrics"]["same_question_count"] = 0
-    
-    # Add message to conversation
-    state["messages"].append({
-        "role": "assistant",
-        "content": response,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "source": "emergency_progression"
-    })
-    
-    # Record decision in trail
-    add_decision_to_trail(state, {
-        "type": "emergency_progression_completed",
-        "action": circuit_breaker_action or "default_reset",
-        "new_stage": state["current_stage"],
-        "new_step": state["current_step"],
-        "response_sent": True
-    })
-    
-    logger.info(f"Emergency progression completed for {state['phone_number']}, action: {circuit_breaker_action}")
-    
-    return state
 
 
 def route_from_confirmation(
     state: CeciliaState
-) -> Literal["handoff", "END"]:
-    """Route from confirmation node - delegates to universal router"""
-    valid_targets = ["handoff", "END"]
+) -> Literal["ROUTING"]:
+    """Route from confirmation node - goes to ROUTING node for decision making"""
+    valid_targets = ["ROUTING"]
     return universal_edge_router(state, "confirmation", valid_targets)
 
 

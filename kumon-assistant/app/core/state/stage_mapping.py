@@ -23,17 +23,17 @@ def map_target_to_stage_step(target_node: str, current_stage: ConversationStage)
         Tuple of (new_stage, new_step)
     """
     
-    # Canonical mapping: target_node -> (Stage, Step)
+    # Canonical mapping: target_node -> (Stage, Step)  
     target_mappings = {
         # Stage progression mappings
         "qualification": (ConversationStage.QUALIFICATION, ConversationStep.PARENT_NAME_COLLECTION),
-        "information": (ConversationStage.INFORMATION_GATHERING, ConversationStep.PROGRAM_EXPLANATION),
-        "scheduling": (ConversationStage.SCHEDULING, ConversationStep.SLOT_PRESENTATION),
-        "validation": (ConversationStage.VALIDATION, ConversationStep.CONTACT_CONFIRMATION),
-        "confirmation": (ConversationStage.CONFIRMATION, ConversationStep.FINAL_CONFIRMATION),
+        "information": (ConversationStage.INFORMATION_GATHERING, ConversationStep.METHODOLOGY_EXPLANATION),
+        "scheduling": (ConversationStage.SCHEDULING, ConversationStep.AVAILABILITY_CHECK),
+        "validation": (ConversationStage.CONFIRMATION, ConversationStep.APPOINTMENT_CONFIRMED),
+        "confirmation": (ConversationStage.CONFIRMATION, ConversationStep.APPOINTMENT_CONFIRMED),
         
-        # Special routing targets
-        "handoff": (ConversationStage.HANDOFF, ConversationStep.HUMAN_TRANSFER),
+        # Special routing targets - reuse existing values
+        "handoff": (ConversationStage.COMPLETED, ConversationStep.CONVERSATION_ENDED),
         "emergency_progression": (ConversationStage.QUALIFICATION, ConversationStep.PARENT_NAME_COLLECTION),
         
         # Fallback handling - stay in current stage but reset to welcome step
@@ -76,9 +76,8 @@ def get_valid_targets_for_stage(stage: ConversationStage) -> list[str]:
         ConversationStage.QUALIFICATION: ["information", "scheduling", "validation", "handoff"],
         ConversationStage.INFORMATION_GATHERING: ["scheduling", "validation", "handoff"],
         ConversationStage.SCHEDULING: ["validation", "confirmation", "handoff"],
-        ConversationStage.VALIDATION: ["confirmation", "handoff"],
         ConversationStage.CONFIRMATION: ["handoff"],
-        ConversationStage.HANDOFF: ["handoff"],
+        ConversationStage.COMPLETED: ["handoff"],
     }
     
     return stage_valid_targets.get(stage, ["qualification"])
@@ -109,9 +108,8 @@ def validate_target_for_stage(target_node: str, current_stage: ConversationStage
         ConversationStage.QUALIFICATION: "information", 
         ConversationStage.INFORMATION_GATHERING: "scheduling",
         ConversationStage.SCHEDULING: "validation",
-        ConversationStage.VALIDATION: "confirmation",
         ConversationStage.CONFIRMATION: "confirmation",
-        ConversationStage.HANDOFF: "handoff",
+        ConversationStage.COMPLETED: "handoff",
     }
     
     return stage_fallbacks.get(current_stage, "qualification")

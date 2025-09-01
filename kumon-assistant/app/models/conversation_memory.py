@@ -49,13 +49,13 @@ class ConversationStep(str, Enum):
     PROGRAM_INTEREST_DETECTION = "program_interest_detection"
     
     # Information gathering steps
-    PROGRAM_EXPLANATION = "program_explanation"
+    METHODOLOGY_EXPLANATION = "methodology_explanation"
     PRICING_DISCUSSION = "pricing_discussion"
     SCHEDULE_EXPLANATION = "schedule_explanation"
     
     # Scheduling steps
     AVAILABILITY_COLLECTION = "availability_collection"
-    SLOT_PRESENTATION = "slot_presentation"
+    AVAILABILITY_CHECK = "availability_check"
     EMAIL_COLLECTION = "email_collection"
     APPOINTMENT_CREATION = "appointment_creation"
     

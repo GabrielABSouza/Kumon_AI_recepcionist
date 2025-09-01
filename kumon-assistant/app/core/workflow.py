@@ -26,6 +26,8 @@ from .nodes import (
     confirmation_node
 )
 from .nodes.handoff import handoff_node
+from .nodes.routing_node import routing_node
+from .nodes.emergency_progression import emergency_progression_node
 from .edges.routing import (
     route_from_greeting,
     route_from_qualification,
@@ -93,23 +95,79 @@ class CeciliaWorkflow:
         workflow.add_node("handoff", handoff_node)
         workflow.add_node("emergency_progression", emergency_progression_node)
         
+        # PHASE 2.5: Add ROUTING node for centralized routing decisions
+        workflow.add_node("ROUTING", routing_node)
+        
         # Special termination node for delivery
         def delivery_node(state: CeciliaState) -> CeciliaState:
-            """Termination node - prepares delivery info for workflow.py"""
-            # The routing decision and planned response should already be in state
-            # from the edge router, but we need to package them for delivery
-            if state.get("routing_decision") and state.get("planned_response"):
-                state["delivery_ready"] = {
-                    "target_node": state["routing_decision"].get("target_node"),
-                    "routing_decision": state["routing_decision"],
-                    "planned_response": state["planned_response"],
-                    "from_node": state.get("last_node", "unknown")
-                }
-                logger.info(f"📦 DELIVERY node prepared delivery_ready for {state.get('phone_number')}")
+            """
+            PHASE 2.5: DELIVERY Node - Packages routing results from ROUTING node
+            
+            The ROUTING node executes SmartRouter + ResponsePlanner logic and 
+            stores results in state. This node packages them for DeliveryService.
+            """
+            phone_number = state.get("phone_number", "unknown")
+            logger.info(f"📦 DELIVERY node processing for {phone_number[-4:]}")
+            
+            # Check if ROUTING node completed successfully
+            if state.get("routing_complete"):
+                # NORMAL PATH: ROUTING node completed - package results
+                
+                routing_decision = state.get("routing_decision")
+                planned_response = state.get("planned_response")
+                
+                if routing_decision and planned_response:
+                    # Package for DeliveryService
+                    state["delivery_ready"] = {
+                        "target_node": routing_decision.get("target_node"),
+                        "routing_decision": routing_decision,
+                        "planned_response": planned_response,
+                        "from_node": state.get("last_node", "unknown"),
+                        "prepared_at": datetime.now().isoformat()
+                    }
+                    
+                    logger.info(
+                        f"✅ DELIVERY node: Packaged routing results - "
+                        f"target: {routing_decision['target_node']}, action: {routing_decision.get('threshold_action')}"
+                    )
+                else:
+                    # Missing data - create fallback
+                    logger.warning(f"⚠️ DELIVERY node: Missing routing_decision or planned_response")
+                    _create_fallback_delivery(state, "missing_routing_data")
+                    
+            elif state.get("routing_error"):
+                # ERROR PATH: ROUTING node failed
+                error = state.get("routing_error")
+                logger.error(f"🚨 DELIVERY node: ROUTING node error - {error}")
+                _create_fallback_delivery(state, f"routing_error: {error}")
+                
             else:
-                logger.warning(f"⚠️ DELIVERY node missing routing_decision or planned_response")
+                # FALLBACK PATH: No routing completion detected
+                logger.warning(f"⚠️ DELIVERY node: No routing completion detected")
+                _create_fallback_delivery(state, "no_routing_completion")
             
             return state
+        
+        def _create_fallback_delivery(state: CeciliaState, reason: str):
+            """Create fallback delivery_ready when routing fails"""
+            fallback_decision = {
+                "target_node": "handoff",
+                "threshold_action": "escalate_human", 
+                "confidence": 0.0,
+                "reasoning": f"Fallback delivery due to: {reason}",
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            state["delivery_ready"] = {
+                "target_node": "handoff",
+                "routing_decision": fallback_decision,
+                "planned_response": "Desculpe, houve um problema técnico. Nossa equipe entrará em contato: (51) 99692-1999",
+                "from_node": state.get("last_node", "unknown"),
+                "error": reason,
+                "prepared_at": datetime.now().isoformat()
+            }
+            
+            logger.warning(f"⚠️ DELIVERY node: Created fallback delivery - {reason}")
             
         workflow.add_node("DELIVERY", delivery_node)
         
@@ -118,17 +176,14 @@ class CeciliaWorkflow:
         
         # ========== ADICIONAR EDGES CONDICIONAIS COM CIRCUIT BREAKER ==========
         
+        # PHASE 2.5: Simplified edges - all stage nodes route to ROUTING node
+        
         # Do greeting
         workflow.add_conditional_edges(
             "greeting",
             route_from_greeting,
             {
-                "qualification": "qualification",
-                "scheduling": "scheduling", 
-                "validation": "validation",
-                "handoff": "handoff",
-                "emergency_progression": "emergency_progression",
-                "DELIVERY": "DELIVERY"
+                "ROUTING": "ROUTING"
             }
         )
         
@@ -137,12 +192,7 @@ class CeciliaWorkflow:
             "qualification",
             route_from_qualification,
             {
-                "information": "information",
-                "scheduling": "scheduling",
-                "validation": "validation",
-                "handoff": "handoff",
-                "emergency_progression": "emergency_progression",
-                "DELIVERY": "DELIVERY"
+                "ROUTING": "ROUTING"
             }
         )
         
@@ -151,12 +201,7 @@ class CeciliaWorkflow:
             "information",
             route_from_information,
             {
-                "information": "information",  # Loop para mais perguntas
-                "scheduling": "scheduling",
-                "validation": "validation",
-                "handoff": "handoff",
-                "emergency_progression": "emergency_progression",
-                "DELIVERY": "DELIVERY"
+                "ROUTING": "ROUTING"
             }
         )
         
@@ -165,43 +210,39 @@ class CeciliaWorkflow:
             "scheduling",
             route_from_scheduling,
             {
-                "scheduling": "scheduling",  # Loop para completar agendamento
-                "confirmation": "confirmation",
-                "validation": "validation",
-                "handoff": "handoff",
-                "emergency_progression": "emergency_progression",
-                "DELIVERY": "DELIVERY"
+                "ROUTING": "ROUTING"
             }
         )
         
-        # Do validation - pode voltar para qualquer node
+        # Do validation
         workflow.add_conditional_edges(
             "validation",
             route_from_validation,
             {
-                "greeting": "greeting",
-                "qualification": "qualification",
-                "information": "information", 
-                "scheduling": "scheduling",
-                "confirmation": "confirmation",
-                "handoff": "handoff",
-                "retry_validation": "validation",
-                "emergency_progression": "emergency_progression",
-                "DELIVERY": "DELIVERY"
+                "ROUTING": "ROUTING"
             }
         )
         
-        # Emergency progression - vai direto para onde o circuit breaker decidiu
+        # Do confirmation
         workflow.add_conditional_edges(
-            "emergency_progression",
-            route_from_emergency_progression,
+            "confirmation",
+            route_from_confirmation,
             {
-                "information": "information",
-                "scheduling": "scheduling", 
-                "handoff": "handoff",
-                "END": END
+                "ROUTING": "ROUTING"
             }
         )
+        
+        # Emergency progression
+        workflow.add_conditional_edges(
+            "emergency_progression", 
+            route_from_emergency_progression,
+            {
+                "ROUTING": "ROUTING"
+            }
+        )
+        
+        # PHASE 2.5: ROUTING node always routes to DELIVERY for message sending
+        workflow.add_edge("ROUTING", "DELIVERY")
         
         # Handoff sempre vai para END
         workflow.add_edge("handoff", END)

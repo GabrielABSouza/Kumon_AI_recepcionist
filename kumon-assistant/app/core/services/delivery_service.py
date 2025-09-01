@@ -125,7 +125,7 @@ class DeliveryService:
         planned_response: str,
         routing_decision: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Pre-delivery validation with guardrails"""
+        """Pre-delivery validation with guardrails and sanitization"""
         
         # Basic content validation
         if not planned_response or len(planned_response.strip()) == 0:
@@ -135,16 +135,22 @@ class DeliveryService:
                 "details": "Planned response is empty"
             }
         
-        # Length validation
-        if len(planned_response) > 4000:  # WhatsApp limit
+        # PHASE 2.3: Sanitize template for user-facing content only
+        sanitized_response = self._sanitize_template_content(planned_response)
+        
+        # Replace the planned_response with sanitized version
+        state["planned_response"] = sanitized_response
+        
+        # Length validation (after sanitization)
+        if len(sanitized_response) > 4000:  # WhatsApp limit
             return {
                 "valid": False,
                 "reason": "response_too_long",
-                "details": f"Response length: {len(planned_response)} > 4000"
+                "details": f"Response length: {len(sanitized_response)} > 4000"
             }
         
         # Placeholder validation
-        if "{{" in planned_response or "}}" in planned_response:
+        if "{{" in sanitized_response or "}}" in sanitized_response:
             return {
                 "valid": False,
                 "reason": "unresolved_placeholders",
@@ -163,6 +169,103 @@ class DeliveryService:
             }
         
         return {"valid": True}
+    
+    def _sanitize_template_content(self, template_content: str) -> str:
+        """
+        Sanitize template content to remove internal directives and keep only user-facing content.
+        
+        PHASE 2.3: Remove lines that contain system directives, leaving only the content
+        that should be sent to the user.
+        
+        Args:
+            template_content: Raw template content with possible internal directives
+            
+        Returns:
+            Sanitized content safe for user delivery
+        """
+        lines = template_content.split('\n')
+        sanitized_lines = []
+        
+        # Patterns to identify internal directives (not user content)
+        internal_patterns = [
+            # System directives
+            r'^(Você é|You are) (Cecília|the assistant)',
+            r'^DIRETRIZES',
+            r'^INSTRUÇÕES',
+            r'^INFORMAÇÕES DE PREÇOS',
+            r'^POLÍTICA',
+            r'^EXEMPLOS',
+            r'^## (DIRETRIZES|INSTRUÇÕES|INFORMAÇÕES|POLÍTICA|EXEMPLOS)',
+            r'^Contexto da conversa:',
+            r'^Mensagem do responsável:',
+            r'^Responda como',
+            r'^\d+\.',  # Numbered instructions
+            # Variable placeholders at start of line
+            r'^{context}',
+            r'^{user_message}',
+            # Comments and meta information
+            r'^#',
+            r'^\*\*Exemplo \d+:',
+            # Empty example responses in templates
+            r'^Responsável:',
+            r'^Cecília:',
+        ]
+        
+        skip_next = False
+        in_examples_section = False
+        
+        for line in lines:
+            line_stripped = line.strip()
+            
+            # Skip empty lines at start
+            if not line_stripped and not sanitized_lines:
+                continue
+                
+            # Check if we're entering examples section
+            if any([
+                'EXEMPLOS' in line_stripped.upper(),
+                '**Exemplo' in line,
+                'Responsável:' in line,
+                'Cecília:' in line and not sanitized_lines  # Only if at start
+            ]):
+                in_examples_section = True
+                continue
+                
+            # Skip content if in examples section
+            if in_examples_section:
+                continue
+                
+            # Check against internal patterns
+            is_internal = False
+            for pattern in internal_patterns:
+                import re
+                if re.match(pattern, line_stripped, re.IGNORECASE):
+                    is_internal = True
+                    break
+            
+            # Skip internal directives
+            if is_internal:
+                continue
+                
+            # If we have a line that looks like actual response content, keep it
+            if line_stripped and not is_internal:
+                sanitized_lines.append(line)
+        
+        # Join and clean up
+        sanitized_content = '\n'.join(sanitized_lines)
+        
+        # Remove excessive whitespace
+        import re
+        sanitized_content = re.sub(r'\n\s*\n\s*\n', '\n\n', sanitized_content)
+        sanitized_content = sanitized_content.strip()
+        
+        # Log sanitization if significant content was removed
+        original_length = len(template_content)
+        sanitized_length = len(sanitized_content)
+        if original_length - sanitized_length > 100:
+            logger.info(f"🧹 Template sanitized: {original_length} → {sanitized_length} chars")
+            
+        return sanitized_content
     
     async def _send_message_safe(
         self,

@@ -14,8 +14,7 @@ from .routing import (
     route_from_scheduling,
     route_from_validation,
     route_from_confirmation,
-    route_from_emergency_progression,
-    emergency_progression_node
+    route_from_emergency_progression
 )
 from .intent_detection import IntentDetector
 from .conditions import ConditionChecker
@@ -28,7 +27,6 @@ __all__ = [
     "route_from_validation",
     "route_from_confirmation",
     "route_from_emergency_progression",
-    "emergency_progression_node",
     "IntentDetector",
     "ConditionChecker"
 ]
