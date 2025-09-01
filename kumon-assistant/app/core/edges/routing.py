@@ -111,19 +111,18 @@ def universal_edge_router(
         )
         # planned_response is now in state["planned_response"]
         
-        # STEP 3: Store delivery_ready info for workflow.py to call DeliveryService
-        state["delivery_ready"] = {
+        # STEP 3: Store routing info in state for DELIVERY node to use
+        # NOTE: Edges cannot modify state in LangGraph, only nodes can
+        # So we store this info for the DELIVERY node to package
+        state["routing_decision"] = {
             "target_node": routing_decision.target_node,
-            "routing_decision": {
-                "target_node": routing_decision.target_node,
-                "threshold_action": routing_decision.threshold_action,
-                "confidence": routing_decision.confidence,
-                "reasoning": routing_decision.reasoning,
-                "timestamp": datetime.now(timezone.utc).isoformat()
-            },
-            "planned_response": state.get("planned_response"),
-            "from_node": current_node
+            "threshold_action": routing_decision.threshold_action,
+            "confidence": routing_decision.confidence,
+            "reasoning": routing_decision.reasoning,
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
+        state["last_node"] = current_node
+        # planned_response is already in state from ResponsePlanner
         
         logger.info(
             f"✅ Routing Node: {current_node} → DELIVERY "

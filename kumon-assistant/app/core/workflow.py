@@ -95,7 +95,20 @@ class CeciliaWorkflow:
         
         # Special termination node for delivery
         def delivery_node(state: CeciliaState) -> CeciliaState:
-            """Termination node - delivery happens in workflow.py"""
+            """Termination node - prepares delivery info for workflow.py"""
+            # The routing decision and planned response should already be in state
+            # from the edge router, but we need to package them for delivery
+            if state.get("routing_decision") and state.get("planned_response"):
+                state["delivery_ready"] = {
+                    "target_node": state["routing_decision"].get("target_node"),
+                    "routing_decision": state["routing_decision"],
+                    "planned_response": state["planned_response"],
+                    "from_node": state.get("last_node", "unknown")
+                }
+                logger.info(f"📦 DELIVERY node prepared delivery_ready for {state.get('phone_number')}")
+            else:
+                logger.warning(f"⚠️ DELIVERY node missing routing_decision or planned_response")
+            
             return state
             
         workflow.add_node("DELIVERY", delivery_node)
