@@ -93,6 +93,13 @@ class CeciliaWorkflow:
         workflow.add_node("handoff", handoff_node)
         workflow.add_node("emergency_progression", emergency_progression_node)
         
+        # Special termination node for delivery
+        def delivery_node(state: CeciliaState) -> CeciliaState:
+            """Termination node - delivery happens in workflow.py"""
+            return state
+            
+        workflow.add_node("DELIVERY", delivery_node)
+        
         # ========== DEFINIR PONTO DE ENTRADA ==========
         workflow.set_entry_point("greeting")
         
@@ -104,10 +111,11 @@ class CeciliaWorkflow:
             route_from_greeting,
             {
                 "qualification": "qualification",
-                "scheduling": "scheduling",
+                "scheduling": "scheduling", 
                 "validation": "validation",
                 "handoff": "handoff",
-                "emergency_progression": "emergency_progression"
+                "emergency_progression": "emergency_progression",
+                "DELIVERY": "DELIVERY"
             }
         )
         
@@ -120,7 +128,8 @@ class CeciliaWorkflow:
                 "scheduling": "scheduling",
                 "validation": "validation",
                 "handoff": "handoff",
-                "emergency_progression": "emergency_progression"
+                "emergency_progression": "emergency_progression",
+                "DELIVERY": "DELIVERY"
             }
         )
         
@@ -133,7 +142,8 @@ class CeciliaWorkflow:
                 "scheduling": "scheduling",
                 "validation": "validation",
                 "handoff": "handoff",
-                "emergency_progression": "emergency_progression"
+                "emergency_progression": "emergency_progression",
+                "DELIVERY": "DELIVERY"
             }
         )
         
@@ -146,7 +156,8 @@ class CeciliaWorkflow:
                 "confirmation": "confirmation",
                 "validation": "validation",
                 "handoff": "handoff",
-                "emergency_progression": "emergency_progression"
+                "emergency_progression": "emergency_progression",
+                "DELIVERY": "DELIVERY"
             }
         )
         
@@ -162,7 +173,8 @@ class CeciliaWorkflow:
                 "confirmation": "confirmation",
                 "handoff": "handoff",
                 "retry_validation": "validation",
-                "emergency_progression": "emergency_progression"
+                "emergency_progression": "emergency_progression",
+                "DELIVERY": "DELIVERY"
             }
         )
         
@@ -180,6 +192,9 @@ class CeciliaWorkflow:
         
         # Handoff sempre vai para END
         workflow.add_edge("handoff", END)
+        
+        # DELIVERY sempre vai para END (delivery happens in workflow.py)
+        workflow.add_edge("DELIVERY", END)
         
         logger.info("Cecilia workflow created successfully")
         return workflow
@@ -573,6 +588,32 @@ class CeciliaWorkflow:
                 await response_planner.plan_and_generate(result, result["routing_decision"])
             
             # PHASE 3: Use DeliveryService for atomic message delivery and state updates
+            # Check if delivery is ready (new single-response pattern)
+            if result.get("delivery_ready"):
+                logger.info(f"🚀 Delivery ready detected - calling DeliveryService immediately")
+                delivery_info = result["delivery_ready"]
+                
+                # Call DeliveryService immediately
+                from ..core.services.delivery_service import delivery_service
+                delivery_result = await delivery_service.deliver_response(
+                    state=result,
+                    phone_number=phone_number,
+                    planned_response=delivery_info["planned_response"],
+                    routing_decision=delivery_info["routing_decision"]
+                )
+                
+                if delivery_result["success"]:
+                    logger.info(f"✅ DeliveryService succeeded for {phone_number}: {delivery_result['delivery_id']}")
+                    return {
+                        "success": True,
+                        "delivery_id": delivery_result["delivery_id"],
+                        "final_state": delivery_result.get("updated_state", result),
+                        "response_sent": delivery_info["planned_response"]
+                    }
+                else:
+                    logger.warning(f"⚠️ DeliveryService failed for {phone_number}: {delivery_result.get('error')}")
+            
+            # FALLBACK: Legacy flow for non-delivery_ready results
             # Extract data for delivery
             planned_response = result.get("planned_response") or result.get("last_bot_response")
             routing_decision = result.get("routing_decision", {})

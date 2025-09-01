@@ -73,21 +73,22 @@ def universal_edge_router(
     valid_targets: list
 ) -> str:
     """
-    PHASE 2.2: Universal Routing Node implementation
+    PHASE 2.3: Universal Routing Node with Single Response Pattern
     
-    Routing Node pattern: Stage Node → Routing Node (this edge) → DeliveryService
+    New Flow: Stage Node → Routing Node (this edge) → DELIVERY → END
     
     Sequence:
     1. smart_router_adapter.decide_route(state, edge_name)
     2. response_planner.plan_and_generate(state, routing_decision) [without sending]
-    3. Return target_node for LangGraph progression
+    3. Store delivery_ready info for workflow.py
+    4. Return "DELIVERY" to stop LangGraph and trigger delivery in workflow.py
     
     Args:
         state: Current conversation state (after Stage Node execution)
         current_node: Stage Node we're routing from
-        valid_targets: Valid target nodes for this edge
+        valid_targets: Valid target nodes for this edge (should include "DELIVERY")
     """
-    logger.info(f"🔄 Routing Node: {current_node} → ? for {state['phone_number']}")
+    logger.info(f"🔄 Routing Node: {current_node} → DELIVERY for {state['phone_number']}")
     
     try:
         # Run async operations in sync context (LangGraph compatibility)
@@ -110,67 +111,47 @@ def universal_edge_router(
         )
         # planned_response is now in state["planned_response"]
         
-        target = routing_decision.target_node
-        
-        # PHASE 2.2: Validate and correct invalid targets per edge
-        stage_fallbacks = {
-            "greeting": "qualification",  # GREETING defaults to qualification
-            "qualification": "information",  # QUALIFICATION defaults to information
-            "information": "scheduling",  # INFORMATION defaults to scheduling
-            "scheduling": "confirmation",  # SCHEDULING defaults to confirmation
-        }
-        
-        if target not in valid_targets:
-            # Apply stage-specific fallback mapping
-            fallback_target = stage_fallbacks.get(current_node)
-            if fallback_target and fallback_target in valid_targets:
-                target = fallback_target
-                logger.info(f"🔧 Corrected invalid target: {routing_decision.target_node} → {target} for {current_node}")
-            else:
-                # Generic fallback to first valid target
-                target = valid_targets[0]
-                logger.warning(f"⚠️ Using generic fallback: {target} for {current_node}")
-        
-        # Store final routing info for DeliveryService
-        state["routing_info"] = {
-            "target_node": target,
-            "original_target": routing_decision.target_node,
-            "threshold_action": routing_decision.threshold_action,
-            "confidence": routing_decision.confidence,
-            "reasoning": routing_decision.reasoning,
-            "from_node": current_node,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "stage_type": type(state.get("current_stage")).__name__,
-            "target_validated": target == routing_decision.target_node
+        # STEP 3: Store delivery_ready info for workflow.py to call DeliveryService
+        state["delivery_ready"] = {
+            "target_node": routing_decision.target_node,
+            "routing_decision": {
+                "target_node": routing_decision.target_node,
+                "threshold_action": routing_decision.threshold_action,
+                "confidence": routing_decision.confidence,
+                "reasoning": routing_decision.reasoning,
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            },
+            "planned_response": state.get("planned_response"),
+            "from_node": current_node
         }
         
         logger.info(
-            f"✅ Routing Node: {current_node} → {target} "
-            f"(action: {routing_decision.threshold_action}, confidence: {routing_decision.confidence:.2f})"
+            f"✅ Routing Node: {current_node} → DELIVERY "
+            f"(target: {routing_decision.target_node}, action: {routing_decision.threshold_action}, confidence: {routing_decision.confidence:.2f})"
         )
         
-        return target
+        # STEP 4: Return DELIVERY to stop LangGraph and trigger delivery in workflow.py
+        return "DELIVERY"
         
     except Exception as e:
-        logger.error(f"🚨 Routing Node error: {e}, using fallback")
+        logger.error(f"🚨 Routing Node error: {e}, using DELIVERY fallback")
         
-        # CRITICAL FALLBACK: Apply stage-specific safe defaults
-        stage_safe_fallbacks = {
-            "greeting": "qualification",
-            "qualification": "information", 
-            "information": "scheduling",
-            "scheduling": "confirmation",
-            "validation": "handoff",
-            "confirmation": "handoff"
+        # Store fallback info for delivery
+        state["delivery_ready"] = {
+            "target_node": "handoff",  # Safe fallback
+            "routing_decision": {
+                "target_node": "handoff",
+                "threshold_action": "escalate_human",
+                "confidence": 0.0,
+                "reasoning": f"Emergency fallback due to routing error: {e}",
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            },
+            "planned_response": "Desculpe, houve um problema técnico. Nossa equipe entrará em contato: (51) 99692-1999",
+            "from_node": current_node,
+            "error": str(e)
         }
         
-        fallback = stage_safe_fallbacks.get(current_node)
-        if fallback and fallback in valid_targets:
-            return fallback
-        elif "handoff" in valid_targets:
-            return "handoff"  # Ultimate safety net
-        else:
-            return valid_targets[0]  # Last resort
+        return "DELIVERY"
 
 
 def route_from_greeting(
