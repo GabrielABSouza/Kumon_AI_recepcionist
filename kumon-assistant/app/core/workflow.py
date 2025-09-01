@@ -543,6 +543,11 @@ class CeciliaWorkflow:
                 input_data = StateManager.create_initial_state(phone_number, user_message)
                 logger.info(f"🆕 Created fresh initial state for {phone_number}")
             
+            # PHASE 1.1: Normalize state enums for type consistency
+            from .state.utils import normalize_state_enums
+            input_data = normalize_state_enums(input_data)
+            logger.info(f"🔧 State normalized: stage={input_data['current_stage']}, step={input_data['current_step']}")
+            
             # CRITICAL FIX: Consultar SmartRouter ANTES de executar LangGraph
             from .router.smart_router_adapter import smart_router_adapter
             
