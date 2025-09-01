@@ -21,8 +21,10 @@ class ConversationStage(str, Enum):
     QUALIFICATION = "qualification"
     INFORMATION_GATHERING = "information_gathering"
     SCHEDULING = "scheduling"
+    VALIDATION = "validation"
     CONFIRMATION = "confirmation"
     COMPLETED = "completed"
+    HANDOFF = "handoff"
 
 
 class ConversationStep(str, Enum):
@@ -40,6 +42,7 @@ class ConversationStep(str, Enum):
     # Information gathering steps
     METHODOLOGY_EXPLANATION = "methodology_explanation"
     PROGRAM_DETAILS = "program_details"
+    PROGRAM_EXPLANATION = "program_explanation"
     
     # Scheduling steps
     AVAILABILITY_CHECK = "availability_check"
@@ -48,10 +51,16 @@ class ConversationStep(str, Enum):
     TIME_SELECTION = "time_selection"
     EMAIL_COLLECTION = "email_collection"
     EVENT_CREATION = "event_creation"
+    SLOT_PRESENTATION = "slot_presentation"
+    
+    # Validation steps
+    CONTACT_CONFIRMATION = "contact_confirmation"
     
     # Final steps
     APPOINTMENT_CONFIRMED = "appointment_confirmed"
+    FINAL_CONFIRMATION = "final_confirmation"
     CONVERSATION_ENDED = "conversation_ended"
+    HUMAN_TRANSFER = "human_transfer"
 
 
 class CollectedData(TypedDict, total=False):
@@ -103,6 +112,31 @@ class DecisionTrail(TypedDict):
     validation_failures: List[Dict[str, Any]] # Falhas de validação
 
 
+class ErrorRecoveryState(TypedDict):
+    """Sistema de tratamento de erros e recovery"""
+    # Critical delivery errors
+    critical_delivery_failure: bool
+    critical_error: Optional[str]
+    requires_manual_intervention: bool
+    
+    # Delivery errors
+    delivery_failed: bool
+    delivery_fallback_used: bool
+    last_delivery_error: Optional[Dict[str, Any]]
+    emergency_response_sent: bool
+    
+    # Validation errors
+    validation_failed: bool
+    validation_error: Optional[str]
+    validation_failed_count: int
+    
+    # Recovery metadata
+    recovery_attempts: int
+    last_recovery_attempt: Optional[str]
+    recovery_strategy: Optional[str]
+    error_history: List[Dict[str, Any]]
+
+
 class CeciliaState(TypedDict):
     """Estado principal otimizado do LangGraph"""
     
@@ -125,6 +159,9 @@ class CeciliaState(TypedDict):
     # MÉTRICAS E AUDITORIA
     conversation_metrics: ConversationMetrics
     decision_trail: DecisionTrail
+    
+    # SISTEMA DE ERRO E RECOVERY
+    error_recovery: ErrorRecoveryState
 
 
 # ========== STATE UTILITIES ==========
@@ -175,6 +212,24 @@ def create_initial_cecilia_state(phone_number: str, user_message: str = "") -> C
             last_decisions=[],
             edge_function_calls=[],
             validation_failures=[]
+        ),
+        
+        # ERROR RECOVERY (inicializado)
+        error_recovery=ErrorRecoveryState(
+            critical_delivery_failure=False,
+            critical_error=None,
+            requires_manual_intervention=False,
+            delivery_failed=False,
+            delivery_fallback_used=False,
+            last_delivery_error=None,
+            emergency_response_sent=False,
+            validation_failed=False,
+            validation_error=None,
+            validation_failed_count=0,
+            recovery_attempts=0,
+            last_recovery_attempt=None,
+            recovery_strategy=None,
+            error_history=[]
         )
     )
 
@@ -218,6 +273,39 @@ def add_validation_failure(state: CeciliaState, failure: Dict[str, Any]) -> None
     # Manter apenas últimas 5 falhas
     if len(state["decision_trail"]["validation_failures"]) > 5:
         state["decision_trail"]["validation_failures"] = state["decision_trail"]["validation_failures"][-5:]
+
+
+def add_error_to_recovery(state: CeciliaState, error: Dict[str, Any]) -> None:
+    """Helper para adicionar erro ao sistema de recovery"""
+    error_entry = {
+        **error,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+    
+    state["error_recovery"]["error_history"].append(error_entry)
+    
+    # Manter apenas últimos 10 erros
+    if len(state["error_recovery"]["error_history"]) > 10:
+        state["error_recovery"]["error_history"] = state["error_recovery"]["error_history"][-10:]
+
+
+def set_error_recovery_field(state: CeciliaState, field_name: str, value: Any) -> None:
+    """Helper para definir campos do sistema de error recovery"""
+    if field_name in state["error_recovery"]:
+        state["error_recovery"][field_name] = value
+    else:
+        # Add to error history if field doesn't exist
+        add_error_to_recovery(state, {
+            "type": "unknown_error_field",
+            "field_name": field_name,
+            "value": str(value)
+        })
+
+
+def increment_recovery_attempts(state: CeciliaState) -> None:
+    """Helper para incrementar tentativas de recovery"""
+    state["error_recovery"]["recovery_attempts"] += 1
+    state["error_recovery"]["last_recovery_attempt"] = datetime.now(timezone.utc).isoformat()
 
 
 def safe_update_state(state: CeciliaState, updates: Dict[str, Any]) -> None:

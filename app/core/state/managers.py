@@ -21,7 +21,10 @@ from .models import (
     set_collected_field,
     increment_metric,
     add_decision_to_trail,
-    add_validation_failure
+    add_validation_failure,
+    add_error_to_recovery,
+    set_error_recovery_field,
+    increment_recovery_attempts
 )
 
 logger = logging.getLogger(__name__)
@@ -90,9 +93,33 @@ class StateManager:
                         "last_delivery", "last_activity", "delivery_success"]:
                 state["conversation_metrics"][key] = value
             
-            # Log unrecognized updates
+            # Route error recovery updates
+            elif key in ["critical_delivery_failure", "critical_error", "requires_manual_intervention",
+                        "delivery_failed", "delivery_fallback_used", "last_delivery_error", 
+                        "emergency_response_sent", "validation_failed", "validation_error",
+                        "validation_failed_count", "recovery_attempts", "last_recovery_attempt",
+                        "recovery_strategy"]:
+                set_error_recovery_field(state, key, value)
+                
+                # Add to error history for critical errors
+                if key in ["critical_delivery_failure", "critical_error", "requires_manual_intervention"] and value:
+                    add_error_to_recovery(state, {
+                        "type": "critical_error",
+                        "key": key,
+                        "value": value,
+                        "stage": state.get("current_stage"),
+                        "step": state.get("current_step")
+                    })
+            
+            # Log unrecognized updates (reduced to debug level for legitimate error keys)
             else:
-                logger.warning(f"Unrecognized update key: {key}")
+                logger.debug(f"Unrecognized update key (routed to error history): {key}")
+                # Route unknown keys to error history instead of ignoring
+                add_error_to_recovery(state, {
+                    "type": "unknown_update_key",
+                    "key": key,
+                    "value": str(value)
+                })
         
         # Add decision to trail for auditability
         if "current_stage" in updates or "current_step" in updates:

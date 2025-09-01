@@ -153,8 +153,8 @@ class PromptManager:
             legacy_mappings = {
                 "kumon:conversation:general": "system/conversation/general.txt",
                 "kumon:system:base:identity": "system/base/identity.txt",
-                "kumon:fallback:level1:general": "fallback/cecilia_fallback_general.txt",
-                "kumon:fallback:level2:basic": "fallback/cecilia_fallback_level2_menu.txt",
+                "kumon:fallback:level1:general": "fallback/general_assistance.txt",
+                "kumon:fallback:level2:basic": "fallback/qualification_data_collection.txt",
                 "kumon:handoff:transfer:human_contact": "fallback/handoff_general.txt",
             }
 

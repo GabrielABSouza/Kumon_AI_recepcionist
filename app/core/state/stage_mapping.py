@@ -29,7 +29,7 @@ def map_target_to_stage_step(target_node: str, current_stage: ConversationStage)
         "qualification": (ConversationStage.QUALIFICATION, ConversationStep.PARENT_NAME_COLLECTION),
         "information": (ConversationStage.INFORMATION_GATHERING, ConversationStep.METHODOLOGY_EXPLANATION),
         "scheduling": (ConversationStage.SCHEDULING, ConversationStep.AVAILABILITY_CHECK),
-        "validation": (ConversationStage.CONFIRMATION, ConversationStep.APPOINTMENT_CONFIRMED),
+        "validation": (ConversationStage.VALIDATION, ConversationStep.CONTACT_CONFIRMATION),
         "confirmation": (ConversationStage.CONFIRMATION, ConversationStep.APPOINTMENT_CONFIRMED),
         
         # Special routing targets - reuse existing values

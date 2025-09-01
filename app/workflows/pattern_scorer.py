@@ -149,7 +149,8 @@ class PatternScorer:
         self,
         message: str,
         current_stage: ConversationStage,
-        collected_data: Dict[str, Any] = None
+        collected_data: Dict[str, Any] = None,
+        current_step: Any = None
     ) -> PatternScores:
         """
         Calculate stage-aware pattern scores for all routes
@@ -163,6 +164,36 @@ class PatternScorer:
             PatternScores with per_route scores and best_route selection
         """
         try:
+            # NOVO: Verificação especial para QUALIFICATION
+            if current_stage == ConversationStage.QUALIFICATION and current_step:
+                from .qualification_pattern_detector import qualification_detector
+                
+                qual_result = qualification_detector.detect_and_extract(
+                    message, current_stage, current_step
+                )
+                
+                if qual_result["detected"]:
+                    # Se detectou padrão de qualificação, retorna score alto
+                    app_logger.info(
+                        f"[PATTERN_SCORER] Qualification pattern detected: {qual_result['classification']} "
+                        f"(confidence: {qual_result['confidence']:.2f})"
+                    )
+                    
+                    return PatternScores(
+                        per_route={
+                            "qualification": qual_result["confidence"],
+                            "greeting": 0.05,  # Muito baixo para evitar confusão
+                            "information": 0.1,
+                            "scheduling": 0.05,
+                            "confirmation": 0.05,
+                            "clarification": 0.1,
+                            "handoff": 0.05
+                        },
+                        best_route="qualification",
+                        pattern_confidence=qual_result["confidence"],
+                        stage_multipliers_applied={}
+                    )
+            
             message_lower = message.lower().strip()
             collected_data = collected_data or {}
             
