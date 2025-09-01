@@ -400,16 +400,28 @@ class AdvancedIntentClassifier:
             if category_value in route_patterns:
                 route_config = route_patterns[category_value]
                 
-                # STAGE-AWARE LOGIC: Apply same logic as PatternScorer
-                if (category_value == "greeting" and 
-                    current_stage and str(current_stage) == "ConversationStage.GREETING"):
-                    # Check if this looks like a name response
-                    name_pattern = r"^[A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,}(?:\s+[A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,})*$"
-                    if re.match(name_pattern, message.strip()):
-                        # This is a name response - very low greeting score
-                        confidence += 0.1
+                # STAGE-AWARE LOGIC: Prevent incorrect classification based on conversation stage
+                if category_value == "greeting":
+                    # Suppress greeting classification in non-greeting stages
+                    if current_stage and "GREETING" not in str(current_stage):
+                        # User is NOT in greeting stage - reduce greeting score significantly
+                        confidence += 0.05  # Very low score
                         matched_patterns = []
+                    elif current_stage and str(current_stage) == "ConversationStage.GREETING":
+                        # Check if this looks like a name response
+                        name_pattern = r"^[A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,}(?:\s+[A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,})*$"
+                        if re.match(name_pattern, message.strip()):
+                            # This is a name response - very low greeting score
+                            confidence += 0.1
+                            matched_patterns = []
+                        else:
+                            base_score = pattern_scorer._calculate_base_pattern_score(
+                                message_lower, route_config["patterns"], route_config["base_score"]
+                            )
+                            confidence += base_score
+                            matched_patterns = [p for p in route_config["patterns"] if re.search(p, message_lower)]
                     else:
+                        # No stage info or initial greeting - normal processing
                         base_score = pattern_scorer._calculate_base_pattern_score(
                             message_lower, route_config["patterns"], route_config["base_score"]
                         )
@@ -422,13 +434,35 @@ class AdvancedIntentClassifier:
                     confidence += base_score
                     matched_patterns = [p for p in route_config["patterns"] if re.search(p, message_lower)]
                     
-                    # STAGE-AWARE BOOST: Name responses in GREETING should boost information_request
-                    if (category_value == "information_request" and 
-                        current_stage and str(current_stage) == "ConversationStage.GREETING"):
-                        name_pattern = r"^[A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,}(?:\s+[A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,})*$"
-                        if re.match(name_pattern, message.strip()):
-                            # Boost information_request score for name responses in GREETING
-                            confidence += 0.6  # Strong boost
+                    # STAGE-AWARE BOOSTS based on expected responses per stage
+                    if current_stage:
+                        stage_str = str(current_stage)
+                        
+                        # GREETING stage: Name responses boost information_request
+                        if (category_value == "information_request" and 
+                            "GREETING" in stage_str):
+                            name_pattern = r"^[A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,}(?:\s+[A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,})*$"
+                            if re.match(name_pattern, message.strip()):
+                                confidence += 0.6  # Strong boost for name responses
+                        
+                        # QUALIFICATION stage: Age/grade responses boost information_request
+                        elif (category_value == "information_request" and 
+                              "QUALIFICATION" in stage_str):
+                            age_pattern = r"\b\d{1,2}\s*(anos?|meses)?\b"
+                            grade_pattern = r"\b\d+[°ºª]?\s*(ano|série|grau)\b"
+                            if re.search(age_pattern, message_lower) or re.search(grade_pattern, message_lower):
+                                confidence += 0.5  # Boost for age/grade responses
+                        
+                        # SCHEDULING stage: Time/date responses boost scheduling
+                        elif (category_value == "scheduling" and 
+                              "SCHEDULING" in stage_str):
+                            time_pattern = r"\b\d{1,2}[h:]\d{0,2}\b|\b(manhã|tarde|noite)\b"
+                            date_pattern = r"\b(segunda|terça|quarta|quinta|sexta|sábado|domingo)\b"
+                            availability_pattern = r"\b(sim|não|posso|disponível|livre)\b"
+                            if (re.search(time_pattern, message_lower) or 
+                                re.search(date_pattern, message_lower) or
+                                re.search(availability_pattern, message_lower)):
+                                confidence += 0.5  # Boost for scheduling responses
             else:
                 # Fallback to original pattern matching for categories not in PatternScorer
                 for pattern in config["patterns"]:
