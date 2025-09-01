@@ -606,6 +606,10 @@ class CeciliaWorkflow:
                 logger.info(f"🚀 Delivery ready detected - calling DeliveryService immediately")
                 delivery_info = result["delivery_ready"]
                 
+                # DEBUG: Log exactly what we're passing
+                logger.info(f"🔍 DEBUG delivery_info routing_decision: {delivery_info.get('routing_decision')}")
+                logger.info(f"🔍 DEBUG routing_decision keys: {delivery_info.get('routing_decision', {}).keys() if delivery_info.get('routing_decision') else 'None'}")
+                
                 # Call DeliveryService immediately
                 from ..core.services.delivery_service import delivery_service
                 delivery_result = await delivery_service.deliver_response(

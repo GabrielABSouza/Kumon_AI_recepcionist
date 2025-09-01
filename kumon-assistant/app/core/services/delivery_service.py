@@ -65,6 +65,11 @@ class DeliveryService:
             f"🚀 Starting delivery {delivery_id} for {phone_number[-4:]}"
         )
         
+        # DEBUG: Log what we received
+        logger.info(f"🔍 DEBUG received routing_decision: {routing_decision}")
+        logger.info(f"🔍 DEBUG routing_decision type: {type(routing_decision)}")
+        logger.info(f"🔍 DEBUG routing_decision keys: {routing_decision.keys() if isinstance(routing_decision, dict) else 'Not a dict'}")
+        
         try:
             # Pre-delivery validation
             validation_result = self._validate_delivery(state, planned_response, routing_decision)
@@ -147,6 +152,9 @@ class DeliveryService:
             }
         
         # Routing decision validation
+        logger.info(f"🔍 DEBUG _validate_delivery routing_decision: {routing_decision}")
+        logger.info(f"🔍 DEBUG routing_decision.get('target_node'): {routing_decision.get('target_node') if isinstance(routing_decision, dict) else 'Not a dict'}")
+        
         if not routing_decision.get("target_node"):
             return {
                 "valid": False,
