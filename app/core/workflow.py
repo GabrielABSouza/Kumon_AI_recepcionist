@@ -241,8 +241,38 @@ class CeciliaWorkflow:
             }
         )
         
-        # PHASE 2.5: ROUTING node always routes to DELIVERY for message sending
-        workflow.add_edge("ROUTING", "DELIVERY")
+        # PHASE 2.5: ROUTING node routes conditionally based on routing decision
+        def route_from_routing(state: CeciliaState) -> str:
+            """Route from ROUTING node based on routing decision"""
+            routing_decision = state.get("routing_decision", {})
+            target_node = routing_decision.get("target_node", "DELIVERY")
+            
+            # If target is a stage node, go to that stage
+            valid_stage_nodes = {
+                "qualification", "information", "scheduling", 
+                "validation", "confirmation", "handoff", "emergency_progression"
+            }
+            
+            if target_node in valid_stage_nodes:
+                return target_node
+            else:
+                # Default to DELIVERY for message sending
+                return "DELIVERY"
+        
+        workflow.add_conditional_edges(
+            "ROUTING",
+            route_from_routing,
+            {
+                "qualification": "qualification",
+                "information": "information", 
+                "scheduling": "scheduling",
+                "validation": "validation",
+                "confirmation": "confirmation",
+                "handoff": "handoff",
+                "emergency_progression": "emergency_progression",
+                "DELIVERY": "DELIVERY"
+            }
+        )
         
         # Handoff sempre vai para END
         workflow.add_edge("handoff", END)
