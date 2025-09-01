@@ -180,7 +180,8 @@ async def general_exception_handler(request, exc):
 
 # Include routers
 # Legacy single-unit webhook (for backward compatibility)
-app.include_router(whatsapp.router, prefix="/api/v1/whatsapp", tags=["whatsapp-legacy"])
+# TEMPORARILY DISABLED: Duplicate processing with evolution.py route
+# app.include_router(whatsapp.router, prefix="/api/v1/whatsapp", tags=["whatsapp-legacy"])
 
 # New multi-unit management and webhooks
 app.include_router(units.router, prefix="/api/v1", tags=["units"])
