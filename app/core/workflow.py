@@ -26,7 +26,6 @@ from .nodes import (
     confirmation_node
 )
 from .nodes.handoff import handoff_node
-from .nodes.routing_node import routing_node
 from .nodes.emergency_progression import emergency_progression_node
 from .edges.routing import (
     route_from_greeting,
@@ -95,80 +94,82 @@ class CeciliaWorkflow:
         workflow.add_node("handoff", handoff_node)
         workflow.add_node("emergency_progression", emergency_progression_node)
         
-        # PHASE 2.5: Add ROUTING node for centralized routing decisions
-        workflow.add_node("ROUTING", routing_node)
-        
-        # Special termination node for delivery
+        # DELIVERY node: Centralizes routing + planning + sending
         def delivery_node(state: CeciliaState) -> CeciliaState:
-            """
-            PHASE 2.5: DELIVERY Node - Packages routing results from ROUTING node
-            
-            The ROUTING node executes SmartRouter + ResponsePlanner logic and 
-            stores results in state. This node packages them for DeliveryService.
-            """
+            import asyncio
+            from .state.utils import normalize_state_enums
+            from .router.smart_router_adapter import smart_router_adapter
+            from .router.response_planner import response_planner
+            from ..core.services.delivery_service import delivery_service
+
             phone_number = state.get("phone_number", "unknown")
-            logger.info(f"📦 DELIVERY node processing for {phone_number[-4:]}")
-            
-            # Check if ROUTING node completed successfully
-            if state.get("routing_complete"):
-                # NORMAL PATH: ROUTING node completed - package results
-                
-                routing_decision = state.get("routing_decision")
-                planned_response = state.get("planned_response")
-                
-                if routing_decision and planned_response:
-                    # Package for DeliveryService
-                    state["delivery_ready"] = {
-                        "target_node": routing_decision.get("target_node"),
-                        "routing_decision": routing_decision,
-                        "planned_response": planned_response,
-                        "from_node": state.get("last_node", "unknown"),
-                        "prepared_at": datetime.now().isoformat()
-                    }
-                    
-                    logger.info(
-                        f"✅ DELIVERY node: Packaged routing results - "
-                        f"target: {routing_decision['target_node']}, action: {routing_decision.get('threshold_action')}"
-                    )
-                else:
-                    # Missing data - create fallback
-                    logger.warning(f"⚠️ DELIVERY node: Missing routing_decision or planned_response")
-                    _create_fallback_delivery(state, "missing_routing_data")
-                    
-            elif state.get("routing_error"):
-                # ERROR PATH: ROUTING node failed
-                error = state.get("routing_error")
-                logger.error(f"🚨 DELIVERY node: ROUTING node error - {error}")
-                _create_fallback_delivery(state, f"routing_error: {error}")
-                
-            else:
-                # FALLBACK PATH: No routing completion detected
-                logger.warning(f"⚠️ DELIVERY node: No routing completion detected")
-                _create_fallback_delivery(state, "no_routing_completion")
-            
+            last_node = state.get("last_node", "unknown")
+            logger.info(f"📦 DELIVERY node: starting for {phone_number[-4:]} from {last_node}")
+
+            # Prevent reentrancy
+            if state.get("delivery_executed"):
+                logger.info("🔁 DELIVERY node: already executed, skipping")
+                return state
+
+            # Ensure consistent enum types
+            try:
+                normalize_state_enums(state)
+            except Exception:
+                pass
+
+            # Create local loop for async calls
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+
+            # 1) Routing decision
+            decision = loop.run_until_complete(
+                smart_router_adapter.decide_route(state, f"delivery_from_{last_node}")
+            )
+
+            # 2) Plan response
+            loop.run_until_complete(response_planner.plan_and_generate(state, decision))
+            planned_response = state.get("planned_response") or ""
+
+            # 3) Deliver
+            decision_dict = {
+                "target_node": getattr(decision, "target_node", "fallback"),
+                "threshold_action": getattr(decision, "threshold_action", "proceed"),
+                "confidence": getattr(decision, "confidence", 0.0),
+                "reasoning": getattr(decision, "reasoning", ""),
+                "rule_applied": getattr(decision, "rule_applied", "")
+            }
+
+            delivery_result = loop.run_until_complete(
+                delivery_service.deliver_response(
+                    state=state,
+                    phone_number=phone_number,
+                    planned_response=planned_response,
+                    routing_decision=decision_dict,
+                )
+            )
+
+            # Persist minimal result into state to avoid post-invoke sending
+            state["delivery_service_result"] = delivery_result
+            state["delivery_executed"] = True
+            logger.info("✅ DELIVERY node: delivery executed")
+
+            # Merge updated state if available
+            try:
+                updated = delivery_result.get("updated_state")
+                if isinstance(updated, dict):
+                    state.update({
+                        "current_stage": updated.get("current_stage", state.get("current_stage")),
+                        "current_step": updated.get("current_step", state.get("current_step")),
+                        "last_delivery": updated.get("last_delivery", state.get("last_delivery"))
+                    })
+            except Exception:
+                pass
+
             return state
-        
-        def _create_fallback_delivery(state: CeciliaState, reason: str):
-            """Create fallback delivery_ready when routing fails"""
-            fallback_decision = {
-                "target_node": "handoff",
-                "threshold_action": "escalate_human", 
-                "confidence": 0.0,
-                "reasoning": f"Fallback delivery due to: {reason}",
-                "timestamp": datetime.now().isoformat()
-            }
-            
-            state["delivery_ready"] = {
-                "target_node": "handoff",
-                "routing_decision": fallback_decision,
-                "planned_response": "Desculpe, houve um problema técnico. Nossa equipe entrará em contato: (51) 99692-1999",
-                "from_node": state.get("last_node", "unknown"),
-                "error": reason,
-                "prepared_at": datetime.now().isoformat()
-            }
-            
-            logger.warning(f"⚠️ DELIVERY node: Created fallback delivery - {reason}")
-            
+
         workflow.add_node("DELIVERY", delivery_node)
         
         # ========== DEFINIR PONTO DE ENTRADA ==========
@@ -176,14 +177,12 @@ class CeciliaWorkflow:
         
         # ========== ADICIONAR EDGES CONDICIONAIS COM CIRCUIT BREAKER ==========
         
-        # PHASE 2.5: Simplified edges - all stage nodes route to ROUTING node
-        
+        # Edges: always route to DELIVERY (dummy edges)
         # Do greeting
         workflow.add_conditional_edges(
             "greeting",
             route_from_greeting,
             {
-                "ROUTING": "ROUTING",
                 "DELIVERY": "DELIVERY"
             }
         )
@@ -193,7 +192,6 @@ class CeciliaWorkflow:
             "qualification",
             route_from_qualification,
             {
-                "ROUTING": "ROUTING",
                 "DELIVERY": "DELIVERY"
             }
         )
@@ -203,7 +201,6 @@ class CeciliaWorkflow:
             "information",
             route_from_information,
             {
-                "ROUTING": "ROUTING",
                 "DELIVERY": "DELIVERY"
             }
         )
@@ -213,7 +210,6 @@ class CeciliaWorkflow:
             "scheduling",
             route_from_scheduling,
             {
-                "ROUTING": "ROUTING",
                 "DELIVERY": "DELIVERY"
             }
         )
@@ -223,7 +219,6 @@ class CeciliaWorkflow:
             "validation",
             route_from_validation,
             {
-                "ROUTING": "ROUTING",
                 "DELIVERY": "DELIVERY"
             }
         )
@@ -233,7 +228,6 @@ class CeciliaWorkflow:
             "confirmation",
             route_from_confirmation,
             {
-                "ROUTING": "ROUTING",
                 "DELIVERY": "DELIVERY"
             }
         )
@@ -243,40 +237,6 @@ class CeciliaWorkflow:
             "emergency_progression", 
             route_from_emergency_progression,
             {
-                "ROUTING": "ROUTING",
-                "DELIVERY": "DELIVERY"
-            }
-        )
-        
-        # PHASE 2.5: ROUTING node routes conditionally based on routing decision
-        def route_from_routing(state: CeciliaState) -> str:
-            """Route from ROUTING node based on routing decision"""
-            routing_decision = state.get("routing_decision", {})
-            target_node = routing_decision.get("target_node", "DELIVERY")
-            
-            # If target is a stage node, go to that stage
-            valid_stage_nodes = {
-                "qualification", "information", "scheduling", 
-                "validation", "confirmation", "handoff", "emergency_progression"
-            }
-            
-            if target_node in valid_stage_nodes:
-                return target_node
-            else:
-                # Default to DELIVERY for message sending
-                return "DELIVERY"
-        
-        workflow.add_conditional_edges(
-            "ROUTING",
-            route_from_routing,
-            {
-                "qualification": "qualification",
-                "information": "information", 
-                "scheduling": "scheduling",
-                "validation": "validation",
-                "confirmation": "confirmation",
-                "handoff": "handoff",
-                "emergency_progression": "emergency_progression",
                 "DELIVERY": "DELIVERY"
             }
         )
@@ -284,7 +244,7 @@ class CeciliaWorkflow:
         # Handoff sempre vai para END
         workflow.add_edge("handoff", END)
         
-        # DELIVERY sempre vai para END (delivery happens in workflow.py)
+        # DELIVERY sempre vai para END
         workflow.add_edge("DELIVERY", END)
         
         logger.info("Cecilia workflow created successfully")
@@ -677,94 +637,59 @@ class CeciliaWorkflow:
                 logger.error(f"🚨 Critical LangGraph error: {critical_error}")
                 # Emergency fallback - generate basic response
                 result = input_data.copy()
+                # Build a typed CoreRoutingDecision to avoid attribute errors downstream
+                from .router.smart_router_adapter import CoreRoutingDecision
+                critical_decision = CoreRoutingDecision(
+                    target_node="fallback",
+                    confidence=0.0,
+                    reasoning=f"Critical error: {str(critical_error)}",
+                    rule_applied="emergency_fallback",
+                    threshold_action="fallback_level1",
+                    intent_confidence=0.0,
+                    pattern_confidence=0.0,
+                )
+                # Keep a dict snapshot for telemetry if needed
                 result["routing_decision"] = {
-                    "target_node": "fallback",
-                    "threshold_action": "fallback_level1",
-                    "confidence": 0.0,
-                    "reasoning": f"Critical error: {str(critical_error)}",
-                    "rule_applied": "emergency_fallback",
+                    "target_node": critical_decision.target_node,
+                    "threshold_action": critical_decision.threshold_action,
+                    "confidence": critical_decision.confidence,
+                    "reasoning": critical_decision.reasoning,
+                    "rule_applied": critical_decision.rule_applied,
                     "bypass_reason": "critical_error",
                     "error": str(critical_error)
                 }
-                
-                # Generate emergency fallback response
+
+                # Generate emergency fallback response using a typed decision
                 from .router.response_planner import response_planner
-                await response_planner.plan_and_generate(result, result["routing_decision"])
+                await response_planner.plan_and_generate(result, critical_decision)
             
-            # PHASE 3: Use DeliveryService for atomic message delivery and state updates
-            # Check if delivery is ready (new single-response pattern)
-            logger.info(f"🔍 DEBUG result.get('delivery_ready'): {result.get('delivery_ready') is not None}")
-            logger.info(f"🔍 DEBUG result keys: {result.keys()}")
-            if result.get("delivery_ready"):
-                logger.info(f"🚀 Delivery ready detected - calling DeliveryService immediately")
-                delivery_info = result["delivery_ready"]
-                
-                # DEBUG: Log exactly what we're passing
-                logger.info(f"🔍 DEBUG delivery_info routing_decision: {delivery_info.get('routing_decision')}")
-                logger.info(f"🔍 DEBUG routing_decision keys: {delivery_info.get('routing_decision', {}).keys() if delivery_info.get('routing_decision') else 'None'}")
-                
-                # Call DeliveryService immediately
-                from ..core.services.delivery_service import delivery_service
-                delivery_result = await delivery_service.deliver_response(
-                    state=result,
-                    phone_number=phone_number,
-                    planned_response=delivery_info["planned_response"],
-                    routing_decision=delivery_info["routing_decision"]
-                )
-                
-                if delivery_result["success"]:
-                    logger.info(f"✅ DeliveryService succeeded for {phone_number}: {delivery_result['delivery_id']}")
-                    return {
-                        "success": True,
-                        "delivery_id": delivery_result["delivery_id"],
-                        "final_state": delivery_result.get("updated_state", result),
-                        "response_sent": delivery_info["planned_response"]
-                    }
-                else:
-                    logger.warning(f"⚠️ DeliveryService failed for {phone_number}: {delivery_result.get('error')}")
-            
-            # FALLBACK: Legacy flow for non-delivery_ready results
-            # Extract data for delivery
-            planned_response = result.get("planned_response") or result.get("last_bot_response")
-            routing_decision = result.get("routing_decision", {})
+            # DELIVERY is now executed inside the DELIVERY node.
+            # If DELIVERY already executed, return early without re-sending.
+            if result.get("delivery_service_result"):
+                delivery_result = result["delivery_service_result"]
+                logger.info("🚚 Delivery executed in DELIVERY node; skipping post-invoke delivery")
+                response = result.get("planned_response") or ""
+                current_stage = result.get("current_stage", "greeting")
+                current_step = result.get("current_step")
+                processing_time = (time.time() - start_time) * 1000
+                return {
+                    "success": delivery_result.get("success", True),
+                    "delivery_id": delivery_result.get("delivery_id"),
+                    "final_state": result,
+                    "response_sent": response,
+                    "processing_time_ms": processing_time
+                }
+
+            # If for any reason DELIVERY did not execute, provide a safe fallback response (no send here)
+            response = result.get("planned_response") or "Olá! Obrigada por entrar em contato. Em instantes retorno com mais informações."
             current_stage = result.get("current_stage", "greeting")
             current_step = result.get("current_step")
-            
-            # Default response if none planned
-            if not planned_response:
-                planned_response = "Desculpe, houve um problema. Como posso ajudá-lo?"
-            
-            # PHASE 3: Use DeliveryService for atomic delivery and state updates
-            from ..core.services.delivery_service import delivery_service
-            
-            # Deliver message and update state atomically
-            delivery_result = await delivery_service.deliver_response(
-                state=result,  # Pass the workflow result state
-                phone_number=phone_number,
-                planned_response=planned_response,
-                routing_decision=routing_decision
-            )
-            
-            # Extract updated state and delivery results
-            if delivery_result["success"]:
-                # Message was delivered successfully and state was updated
-                updated_result_state = delivery_result["updated_state"]
-                current_stage = updated_result_state.get("current_stage", current_stage)
-                current_step = updated_result_state.get("current_step", current_step)
-                response = planned_response
-                
-                logger.info(f"✅ DeliveryService succeeded for {phone_number}: {delivery_result['delivery_id']}")
-            else:
-                # Delivery failed - use fallback response and do not update stage
-                response = "Olá! Sou Cecília do Kumon Vila A! 😊 Houve um problema técnico, mas estou aqui para ajudar. Como posso auxiliá-lo hoje?"
-                # Keep original stage/step from workflow result (no progression)
-                logger.warning(f"⚠️ DeliveryService failed for {phone_number}: {delivery_result.get('error')}")
-            
-            # Wave 3: Fallback persistence to PostgreSQL (if DeliveryService didn't handle it)
             processing_time = (time.time() - start_time) * 1000
+
+            # Wave 3: Fallback persistence to PostgreSQL (if DeliveryService didn't handle it)
             
             # Only do fallback persistence if DeliveryService failed or Redis unavailable
-            if not delivery_result["success"] and self.use_postgres_persistence and not active_session:
+            if self.use_postgres_persistence and not active_session:
                 # DeliveryService failed, use PostgreSQL fallback
                 conversation_history = existing_state.conversation_history if existing_state else []
                 conversation_history.append({
@@ -804,8 +729,8 @@ class CeciliaWorkflow:
                 else:
                     logger.info(f"✅ PostgreSQL fallback persistence for {phone_number}")
                     
-            elif delivery_result["success"]:
-                logger.info(f"✅ DeliveryService handled persistence - no fallback needed")
+            else:
+                logger.info(f"ℹ️ Skipping DB persistence or already handled")
                 
             # Update Redis session if active (independent of DeliveryService)
             if active_session and session_id:
@@ -867,13 +792,7 @@ class CeciliaWorkflow:
                 "coordination_method": "direct_langgraph",
                 "redis_session_id": session_id,
                 "redis_enabled": active_session is not None,
-                "delivery_service": {
-                    "delivery_id": delivery_result.get("delivery_id"),
-                    "delivery_success": delivery_result["success"],
-                    "delivery_time_ms": delivery_result.get("delivery_time_ms"),
-                    "stage_updated": delivery_result.get("stage_updated", False),
-                    "message_sent": delivery_result.get("message_sent", False)
-                },
+                "delivery_service": result.get("delivery_service_result", {}),
                 "success": True
             }
             

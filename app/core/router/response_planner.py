@@ -47,12 +47,38 @@ class ResponsePlanner:
             ("information", "programs"): "kumon:information:programs:overview"
         }
     
-    async def plan_and_generate(self, state: CeciliaState, decision: Union[RoutingDecision, CoreRoutingDecision]) -> None:
+    async def plan_and_generate(self, state: CeciliaState, decision: Union[RoutingDecision, CoreRoutingDecision, Dict[str, Any]]) -> None:
         """
         Planeja e gera resposta baseada na decisão do SmartRouter.
         Popula state["planned_response"] e state["response_metadata"].
         """
         start_time = time.time()
+        # Defensive: accept raw dict decisions in emergency paths
+        if isinstance(decision, dict):
+            try:
+                from .smart_router_adapter import CoreRoutingDecision as _CRD
+                decision = _CRD(
+                    target_node=decision.get("target_node", "fallback"),
+                    confidence=float(decision.get("confidence", 0.0) or 0.0),
+                    reasoning=decision.get("reasoning", ""),
+                    rule_applied=decision.get("rule_applied", "unknown"),
+                    threshold_action=decision.get("threshold_action", "fallback_level1"),
+                    intent_confidence=float(decision.get("intent_confidence", 0.0) or 0.0),
+                    pattern_confidence=float(decision.get("pattern_confidence", 0.0) or 0.0),
+                )
+            except Exception:
+                # Minimal shim if import fails for any reason
+                class _Shim:
+                    def __init__(self, d: Dict[str, Any]):
+                        self.target_node = d.get("target_node", "fallback")
+                        self.confidence = float(d.get("confidence", 0.0) or 0.0)
+                        self.reasoning = d.get("reasoning", "")
+                        self.rule_applied = d.get("rule_applied", "unknown")
+                        self.threshold_action = d.get("threshold_action", "fallback_level1")
+                        self.intent_confidence = float(d.get("intent_confidence", 0.0) or 0.0)
+                        self.pattern_confidence = float(d.get("pattern_confidence", 0.0) or 0.0)
+                decision = _Shim(decision)  # type: ignore
+
         threshold_action = decision.threshold_action
         
         try:
