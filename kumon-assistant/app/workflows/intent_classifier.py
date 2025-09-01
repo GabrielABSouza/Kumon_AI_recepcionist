@@ -373,7 +373,7 @@ class AdvancedIntentClassifier:
         return context
 
     def _classify_with_rules(self, message: str, context: ConversationContext) -> IntentResult:
-        """Rule-based intent classification"""
+        """Rule-based intent classification with stage-aware logic"""
         message_lower = message.lower().strip()
         best_match = None
         best_confidence = 0.0
@@ -382,6 +382,9 @@ class AdvancedIntentClassifier:
         from .pattern_scorer import PatternScorer
         pattern_scorer = PatternScorer()
         entities = pattern_scorer.extract_entities(message)
+        
+        # Get current stage for stage-aware classification
+        current_stage = context.conversation_state.get("current_stage") if context.conversation_state else None
 
         # Check each intent category
         for category, config in self.intent_patterns.items():
@@ -396,11 +399,36 @@ class AdvancedIntentClassifier:
             category_value = self._get_enum_value(category)
             if category_value in route_patterns:
                 route_config = route_patterns[category_value]
-                base_score = pattern_scorer._calculate_base_pattern_score(
-                    message_lower, route_config["patterns"], route_config["base_score"]
-                )
-                confidence += base_score
-                matched_patterns = [p for p in route_config["patterns"] if re.search(p, message_lower)]
+                
+                # STAGE-AWARE LOGIC: Apply same logic as PatternScorer
+                if (category_value == "greeting" and 
+                    current_stage and str(current_stage) == "ConversationStage.GREETING"):
+                    # Check if this looks like a name response
+                    name_pattern = r"^[A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,}(?:\s+[A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,})*$"
+                    if re.match(name_pattern, message.strip()):
+                        # This is a name response - very low greeting score
+                        confidence += 0.1
+                        matched_patterns = []
+                    else:
+                        base_score = pattern_scorer._calculate_base_pattern_score(
+                            message_lower, route_config["patterns"], route_config["base_score"]
+                        )
+                        confidence += base_score
+                        matched_patterns = [p for p in route_config["patterns"] if re.search(p, message_lower)]
+                else:
+                    base_score = pattern_scorer._calculate_base_pattern_score(
+                        message_lower, route_config["patterns"], route_config["base_score"]
+                    )
+                    confidence += base_score
+                    matched_patterns = [p for p in route_config["patterns"] if re.search(p, message_lower)]
+                    
+                    # STAGE-AWARE BOOST: Name responses in GREETING should boost information_request
+                    if (category_value == "information_request" and 
+                        current_stage and str(current_stage) == "ConversationStage.GREETING"):
+                        name_pattern = r"^[A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,}(?:\s+[A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,})*$"
+                        if re.match(name_pattern, message.strip()):
+                            # Boost information_request score for name responses in GREETING
+                            confidence += 0.6  # Strong boost
             else:
                 # Fallback to original pattern matching for categories not in PatternScorer
                 for pattern in config["patterns"]:
