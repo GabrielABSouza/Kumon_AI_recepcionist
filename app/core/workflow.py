@@ -100,7 +100,7 @@ class CeciliaWorkflow:
             from .state.utils import normalize_state_enums
             from .router.smart_router_adapter import smart_router_adapter
             from .router.response_planner import response_planner
-            from ..core.services.delivery_service import delivery_service
+            from .services.delivery_service import delivery_service
 
             phone_number = state.get("phone_number", "unknown")
             last_node = state.get("last_node", "unknown")

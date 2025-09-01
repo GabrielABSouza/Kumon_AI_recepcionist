@@ -65,7 +65,7 @@ def should_route_to_validation(state: CeciliaState) -> bool:
         return True
 
 
-async def universal_edge_router(
+def universal_edge_router(
     state: CeciliaState,
     current_node: str,
     valid_targets: list
@@ -99,7 +99,7 @@ async def route_from_greeting(
 ) -> Literal["DELIVERY"]:
     """Route from greeting node - always goes to DELIVERY after planning response"""
     valid_targets = ["DELIVERY"]
-    return await universal_edge_router(state, "greeting", valid_targets)
+    return universal_edge_router(state, "greeting", valid_targets)
 
 
 async def route_from_qualification(
@@ -107,7 +107,7 @@ async def route_from_qualification(
 ) -> Literal["DELIVERY"]:
     """Route from qualification node - always goes to DELIVERY after planning response"""
     valid_targets = ["DELIVERY"]
-    return await universal_edge_router(state, "qualification", valid_targets)
+    return universal_edge_router(state, "qualification", valid_targets)
 
 
 async def route_from_information(
@@ -115,7 +115,7 @@ async def route_from_information(
 ) -> Literal["DELIVERY"]:
     """Route from information node - always goes to DELIVERY after planning response"""
     valid_targets = ["DELIVERY"]
-    return await universal_edge_router(state, "information", valid_targets)
+    return universal_edge_router(state, "information", valid_targets)
 
 
 async def route_from_scheduling(
@@ -123,7 +123,7 @@ async def route_from_scheduling(
 ) -> Literal["DELIVERY"]:
     """Route from scheduling node - always goes to DELIVERY after planning response"""
     valid_targets = ["DELIVERY"]
-    return await universal_edge_router(state, "scheduling", valid_targets)
+    return universal_edge_router(state, "scheduling", valid_targets)
 
 
 async def route_from_validation(
@@ -131,7 +131,7 @@ async def route_from_validation(
 ) -> Literal["DELIVERY"]:
     """Route from validation node - always goes to DELIVERY after planning response"""
     valid_targets = ["DELIVERY"]
-    return await universal_edge_router(state, "validation", valid_targets)
+    return universal_edge_router(state, "validation", valid_targets)
 
 
 async def route_from_emergency_progression(
@@ -139,7 +139,7 @@ async def route_from_emergency_progression(
 ) -> Literal["DELIVERY"]:
     """Route from emergency progression node - always goes to DELIVERY after planning response"""
     valid_targets = ["DELIVERY"]
-    return await universal_edge_router(state, "emergency_progression", valid_targets)
+    return universal_edge_router(state, "emergency_progression", valid_targets)
 
 
 async def route_from_confirmation(
@@ -147,7 +147,7 @@ async def route_from_confirmation(
 ) -> Literal["DELIVERY"]:
     """Route from confirmation node - always goes to DELIVERY after planning response"""
     valid_targets = ["DELIVERY"]
-    return await universal_edge_router(state, "confirmation", valid_targets)
+    return universal_edge_router(state, "confirmation", valid_targets)
 
 
 
