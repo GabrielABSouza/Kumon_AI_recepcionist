@@ -132,8 +132,8 @@ class QualificationNode:
         elif current_step == ConversationStep.CHILD_AGE_INQUIRY:
             return await self._handle_subject_interest(state, user_message)
         
-        # ========== LEARNING_GOALS - NOVO STEP ==========
-        elif current_step == ConversationStep.LEARNING_GOALS:
+        # ========== METHODOLOGY_EXPLANATION - Learning goals collection ==========
+        elif current_step == ConversationStep.METHODOLOGY_EXPLANATION:
             return await self._handle_learning_goals(state, user_message)
         
         # ========== AVAILABILITY_CHECK - NOVO STEP ==========
@@ -192,7 +192,7 @@ class QualificationNode:
         )
         
         updates = {
-            "current_step": ConversationStep.LEARNING_GOALS
+            "current_step": ConversationStep.METHODOLOGY_EXPLANATION
         }
         
         return self._create_response(state, response, updates)

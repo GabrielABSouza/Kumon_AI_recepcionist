@@ -273,6 +273,11 @@ class IntelligentThresholdSystem:
         
     def _map_intent_to_node(self, intent: str, current_stage: ConversationStage) -> str:
         """Map intent classification to LangGraph node"""
+        # Special case: if we're already in GREETING stage and detect greeting intent,
+        # we should progress to qualification
+        if intent == "greeting" and current_stage == ConversationStage.GREETING:
+            return "qualification"
+            
         intent_to_node = {
             "greeting": "greeting",
             "information": "information", 
