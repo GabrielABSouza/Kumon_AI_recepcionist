@@ -1,357 +1,510 @@
-# 🤖 Kumon AI Receptionist - Enterprise WhatsApp Integration
+# 🤖 Kumon AI Receptionist - Enterprise Edition
 
-[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
+> **Sistema Completo de Recepcionista Virtual Inteligente com Analytics Avançado e Tracking ML**
+
+[![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green.svg)](https://fastapi.tiangolo.com)
-[![Google Cloud](https://img.shields.io/badge/Google%20Cloud-Deployed-blue.svg)](https://cloud.google.com)
-[![WhatsApp](https://img.shields.io/badge/WhatsApp-Business%20API-25D366.svg)](https://developers.facebook.com/docs/whatsapp)
-[![AI/ML](https://img.shields.io/badge/AI%2FML-Semantic%20Search-orange.svg)](https://www.python.org)
+[![Evolution API](https://img.shields.io/badge/Evolution_API-2.2.3-25D366.svg)](https://evolution-api.com)
+[![Google Cloud](https://img.shields.io/badge/Google_Cloud-Production-orange.svg)](https://cloud.google.com)
+[![Database](https://img.shields.io/badge/PostgreSQL-15+-336791.svg)](https://postgresql.org)
+[![ML Ready](https://img.shields.io/badge/ML_Ready-Analytics-purple.svg)](https://scikit-learn.org)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> **Enterprise-grade AI-powered WhatsApp receptionist with advanced semantic search, automated appointment booking, and intelligent conversation management.**
+## 🎯 **Visão Geral**
 
-## 🚀 **Technical Overview**
+Sistema **enterprise-grade** de recepcionista virtual inteligente que automatiza o atendimento ao cliente via WhatsApp para unidades Kumon. Combina **IA conversacional**, **análise semântica avançada**, **tracking completo de usuários** e **pipeline de dados preparado para Machine Learning**.
 
-This project demonstrates advanced **full-stack development** capabilities, combining **AI/ML technologies**, **cloud architecture**, **API integrations**, and **real-time messaging systems** to create a production-ready conversational AI platform.
+### 🌟 **Diferencial Competitivo**
 
-### **Core Achievements**
-
-- ✅ **Zero-cost WhatsApp integration** using Evolution API (saving $0.005-$0.009 per message)
-- ✅ **Advanced semantic search** with multilingual Sentence Transformers and vector databases
-- ✅ **Intelligent conversation flows** with state management and memory optimization
-- ✅ **Real-time Google Calendar integration** with automated appointment booking
-- ✅ **Production-ready cloud deployment** on Google Cloud Platform
-- ✅ **High-performance caching system** with LRU cleanup and memory management
-
----
-
-## 🏗️ **Architecture & Technology Stack**
-
-### **Backend & API**
-
-- **FastAPI** - High-performance async web framework
-- **Pydantic** - Data validation and settings management
-- **AsyncIO** - Concurrent processing and non-blocking operations
-- **OAuth2 + JWT** - Secure authentication and authorization
-
-### **AI/ML & Semantic Search**
-
-- **Sentence Transformers** - Multilingual semantic embeddings (384-dimensional)
-- **Qdrant Vector Database** - High-performance similarity search
-- **LangChain** - Advanced RAG (Retrieval-Augmented Generation) pipeline
-- **OpenAI GPT-4** - Natural language understanding and generation
-
-### **Integrations & APIs**
-
-- **Evolution API** - Cost-free WhatsApp Business integration
-- **Google Calendar API** - Automated scheduling with conflict detection
-- **Google Service Account** - Secure cloud service authentication
-- **Webhook Processing** - Real-time message handling
-
-### **Cloud Infrastructure & DevOps**
-
-- **Google Cloud Run** - Serverless containerized deployment
-- **Docker** - Multi-stage builds and production optimization
-- **Cloud Build** - CI/CD pipeline with automated deployments
-- **Secret Manager** - Secure credential management
-
-### **Performance & Optimization**
-
-- **Redis-like Caching** - LRU cache with automatic cleanup
-- **Batch Processing** - Optimized ML inference and database operations
-- **Memory Management** - Conversation state cleanup and resource monitoring
-- **Async Operations** - Non-blocking I/O for high concurrency
+- **💰 Zero custo WhatsApp**: Evolution API elimina custos de $0.005-$0.009/mensagem
+- **🧠 IA Híbrida**: Embeddings locais + Vertex AI + TF-IDF como fallback
+- **📊 Analytics ML-Ready**: Captura completa da jornada do usuário para modelos preditivos
+- **🏗️ Arquitetura Enterprise**: Estrutura profissional, escalável e manutenível
+- **☁️ Cloud Otimizado**: Deploy híbrido com 70% redução de custos
 
 ---
 
-## 🎯 **Key Technical Features**
+## ✨ **Principais Funcionalidades**
 
-### **1. Advanced Conversational AI**
+### 🤖 **IA Conversacional Avançada**
 
-```python
-# Intelligent conversation state management
-@dataclass
-class ConversationState:
-    stage: ConversationStage
-    step: ConversationStep
-    data: Dict[str, Any]
-    last_activity: float
+- **GPT-4o-mini**: Respostas naturais otimizadas para custo
+- **Semantic Search**: Busca semântica multilíngue com Sentence Transformers
+- **Context Management**: Gerenciamento inteligente de contexto de conversação
+- **Hybrid Embeddings**: Local + Cloud com fallback automático
 
-# Multi-stage conversation flow with automated transitions
-async def advance_conversation(phone: str, message: str) -> str:
-    state = self.get_conversation_state(phone)
-    return await self._process_stage(state, message)
-```
+### 📱 **WhatsApp Business Completo**
 
-### **2. Semantic Search Engine**
+- **Evolution API 2.2.3**: Integração WhatsApp gratuita e completa
+- **Multi-instância**: Suporte a múltiplas unidades Kumon
+- **Media Support**: Texto, imagens, áudio e documentos
+- **Real-time Processing**: Processamento em tempo real via webhooks
 
-```python
-# Multilingual semantic embeddings with caching
-async def embed_text(self, text: str) -> np.ndarray:
-    embedding = await self.model.encode([text], batch_size=1)
-    await self._cache_embedding(text, embedding)
-    return embedding[0]
+### 📊 **Analytics & Machine Learning**
 
-# Vector similarity search with filtering
-async def search(self, query: str, limit: int = 5,
-                score_threshold: float = 0.7) -> List[SearchResult]:
-    embedding = await self.embedding_service.embed_text(query)
-    return await self.vector_store.search(embedding, limit, score_threshold)
-```
+- **🎯 User Journey Tracking**: Captura completa da jornada do usuário
+- **📈 Conversion Funnel**: Análise detalhada de funil de conversão
+- **🔮 ML-Ready Data**: Estrutura otimizada para modelos preditivos
+- **📊 Business Intelligence**: Métricas de negócio e KPIs automáticos
 
-### **3. Google Calendar Integration**
+### 🏢 **Gestão de Negócio**
 
-```python
-# Automated appointment booking with conflict detection
-async def find_available_slots(self, preferences: dict) -> List[dict]:
-    business_hours = self._get_business_hours(preferences)
-    conflicts = await self.calendar_client.check_conflicts(business_hours)
-    return self._filter_available_slots(business_hours, conflicts)
-
-# Dynamic event creation with conversation summaries
-async def create_calendar_event(self, slot: dict, user_data: dict) -> dict:
-    event_details = self._build_event_details(slot, user_data)
-    summary = self._create_conversation_summary(user_data)
-    return await self.calendar_client.create_event(event_details, summary)
-```
-
-### **4. High-Performance Caching System**
-
-```python
-# LRU cache with memory management and automatic cleanup
-async def _cleanup_cache_if_needed(self) -> None:
-    if self._should_cleanup():
-        files_to_remove = self._get_lru_files()
-        await self._remove_cache_files(files_to_remove)
-
-# Memory-optimized batch processing
-async def embed_texts(self, texts: List[str]) -> List[np.ndarray]:
-    batches = self._create_batches(texts, self.batch_size)
-    results = await asyncio.gather(*[
-        self._process_batch(batch) for batch in batches
-    ])
-    return self._flatten_results(results)
-```
+- **📅 Google Calendar**: Agendamento automático com detecção de conflitos
+- **👥 Lead Management**: Sistema completo de gestão de leads
+- **🎓 Student Tracking**: Acompanhamento de alunos e progressão
+- **💳 Payment Integration**: Controle de pagamentos e mensalidades
 
 ---
 
-## 📊 **Performance Metrics & Optimizations**
+## 🏗️ **Arquitetura Enterprise**
 
-### **Memory Management**
+### 📁 **Estrutura do Projeto (Reorganizada)**
 
-- **Cache Optimization**: 50MB limit with LRU cleanup (was unlimited)
-- **Conversation Limits**: 500 active conversations with 12h timeout
-- **Batch Processing**: Optimized 16-item batches for ML inference
-- **Model Cleanup**: Automatic GPU/CPU memory release
+```
+📦 kumon-assistant/
+├── 📁 app/                          # 🔥 APLICAÇÃO PRINCIPAL
+│   ├── api/                         # Endpoints FastAPI
+│   ├── clients/                     # Clientes externos (Google, Evolution)
+│   ├── core/                        # Configurações centrais
+│   ├── models/                      # Modelos de dados
+│   ├── services/                    # Lógica de negócio
+│   └── utils/                       # Utilitários
+│
+├── 📁 infrastructure/               # 🚀 INFRAESTRUTURA & DEPLOY
+│   ├── docker/                      # Dockerfiles organizados
+│   │   ├── app/Dockerfile           # Kumon Assistant
+│   │   ├── evolution-api/           # Evolution API customizada
+│   │   └── qdrant/                  # Vector Database
+│   ├── gcp/                         # Configurações Google Cloud
+│   │   ├── cloudbuild.yaml          # Build principal
+│   │   └── deploy.sh                # Script de deploy
+│   ├── sql/                         # 🗄️ SCHEMAS DE BANCO
+│   │   ├── evolution_schema.sql     # Evolution API (31 tabelas)
+│   │   ├── kumon_business_schema.sql # Business Logic (6 tabelas)
+│   │   └── user_journey_ml_schema.sql # ML Analytics (4 tabelas)
+│   └── config/                      # Configurações
+│
+├── 📁 docs/                         # 📚 DOCUMENTAÇÃO ORGANIZADA
+│   ├── deployment/                  # Guias de deploy
+│   │   ├── DEPLOY_GUIDE.md          # Guia principal de deploy
+│   │   └── EVOLUTION_API_SETUP.md   # Setup Evolution API
+│   ├── development/                 # Documentação técnica
+│   │   ├── EMBEDDING_SYSTEM_README.md # Sistema de embeddings
+│   │   └── PROJECT_REORGANIZATION_COMPLETED.md # Reorganização
+│   ├── analysis/                    # 📊 ESTUDOS TÉCNICOS
+│   │   ├── GCP_NATIVE_MIGRATION_STUDY.md # Migração GCP
+│   │   ├── KUMON_ASSISTANT_REQUIREMENTS_STUDY.md # Requisitos
+│   │   └── EXECUTIVE_SUMMARY.md     # Resumo executivo
+│   └── security/                    # Documentação de segurança
+│
+├── 📁 scripts/                      # 🔧 SCRIPTS ORGANIZADOS
+│   ├── deployment/                  # Scripts de deploy
+│   │   ├── configure_env_vars.sh    # Configuração de ambiente
+│   │   └── prepare_and_deploy.sh    # Deploy automatizado
+│   └── maintenance/                 # Scripts de manutenção
+│       ├── ingest_docs.py           # Ingestão de documentos
+│       └── setup_embeddings.py     # Setup de embeddings
+│
+└── 📁 tests/                        # 🧪 TESTES
+    ├── unit/                        # Testes unitários
+    ├── integration/                 # Testes de integração
+    └── e2e/                         # Testes end-to-end
+```
 
-### **Response Times**
+### 🗄️ **Arquitetura de Dados Completa**
 
-- **Webhook Processing**: < 200ms average response time
-- **Semantic Search**: < 500ms for similarity queries
-- **Calendar Operations**: < 1s for availability checking
-- **AI Response Generation**: < 3s for complex queries
+#### **Evolution API Schema (31 Tabelas)**
 
-### **Scalability Features**
+```sql
+-- Core WhatsApp Integration
+Instance, Message, Contact, Chat, Session
 
-- **Async Architecture**: Handles 1000+ concurrent connections
-- **Horizontal Scaling**: Google Cloud Run auto-scaling (1-10 instances)
-- **Resource Limits**: 4GB memory, 2 CPU cores per instance
-- **Database Optimization**: Connection pooling and query optimization
+-- Advanced Features
+Webhook, Websocket, Media, Label, Template
+
+-- AI Integration
+OpenaiBot, OpenaiSetting, OpenaiCreds
+
+-- Business Integrations
+Chatwoot, Typebot, Flowise, Dify
+
+-- And 17 more specialized tables...
+```
+
+#### **Kumon Business Schema (6 Tabelas)**
+
+```sql
+-- 👥 Customer Management
+leads              -- Potential customers from WhatsApp
+students           -- Enrolled students
+appointments       -- Scheduled meetings
+
+-- 🤖 AI Operations
+conversation_analysis    -- AI insights from conversations
+automated_responses     -- AI responses tracking
+business_metrics       -- KPIs and performance metrics
+```
+
+#### **ML Analytics Schema (4 Tabelas)**
+
+```sql
+-- 📊 User Journey & ML Analytics
+user_sessions             -- Complete conversation sessions
+user_behavior_events      -- Granular event tracking
+conversion_funnel_tracking -- Sales funnel analysis
+ab_test_assignments      -- A/B testing framework
+```
+
+### 🎯 **Features para Machine Learning**
+
+#### **Dados Comportamentais**
+
+- **Session Tracking**: Duração, frequência, padrões de uso
+- **Engagement Metrics**: Score de engajamento, frequência de perguntas
+- **Response Patterns**: Tempo de resposta, tipos de mensagem
+
+#### **Dados Demográficos**
+
+- **Informações do Aluno**: Idade, série, matérias de interesse
+- **Contexto Familiar**: Indicadores socioeconômicos inferidos
+- **Localização**: Região e proximidade da unidade
+
+#### **Dados Temporais**
+
+- **Sazonalidade**: Padrões por hora, dia, mês
+- **Timing**: Melhor momento para conversão
+- **Frequência**: Padrões de reengajamento
+
+#### **Dados de Sentimento**
+
+- **Análise de Sentimento**: Progressão emocional na conversa
+- **Indicadores de Urgência**: Palavras-chave de pressa/interesse
+- **Satisfação**: Níveis de satisfação implícitos
 
 ---
 
-## 🔧 **Development Practices & Code Quality**
+## 🚀 **Quick Start**
 
-### **Clean Architecture**
-
-```
-app/
-├── api/           # REST API endpoints and routing
-├── services/      # Business logic and core services
-├── clients/       # External API integrations
-├── models/        # Data models and validation
-├── core/          # Configuration and utilities
-└── utils/         # Helper functions and tools
-```
-
-### **Professional Standards**
-
-- ✅ **Type Hints** - Full Python typing for better IDE support
-- ✅ **Async/Await** - Modern Python async patterns throughout
-- ✅ **Error Handling** - Comprehensive exception management
-- ✅ **Logging** - Structured JSON logging with correlation IDs
-- ✅ **Testing** - Unit tests and integration test suites
-- ✅ **Documentation** - Comprehensive API docs with OpenAPI/Swagger
-
-### **Security Implementation**
-
-- 🔒 **API Key Management** - Secure credential rotation
-- 🔒 **Input Validation** - Pydantic models prevent injection attacks
-- 🔒 **CORS Configuration** - Proper cross-origin resource sharing
-- 🔒 **Service Account Auth** - Google Cloud IAM integration
-
----
-
-## 🚀 **Deployment & Infrastructure**
-
-### **Production Deployment**
+### **1. Pré-requisitos**
 
 ```bash
-# Automated deployment with optimized builds
-./deploy.sh
-
-# Multi-service architecture with health checks
-docker-compose up -d
-```
-
-### **Cloud Architecture**
-
-- **Google Cloud Run**: Serverless container deployment
-- **Cloud Build**: Automated CI/CD pipeline
-- **Secret Manager**: Secure environment variables
-- **Cloud Logging**: Centralized log aggregation
-
-### **Environment Optimization**
-
-```dockerfile
-# Multi-stage Docker build for production
-FROM python:3.10-slim as builder
-COPY requirements.txt .
-RUN pip install --user --no-cache-dir -r requirements.txt
-
-FROM python:3.10-slim
-COPY --from=builder /root/.local /root/.local
-# ... optimized production configuration
-```
-
----
-
-## 📈 **Business Impact & Results**
-
-### **Cost Optimization**
-
-- **WhatsApp Costs**: Reduced from $0.005-$0.009/message to $0 (Evolution API)
-- **Infrastructure**: Serverless scaling reduces idle costs by 80%
-- **Automation**: Eliminates 95% of manual appointment booking tasks
-
-### **Performance Improvements**
-
-- **Response Time**: 70% faster than traditional chatbot solutions
-- **Accuracy**: 85% intent classification accuracy with semantic search
-- **Availability**: 99.9% uptime with automatic health monitoring
-
-### **Scalability Achievements**
-
-- **Multi-tenant**: Supports multiple Kumon units with isolated data
-- **Language Support**: Portuguese + multilingual capability
-- **Integration Ready**: Extensible architecture for additional services
-
----
-
-## 🛠️ **Getting Started**
-
-### **Prerequisites**
-
-- Python 3.10+
+# Ferramentas necessárias
+- Python 3.11+
 - Docker & Docker Compose
 - Google Cloud SDK
-- Node.js (for Evolution API)
+- Node.js (para Evolution API local)
 
-### **Quick Setup**
+# Credenciais necessárias
+- OpenAI API Key
+- Google Service Account
+- Evolution API Key (gerada automaticamente)
+```
+
+### **2. Configuração Local**
 
 ```bash
-# Clone and install dependencies
+# Clone o repositório
 git clone <repository-url>
 cd kumon-assistant
-pip install -r requirements.txt
 
-# Configure environment
+# Configure ambiente
 cp .env.example .env
-# Edit .env with your credentials
+# Edite .env com suas credenciais
+
+# Instale dependências
+pip install -r infrastructure/config/requirements-hybrid.txt
 
 # Start development environment
 docker-compose up -d
-uvicorn app.main:app --reload
+
+# Inicialize embeddings
+python scripts/maintenance/setup_embeddings.py
 ```
 
-### **Production Deployment**
+### **3. Deploy Production**
 
 ```bash
-# Deploy to Google Cloud
+# Configurar Google Cloud
 gcloud auth login
-./deploy.sh
+gcloud config set project YOUR_PROJECT_ID
 
-# Or use simplified deployment
-gcloud builds submit --config cloudbuild-simple.yaml
+# Deploy automatizado
+./infrastructure/gcp/deploy.sh
+
+# Ou deploy manual
+gcloud builds submit --config=infrastructure/gcp/cloudbuild.yaml
 ```
 
 ---
 
-## 📚 **API Documentation**
+## 📊 **Custos Otimizados**
 
-### **Interactive Documentation**
+### **Configuração Híbrida (Recomendada)**
 
-- **Swagger UI**: `/docs` - Interactive API testing
-- **ReDoc**: `/redoc` - Beautiful API documentation
-- **OpenAPI Schema**: `/openapi.json` - Machine-readable specs
+| Componente          | Recursos         | Custo Mensal | Economia       |
+| ------------------- | ---------------- | ------------ | -------------- |
+| **Kumon Assistant** | 1 vCPU / 1Gi RAM | $26/mês      | 76% ↓          |
+| **Evolution API**   | 1 vCPU / 1Gi RAM | $26/mês      | -              |
+| **Qdrant**          | 1 vCPU / 1Gi RAM | $26/mês      | -              |
+| **PostgreSQL**      | db-f1-micro      | $7/mês       | -              |
+| **Vertex AI**       | Pay-per-use      | $4/mês       | -              |
+| **Total**           | -                | **~$89/mês** | **$708/ano** ↓ |
 
-### **Key Endpoints**
+### **Estratégia de Embeddings**
 
-```http
-POST /api/v1/evolution/webhook          # WhatsApp message processing
-GET  /api/v1/evolution/instances        # Instance management
-POST /api/v1/embeddings/search          # Semantic search
-GET  /api/v1/conversation/{phone}       # Conversation state
+1. **🥇 Primary**: `sentence-transformers` local (GRATUITO)
+2. **🥈 Fallback**: Vertex AI Embeddings ($0.025/1k chars)
+3. **🥉 Last Resort**: TF-IDF scikit-learn (GRATUITO)
+
+---
+
+## 🔧 **Configuração Avançada**
+
+### **Environment Variables**
+
+```bash
+# Core Application
+OPENAI_API_KEY=your_openai_key
+OPENAI_MODEL=gpt-4o-mini
+
+# Evolution API
+EVOLUTION_API_URL=https://your-evolution-api-url
+EVOLUTION_API_KEY=your_evolution_key
+
+# Database
+DATABASE_URL=postgresql://user:pass@host/db
+QDRANT_URL=http://localhost:6333
+
+# ML Configuration
+USE_GCP_EMBEDDINGS=false
+EMBEDDING_MODEL_NAME=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+EMBEDDING_CACHE_SIZE_MB=50
+
+# Business Configuration
+BUSINESS_NAME=Kumon Vila A
+BUSINESS_PHONE=+55 11 99999-9999
+BUSINESS_EMAIL=kumonvilaa@gmail.com
+```
+
+### **Hybrid ML Configuration**
+
+```python
+# app/core/config.py
+class Settings(BaseSettings):
+    # Hybrid ML Strategy
+    USE_GCP_EMBEDDINGS: bool = False  # Start with local
+    EMBEDDING_MODEL_NAME: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+
+    # Cache Management
+    EMBEDDING_CACHE_SIZE_MB: int = 50
+    MAX_ACTIVE_CONVERSATIONS: int = 500
+
+    # Analytics Configuration
+    ENABLE_USER_TRACKING: bool = True
+    ML_FEATURES_ENABLED: bool = True
 ```
 
 ---
 
-## 🏆 **Technical Achievements Highlights**
+## 📈 **Analytics & Insights**
 
-### **Complex Problem Solving**
+### **Dashboard KPIs**
 
-- ✅ **Multi-modal AI Integration** - Text, voice, and image processing
-- ✅ **Real-time State Management** - Conversation context across sessions
-- ✅ **Intelligent Scheduling** - Business rules + calendar conflicts
-- ✅ **Performance Optimization** - Memory management for ML models
+```sql
+-- Conversion Rate por Período
+SELECT
+    DATE_TRUNC('day', session_start) as date,
+    COUNT(*) as total_sessions,
+    COUNT(*) FILTER (WHERE conversion_achieved = true) as conversions,
+    ROUND(COUNT(*) FILTER (WHERE conversion_achieved = true)::numeric / COUNT(*) * 100, 2) as conversion_rate
+FROM user_sessions
+GROUP BY date ORDER BY date DESC;
 
-### **System Integration**
+-- Abandonment Analysis
+SELECT
+    abandonment_stage,
+    COUNT(*) as count,
+    ROUND(AVG(session_duration_minutes), 2) as avg_duration
+FROM user_sessions
+WHERE session_outcome = 'abandoned'
+GROUP BY abandonment_stage;
 
-- ✅ **WhatsApp Business API** - Complete webhook implementation
-- ✅ **Google Workspace APIs** - Calendar, Sheets, Drive integration
-- ✅ **Vector Database** - High-performance similarity search
-- ✅ **Cloud Services** - Full serverless architecture
+-- Peak Hours Performance
+SELECT
+    start_hour,
+    COUNT(*) as sessions,
+    AVG(conversion_achieved::int) as conversion_rate
+FROM user_sessions
+GROUP BY start_hour
+ORDER BY conversion_rate DESC;
+```
 
-### **Production Excellence**
+### **ML Features Pre-calculadas**
 
-- ✅ **Zero-downtime Deployments** - Blue-green deployment strategy
-- ✅ **Monitoring & Alerting** - Comprehensive observability stack
-- ✅ **Security Best Practices** - OWASP compliance and audit-ready
-- ✅ **Documentation** - Enterprise-grade technical documentation
+```sql
+-- View para Features de ML
+CREATE VIEW ml_features_view AS
+SELECT
+    session_id,
+    -- Behavioral Features
+    session_duration_minutes,
+    total_messages_sent,
+    avg_response_time_seconds,
+    engagement_score,
+
+    -- Temporal Features
+    start_hour, start_day_of_week, is_weekend,
+
+    -- Demographic Features
+    mentioned_student_age,
+    subjects_mentioned_count,
+
+    -- Target Variable
+    conversion_achieved
+FROM user_sessions;
+```
 
 ---
 
-## 🤝 **Skills Demonstrated**
+## 🛡️ **Segurança Enterprise**
 
-| **Category**            | **Technologies & Concepts**                             |
-| ----------------------- | ------------------------------------------------------- |
-| **Backend Development** | FastAPI, AsyncIO, REST APIs, Microservices, WebSockets  |
-| **AI/ML Engineering**   | LangChain, Sentence Transformers, Vector Databases, RAG |
-| **Cloud Architecture**  | Google Cloud Platform, Docker, Kubernetes, Serverless   |
-| **Database Systems**    | PostgreSQL, Redis, Qdrant, Query Optimization           |
-| **API Integrations**    | WhatsApp Business API, Google APIs, OAuth2, Webhooks    |
-| **DevOps & CI/CD**      | Cloud Build, Infrastructure as Code, Monitoring         |
-| **Performance**         | Caching, Memory Management, Async Programming           |
-| **Security**            | Service Accounts, Secret Management, Input Validation   |
+### **Implementações de Segurança**
 
----
+- **🔐 Multi-layer Authentication**: Google IAM + API Keys + JWT
+- **🛡️ Data Encryption**: Secrets Manager + SSL/TLS end-to-end
+- **👤 Non-root Containers**: Todos containers run como non-root users
+- **🔍 Security Scanning**: Vulnerability scanning em builds
+- **📊 Audit Logging**: Log completo de todas as operações
+- **🚧 CORS Policy**: Configuração restritiva para produção
 
-## 📞 **Contact & Portfolio**
+### **Compliance**
 
-This project showcases advanced **full-stack development**, **AI/ML engineering**, and **cloud architecture** capabilities. For technical discussions or collaboration opportunities, please reach out!
-
-**🔗 [Live Demo](https://your-deployed-url.cloud.google.com/docs)**  
-**📊 [Performance Dashboard](https://console.cloud.google.com/monitoring)**  
-**🏗️ [Architecture Diagrams](./docs/architecture.md)**
+- **LGPD Ready**: Estrutura preparada para conformidade LGPD
+- **Data Retention**: Políticas automáticas de retenção de dados
+- **Access Control**: Controle granular de acesso por função
+- **Backup Strategy**: Backup automático com criptografia
 
 ---
 
-_Built with ❤️ using modern Python, AI/ML technologies, and cloud-native architecture. Demonstrating enterprise-level software engineering practices and production-ready system design._
+## 📚 **Documentação Completa**
+
+### **Guias Disponíveis**
+
+- 📖 **[Deploy Guide](docs/deployment/DEPLOY_GUIDE.md)** - Deploy completo passo-a-passo
+- 🔧 **[Evolution API Setup](docs/deployment/EVOLUTION_API_SETUP.md)** - Configuração WhatsApp
+- 🧠 **[Embedding System](docs/development/EMBEDDING_SYSTEM_README.md)** - Sistema de embeddings
+- 📊 **[Migration Study](docs/analysis/GCP_NATIVE_MIGRATION_STUDY.md)** - Análise de migração
+- 🎯 **[Requirements Study](docs/analysis/KUMON_ASSISTANT_REQUIREMENTS_STUDY.md)** - Estudo de requisitos
+
+### **API Documentation**
+
+- **Swagger UI**: `https://your-app-url/docs`
+- **ReDoc**: `https://your-app-url/redoc`
+- **OpenAPI JSON**: `https://your-app-url/openapi.json`
+
+---
+
+## 🧪 **Testing & Quality**
+
+### **Test Coverage**
+
+```bash
+# Run all tests
+pytest tests/ -v --cov=app
+
+# Run specific test suites
+pytest tests/unit/ -v        # Unit tests
+pytest tests/integration/ -v # Integration tests
+pytest tests/e2e/ -v         # End-to-end tests
+```
+
+### **Code Quality**
+
+```bash
+# Code formatting
+black app/ tests/
+isort app/ tests/
+
+# Linting
+flake8 app/ tests/
+mypy app/
+
+# Security scanning
+bandit -r app/
+```
+
+---
+
+## 🤝 **Contributing**
+
+### **Development Workflow**
+
+1. **Fork** o repositório
+2. **Create** feature branch: `git checkout -b feature/amazing-feature`
+3. **Commit** changes: `git commit -m 'Add amazing feature'`
+4. **Push** to branch: `git push origin feature/amazing-feature`
+5. **Open** Pull Request
+
+### **Code Standards**
+
+- **Type Hints**: Obrigatório em todo código Python
+- **Docstrings**: Documentação completa de funções e classes
+- **Tests**: Coverage mínimo de 80%
+- **Security**: Security scanning obrigatório
+
+---
+
+## 📊 **Roadmap**
+
+### **🚀 Phase 1: Core (✅ Completed)**
+
+- [x] WhatsApp Integration via Evolution API
+- [x] Basic AI Conversation Flow
+- [x] Google Calendar Integration
+- [x] Cloud Deployment
+
+### **🚀 Phase 2: Analytics (✅ Completed)**
+
+- [x] Complete Database Schema (41 tables)
+- [x] User Journey Tracking
+- [x] ML-Ready Data Structure
+- [x] Project Reorganization
+
+### **🚀 Phase 3: Intelligence (🚧 In Progress)**
+
+- [ ] ML Model Training Pipeline
+- [ ] Predictive Lead Scoring
+- [ ] Automated A/B Testing
+- [ ] Advanced Analytics Dashboard
+
+### **🚀 Phase 4: Scale (📋 Planned)**
+
+- [ ] Multi-tenant Architecture
+- [ ] Advanced Reporting Suite
+- [ ] Mobile Management App
+- [ ] Voice Message Support
+
+---
+
+## 📞 **Support & Contact**
+
+- **📧 Email**: kumonvilaa@gmail.com
+- **📱 WhatsApp**: +55 51 99692-1999
+- **🏢 Address**: Rua Amoreira, 571. Salas 6 e 7. Jardim das Laranjeiras
+- **🕒 Hours**: Segunda a Sexta: 08:00 às 18:00
+
+---
+
+## 📄 **License**
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+<div align="center">
+
+**🌟 Desenvolvido com amor para automatizar e humanizar o atendimento Kumon 🌟**
+
+_Transformando conversas em oportunidades, dados em insights, e visitantes em alunos._
+
+</div>
