@@ -499,12 +499,23 @@ class CeciliaWorkflow:
                 # Check for existing active session
                 active_session = await conversation_memory_service.get_active_session_by_phone(phone_number)
                 
+                # Check if session should be reused or recreated
+                should_create_new = False
                 if active_session:
-                    # Load existing conversation session
-                    existing_state = self._convert_session_to_workflow_state(active_session)
-                    session_id = active_session.session_id
-                    logger.info(f"🔄 Loaded existing conversation session: {session_id}")
-                else:
+                    # Check if session is completed or errored
+                    if active_session.current_stage in ['completed', 'error', 'cancelled']:
+                        logger.info(f"📋 Found {active_session.current_stage} session {active_session.session_id}, creating new session")
+                        should_create_new = True
+                    elif active_session.status in ['completed', 'ended', 'error']:
+                        logger.info(f"📋 Found session with status {active_session.status}, creating new session")
+                        should_create_new = True
+                    else:
+                        # Reuse active session for continuation
+                        existing_state = self._convert_session_to_workflow_state(active_session)
+                        session_id = active_session.session_id
+                        logger.info(f"🔄 Resuming active conversation session: {session_id} (stage: {active_session.current_stage})")
+                
+                if not active_session or should_create_new:
                     # Create new conversation session (this is the correct place to do it)
                     logger.info(f"🆕 CeciliaWorkflow creating new conversation session for {phone_number}")
                     session = await conversation_memory_service.create_session(
@@ -514,6 +525,8 @@ class CeciliaWorkflow:
                     )
                     session_id = session.session_id
                     active_session = session
+                    # Clear existing_state to ensure fresh start
+                    existing_state = None
                     logger.info(f"✅ CeciliaWorkflow created conversation session: {session_id}")
                     
             except Exception as memory_error:
