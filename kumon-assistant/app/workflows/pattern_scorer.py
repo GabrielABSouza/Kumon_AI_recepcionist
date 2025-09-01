@@ -229,6 +229,7 @@ class PatternScorer:
             }
             
             # Structured telemetry logging
+            from ..core.state.utils import safe_enum_value
             app_logger.info(
                 f"[PATTERN_SCORER] Completed pattern scoring",
                 extra={
@@ -236,7 +237,7 @@ class PatternScorer:
                     "operation": "score_patterns",
                     "best_route": best_route,
                     "pattern_confidence": pattern_confidence,
-                    "current_stage": current_stage.value,
+                    "current_stage": safe_enum_value(current_stage),
                     "stage_multiplier": stage_multipliers_applied[best_route],
                     "routes_analyzed": len(per_route),
                     "per_route_scores": per_route,

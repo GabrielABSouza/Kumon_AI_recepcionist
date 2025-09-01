@@ -361,14 +361,9 @@ class AdvancedIntentClassifier:
         current_stage = state.get("stage") or state.get("current_stage")
         current_step = state.get("step") or state.get("current_step", ConversationStep.WELCOME)
 
-        context.current_topic = (
-            current_stage.value
-            if hasattr(current_stage, "value")
-            else str(current_stage) if current_stage else "unknown"
-        )
-        context.last_agent_action = (
-            current_step.value if hasattr(current_step, "value") else str(current_step)
-        )
+        from ..core.state.utils import safe_enum_value
+        context.current_topic = safe_enum_value(current_stage) if current_stage else "unknown"
+        context.last_agent_action = safe_enum_value(current_step) if current_step else "unknown"
 
         return context
 
@@ -707,9 +702,8 @@ class AdvancedIntentClassifier:
                 result.routing_decision = "greeting"
             else:
                 # User greeting in middle of conversation - acknowledge and continue
-                stage_value = (
-                    current_stage.value if hasattr(current_stage, "value") else str(current_stage)
-                )
+                from ..core.state.utils import safe_enum_value
+                stage_value = safe_enum_value(current_stage)
                 result.routing_decision = stage_value
 
         elif result.category == IntentCategory.CLARIFICATION:
@@ -719,9 +713,8 @@ class AdvancedIntentClassifier:
         else:
             # Default to current stage
             current_stage = state.get("stage") or state.get("current_stage", "unknown")
-            stage_value = (
-                current_stage.value if hasattr(current_stage, "value") else str(current_stage)
-            )
+            from ..core.state.utils import safe_enum_value
+            stage_value = safe_enum_value(current_stage)
             result.routing_decision = stage_value
 
         return result

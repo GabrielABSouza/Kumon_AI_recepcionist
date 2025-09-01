@@ -241,7 +241,7 @@ class IntelligentThresholdSystem:
                         "combined_confidence": combined_confidence,
                         "stage_multiplier": stage_multiplier,
                         "penalties_applied": penalties,
-                        "current_stage": current_stage.value,
+                        "current_stage": self._safe_enum_value(current_stage),
                         "target_intent": target_intent
                     }
                 )
@@ -522,6 +522,12 @@ class IntelligentThresholdSystem:
         except Exception as e:
             app_logger.error(f"Error getting stage multiplier: {e}")
             return 1.0
+
+    def _safe_enum_value(self, enum_or_str):
+        """Safely extract string value from Enum or string"""
+        if hasattr(enum_or_str, 'value'):
+            return enum_or_str.value
+        return str(enum_or_str) if enum_or_str else "unknown"
 
     # LLM enhancement methods removed - ThresholdSystem only decides, doesn't execute
 
