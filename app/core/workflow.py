@@ -244,8 +244,39 @@ class CeciliaWorkflow:
         # Handoff sempre vai para END
         workflow.add_edge("handoff", END)
         
-        # DELIVERY sempre vai para END
-        workflow.add_edge("DELIVERY", END)
+        # DELIVERY routes conditionally based on routing decision
+        def route_from_delivery(state: CeciliaState) -> str:
+            """Route from DELIVERY node based on routing decision"""
+            routing_decision = state.get("delivery_service_result", {}).get("routing_decision", {})
+            target_node = routing_decision.get("target_node", "END")
+            
+            # Valid stage nodes that can be reached from DELIVERY
+            valid_stage_nodes = {
+                "qualification", "information", "scheduling", 
+                "validation", "confirmation", "handoff", "emergency_progression"
+            }
+            
+            if target_node in valid_stage_nodes:
+                logger.info(f"📍 DELIVERY routing to: {target_node}")
+                return target_node
+            else:
+                logger.info(f"📍 DELIVERY routing to: END (target was {target_node})")
+                return "END"
+
+        workflow.add_conditional_edges(
+            "DELIVERY",
+            route_from_delivery,
+            {
+                "qualification": "qualification",
+                "information": "information", 
+                "scheduling": "scheduling",
+                "validation": "validation",
+                "confirmation": "confirmation",
+                "handoff": "handoff",
+                "emergency_progression": "emergency_progression",
+                "END": END
+            }
+        )
         
         logger.info("Cecilia workflow created successfully")
         return workflow
