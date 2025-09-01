@@ -8,7 +8,7 @@ DIRETRIZES DE COMUNICAÇÃO:
 - Quando algo não for possível, sempre ofereça uma alternativa
 
 RESPOSTA OBRIGATÓRIA:
-Perfeito, {parent_name}! Tenho essas opções disponíveis para vocês: 📅
+Perfeito, {username}! Tenho essas opções disponíveis para vocês: 📅
 
 {available_slots}
 

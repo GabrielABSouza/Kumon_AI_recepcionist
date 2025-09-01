@@ -26,6 +26,12 @@ class GreetingNode:
         """
         logger.info(f"Processing greeting for {state['phone_number']} - step: {state['current_step']}")
         
+        # Set default threshold_action to avoid warnings during processing
+        if "routing_decision" not in state:
+            state["routing_decision"] = {"threshold_action": "pending"}
+        elif "threshold_action" not in state.get("routing_decision", {}):
+            state["routing_decision"]["threshold_action"] = "pending"
+        
         # PHASE 2 ARCHITECTURE: Check if response is pre-planned
         if state.get("planned_response"):
             response = state["planned_response"]
@@ -38,11 +44,13 @@ class GreetingNode:
             logger.info(f"✅ Using pre-planned response (threshold_action != enhance_with_llm)")
             return self._create_response(state, response, updates)
         
-        # ENHANCE_WITH_LLM PATH: Execute full logic to gather data
+        # FALLBACK PATH: No planned_response available - generate basic greeting
         routing_decision = state.get("routing_decision", {})
-        if routing_decision.get("threshold_action") != "enhance_with_llm":
-            logger.warning(f"⚠️ No planned_response but threshold_action is {routing_decision.get('threshold_action')}")
-            # This shouldn't happen - ResponsePlanner should have generated response
+        threshold_action = routing_decision.get("threshold_action", "pending")
+        
+        if threshold_action != "enhance_with_llm":
+            # Normal case during routing process - use simple fallback
+            logger.info(f"📝 Using fallback greeting (threshold_action: {threshold_action})")
             response = "Olá! Sou Cecília do Kumon Vila A. Como posso ajudá-lo hoje?"
             updates = self._get_business_updates_for_greeting(state)
             return self._create_response(state, response, updates)

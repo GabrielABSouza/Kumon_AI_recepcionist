@@ -22,7 +22,7 @@ from ..services.business_metrics_service import track_response_time
 from ..core.state.models import CeciliaState as ConversationState, ConversationStage, ConversationStep
 from .contracts import IntentResult
 from .pattern_scorer import PatternScorer
-from .intelligent_threshold_system import intelligent_threshold_system
+# Removed: intelligent_threshold_system - centralized in SmartRouter
 
 
 class IntentCategory(Enum):
@@ -250,13 +250,8 @@ class AdvancedIntentClassifier:
             # Step 1: Rule-based classification
             rule_based_result = self._classify_with_rules(message, context, conversation_state)
 
-            # Step 2: Apply intelligent threshold system
-            final_result = await self._classify_with_intelligent_thresholds(
-                rule_based_result, conversation_state
-            )
-
-            # Step 3: Context integration
-            final_result = self._integrate_context(final_result, context, conversation_state)
+            # Step 2: Context integration (threshold processing moved to SmartRouter)
+            final_result = self._integrate_context(rule_based_result, context, conversation_state)
 
             # Step 4: Update context
             self._update_context(phone_number, context, final_result, message)
@@ -274,8 +269,8 @@ class AdvancedIntentClassifier:
             )
 
             app_logger.info(
-                f"Intent classified: {final_result.category} "
-                f"({final_result.confidence:.2f})"
+                f"[INTENT_CLASSIFIER] Raw classification complete: {final_result.category} "
+                f"(confidence: {final_result.confidence:.2f}) → sending to SmartRouter for threshold processing"
             )
 
             return final_result
@@ -290,42 +285,9 @@ class AdvancedIntentClassifier:
                 context_entities={"error": str(e)}
             )
 
-    async def _classify_with_intelligent_thresholds(
-        self, 
-        initial_result: IntentResult, 
-        conversation_state: ConversationState
-    ) -> IntentResult:
-        """
-        Apply intelligent threshold system with hierarchical fallback
-        
-        Args:
-            initial_result: Result from rule-based classification
-            conversation_state: Current conversation state
-            
-        Returns:
-            IntentResult: Enhanced result with intelligent threshold handling
-        """
-        
-        # Determine action based on confidence and context
-        action, rule = await intelligent_threshold_system.determine_action(
-            initial_result.confidence,
-            conversation_state
-        )
-        
-        # Execute appropriate handler
-        enhanced_result = await intelligent_threshold_system.execute_action(
-            action, rule, initial_result, conversation_state
-        )
-        
-        # Add threshold action to result for workflow usage
-        enhanced_result.threshold_action = action
-        
-        app_logger.info(
-            f"Applied threshold rule: {rule.name} -> {action} "
-            f"(confidence: {initial_result.confidence:.2f} -> {enhanced_result.confidence:.2f})"
-        )
-        
-        return enhanced_result
+    # REMOVED: _classify_with_intelligent_thresholds()
+    # Threshold processing centralized in SmartRouter to eliminate duplicate decisions
+    # IntentClassifier now returns "raw" classification for SmartRouter to process
 
     def _get_conversation_context(
         self, phone_number: str, state: ConversationState

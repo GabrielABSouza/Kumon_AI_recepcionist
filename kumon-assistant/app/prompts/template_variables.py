@@ -31,35 +31,35 @@ class StageDataMapper:
         self.stage_data_mapping = {
             ConversationStage.GREETING: {
                 "available_data": ["parent_name", "child_name", "is_for_self"],
-                "required_variables": {"parent_name", "username"},
-                "optional_variables": {"child_name", "student_name"},
+                "required_variables": set(),  # GREETING has no required variables - simple welcome
+                "optional_variables": {"username", "child_name", "student_name"},
                 "generated_variables": {"gender_self_suffix", "gender_pronoun"}
             },
             
             ConversationStage.QUALIFICATION: {
                 "available_data": ["parent_name", "child_name", "is_for_self", "student_age", "education_level"],
-                "required_variables": {"parent_name", "child_name", "student_name"},
+                "required_variables": {"username", "child_name", "student_name"},
                 "optional_variables": {"student_age", "education_level"},
                 "generated_variables": {"gender_pronoun", "gender_article", "gender_child_term"}
             },
             
             ConversationStage.INFORMATION_GATHERING: {
                 "available_data": ["parent_name", "child_name", "student_age", "programs_of_interest"],
-                "required_variables": {"parent_name", "student_name"},
+                "required_variables": {"username", "student_name"},
                 "optional_variables": {"student_age", "programs_of_interest"},
                 "generated_variables": {"gender_pronoun", "gender_possessive"}
             },
             
             ConversationStage.SCHEDULING: {
                 "available_data": ["parent_name", "child_name", "date_preferences", "available_slots", "selected_slot"],
-                "required_variables": {"parent_name", "student_name"},
+                "required_variables": {"username", "student_name"},
                 "optional_variables": {"selected_slot", "date_preferences"},
                 "generated_variables": {"gender_pronoun"}
             },
             
             ConversationStage.CONFIRMATION: {
                 "available_data": ["parent_name", "child_name", "selected_slot", "contact_email"],
-                "required_variables": {"parent_name", "student_name", "contact_email"},
+                "required_variables": {"username", "student_name", "contact_email"},
                 "optional_variables": {"selected_slot"},
                 "generated_variables": {"gender_pronoun"}
             }
@@ -67,7 +67,6 @@ class StageDataMapper:
         
         # Fallback values for missing required data
         self.fallbacks = {
-            "parent_name": "responsável",
             "username": "responsável", 
             "child_name": "seu(a) filho(a)",
             "student_name": "seu(a) filho(a)",
@@ -117,7 +116,7 @@ class TemplateVariableResolver:
             # 1. Process required variables with intelligent fallbacks
             for var_name in required_vars:
                 variables[var_name] = self._resolve_required_variable(
-                    var_name, collected_data, user_variables
+                    var_name, collected_data, user_variables, current_stage
                 )
             
             # 2. Process optional variables (only if available)
@@ -149,7 +148,8 @@ class TemplateVariableResolver:
         self, 
         var_name: str, 
         collected_data: Dict[str, Any], 
-        user_variables: Optional[Dict[str, Any]]
+        user_variables: Optional[Dict[str, Any]],
+        current_stage: Optional[ConversationStage] = None
     ) -> str:
         """Resolve required variable with intelligent fallback"""
         
@@ -170,7 +170,12 @@ class TemplateVariableResolver:
         
         # Priority 4: Intelligent fallback
         fallback = self.mapper.fallbacks.get(var_name, f"[{var_name}]")
-        app_logger.warning(f"Using fallback for required variable '{var_name}': {fallback}")
+        
+        # Don't warn for GREETING stage - it's expected to use defaults
+        if current_stage == ConversationStage.GREETING:
+            app_logger.debug(f"Using default for GREETING variable '{var_name}': {fallback}")
+        else:
+            app_logger.warning(f"Using fallback for required variable '{var_name}': {fallback}")
         return fallback
     
     def _resolve_optional_variable(
@@ -206,7 +211,6 @@ class TemplateVariableResolver:
             # Name mappings
             "username": ["parent_name", "child_name"],
             "student_name": ["child_name", "parent_name"],
-            "parent_name": ["parent_name"],
             "child_name": ["child_name"],
             
             # Age mappings  

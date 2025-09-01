@@ -8,7 +8,7 @@ DIRETRIZES DE COMUNICAÇÃO:
 - Quando algo não for possível, sempre ofereça uma alternativa
 
 RESPOSTA OBRIGATÓRIA:
-Perfeito, {parent_name}! A rotina do Kumon é bem simples para {student_name}: ⏰
+Perfeito, {username}! A rotina do Kumon é bem simples para {student_name}: ⏰
 
 🏠 **Em casa**: {gender_pronoun} estuda todos os dias (20-30 min apenas!)
 🏫 **No Kumon**: {gender_pronoun} vem 2 vezes por semana

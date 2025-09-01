@@ -8,7 +8,7 @@ DIRETRIZES DE COMUNICAÇÃO:
 - Quando algo não for possível, sempre ofereça uma alternativa
 
 RESPOSTA OBRIGATÓRIA:
-{parent_name}, no momento não temos horários disponíveis online para agendamento. 😔
+{username}, no momento não temos horários disponíveis online para agendamento. 😔
 
 Mas não se preocupe! Temos outras opções:
 

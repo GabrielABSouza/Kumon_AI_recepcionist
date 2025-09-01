@@ -8,7 +8,7 @@ DIRETRIZES DE COMUNICAÇÃO:
 - Quando algo não for possível, sempre ofereça uma alternativa
 
 RESPOSTA OBRIGATÓRIA:
-Ótima pergunta, {parent_name}! Temos três programas principais:
+Ótima pergunta, {username}! Temos três programas principais:
 
 📊 **Matemática** - Desenvolve raciocínio lógico e base sólida
 📝 **Português** - Melhora interpretação e produção de textos  

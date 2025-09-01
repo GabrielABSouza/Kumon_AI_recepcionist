@@ -72,22 +72,20 @@ class SmartConversationRouter:
         try:
             self.routing_stats["total_decisions"] += 1
 
-            # Structured telemetry for routing start
+            # Structured telemetry for routing start  
             app_logger.info(
-                f"[SMART_ROUTER] Starting routing decision",
+                f"[SMART_ROUTER] Starting centralized routing decision (raw classification complete)",
                 extra={
                     "component": "smart_router",
-                    "operation": "make_routing_decision",
+                    "operation": "centralized_routing",
                     "phone_number": state.get("phone_number", "unknown")[-4:],
                     "current_stage": self._get_stage_value(state.get("current_stage", ConversationStage.GREETING)),
                     "intent_category": self._get_enum_value(intent_result.category),
-                    "intent_confidence": intent_result.confidence
+                    "raw_confidence": intent_result.confidence
                 }
             )
 
-            # Intent already classified by SmartRouterAdapter
-
-            # Step 2: Send all data to ThresholdSystem for processing and decision
+            # Step 2: CENTRAL THRESHOLD PROCESSING - Single source of threshold decisions
             from .intelligent_threshold_system import intelligent_threshold_system
             
             threshold_decision = await intelligent_threshold_system.decide(
@@ -111,19 +109,19 @@ class SmartConversationRouter:
                 mandatory_data_override=getattr(threshold_decision, 'mandatory_data_override', False)
             )
 
-            # Structured telemetry for final routing decision
+            # Structured telemetry for final centralized routing decision
             app_logger.info(
-                f"[SMART_ROUTER] Routing decision completed",
+                f"[SMART_ROUTER] FINAL routing decision (centralized threshold)",
                 extra={
                     "component": "smart_router",
-                    "operation": "routing_completed",
+                    "operation": "final_routing_decision", 
                     "target_node": routing_decision.target_node,
                     "threshold_action": routing_decision.threshold_action,
                     "final_confidence": routing_decision.final_confidence,
-                    "intent_confidence": routing_decision.intent_confidence,
-                    "pattern_confidence": routing_decision.pattern_confidence,
+                    "raw_confidence": routing_decision.intent_confidence,
+                    "confidence_boost": routing_decision.final_confidence - routing_decision.intent_confidence,
                     "rule_applied": routing_decision.rule_applied,
-                    "mandatory_data_override": getattr(routing_decision, "mandatory_data_override", False)
+                    "reasoning": routing_decision.reasoning[:100] + "..." if len(routing_decision.reasoning) > 100 else routing_decision.reasoning
                 }
             )
 

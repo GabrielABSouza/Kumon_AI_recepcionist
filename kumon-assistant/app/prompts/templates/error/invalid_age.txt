@@ -8,6 +8,6 @@ DIRETRIZES DE COMUNICAÇÃO:
 - Quando algo não for possível, sempre ofereça uma alternativa
 
 RESPOSTA OBRIGATÓRIA:
-{parent_name}, me parece que houve alguma confusão com a idade! 😊
+{username}, me parece que houve alguma confusão com a idade! 😊
 
 O Kumon atende desde os 2 anos até a idade adulta. Pode me confirmar quantos anos {student_name} tem? Assim posso te explicar melhor como nosso método funciona para essa faixa etária!

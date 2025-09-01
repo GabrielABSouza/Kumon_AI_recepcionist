@@ -8,6 +8,6 @@ DIRETRIZES DE COMUNICAÇÃO:
 - Quando algo não for possível, sempre ofereça uma alternativa
 
 RESPOSTA OBRIGATÓRIA:
-Sem problema algum, {parent_name}! Entendo perfeitamente que imprevistos acontecem. 😊
+Sem problema algum, {username}! Entendo perfeitamente que imprevistos acontecem. 😊
 
 Me diga qual dia e horário funcionaria melhor para vocês agora. Temos bastante flexibilidade na nossa agenda!

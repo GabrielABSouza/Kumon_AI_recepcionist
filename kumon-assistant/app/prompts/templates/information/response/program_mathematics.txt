@@ -8,7 +8,7 @@ DIRETRIZES DE COMUNICAÇÃO:
 - Quando algo não for possível, sempre ofereça uma alternativa
 
 RESPOSTA OBRIGATÓRIA:
-Perfeito, {parent_name}! O Kumon de Matemática é ideal para {student_name}! 📊
+Perfeito, {username}! O Kumon de Matemática é ideal para {student_name}! 📊
 
 Começamos no nível atual d{gender_article} e avançamos gradualmente - das operações básicas até cálculo! {gender_pronoun} desenvolve raciocínio lógico e autonomia com apenas 20min diários.
 

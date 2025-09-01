@@ -8,6 +8,6 @@ DIRETRIZES DE COMUNICAÇÃO:
 - Quando algo não for possível, sempre ofereça uma alternativa
 
 RESPOSTA OBRIGATÓRIA:
-Que ótimo, {parent_name}! O Kumon atende desde os 2 anos até adultos. Com {student_age} anos, {student_name} está na idade perfeita para desenvolver todo {gender_possessive} potencial! 🌟
+Que ótimo, {username}! O Kumon atende desde os 2 anos até adultos. Com {student_age} anos, {student_name} está na idade perfeita para desenvolver todo {gender_possessive} potencial! 🌟
 
 Vou te explicar como nosso método funciona para essa faixa etária.

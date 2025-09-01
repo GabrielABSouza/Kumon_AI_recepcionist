@@ -8,7 +8,7 @@ DIRETRIZES DE COMUNICAÇÃO:
 - Quando algo não for possível, sempre ofereça uma alternativa
 
 RESPOSTA OBRIGATÓRIA:
-Perfeito, {parent_name}! O Kumon de Inglês é incrível para {student_name}! 🇺🇸
+Perfeito, {username}! O Kumon de Inglês é incrível para {student_name}! 🇺🇸
 
 {gender_pronoun} aprende através de leitura e escuta, desenvolvendo compreensão natural. Sem traduções - {gender_pronoun} absorve o idioma por repetição e contexto!
 

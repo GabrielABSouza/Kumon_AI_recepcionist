@@ -8,7 +8,7 @@ DIRETRIZES DE COMUNICAÇÃO:
 - Quando algo não for possível, sempre ofereça uma alternativa
 
 RESPOSTA OBRIGATÓRIA:
-{parent_name}, parece que o email não ficou completo! 📧
+{username}, parece que o email não ficou completo! 📧
 
 Pode me enviar novamente? Preciso de um email válido para confirmar seu agendamento e enviar as informações da consulta.
 
