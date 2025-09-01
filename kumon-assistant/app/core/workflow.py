@@ -559,40 +559,44 @@ class CeciliaWorkflow:
             
             logger.info(f"🤖 SmartRouter decision: {routing_decision.threshold_action}")
             
-            # 2. Só executar LangGraph se threshold_action == "enhance_with_llm"
-            if routing_decision.threshold_action == "enhance_with_llm":
-                logger.info(f"🚀 Executing LangGraph workflow - target node: {routing_decision.target_node}")
+            # PHASE 2.1: Remove bypass as default path - follow Stage Node → Routing Node → DeliveryService
+            
+            # Add routing decision to state for use by edges
+            input_data["routing_decision"] = {
+                "target_node": routing_decision.target_node,
+                "threshold_action": routing_decision.threshold_action,
+                "confidence": routing_decision.confidence,
+                "reasoning": routing_decision.reasoning,
+                "rule_applied": routing_decision.rule_applied
+            }
+            
+            # Only bypass on escalate_human or critical error
+            if routing_decision.threshold_action == "escalate_human":
+                logger.info(f"🚨 Emergency bypass: escalating to human")
+                # Keep bypass for human handoff
+                result = input_data.copy()
+                result["routing_decision"]["bypass_reason"] = "escalate_human"
                 
-                # Adicionar routing decision ao state antes de executar LangGraph
-                input_data["routing_decision"] = {
-                    "target_node": routing_decision.target_node,
-                    "threshold_action": routing_decision.threshold_action,
-                    "confidence": routing_decision.confidence,
-                    "reasoning": routing_decision.reasoning,
-                    "rule_applied": routing_decision.rule_applied
-                }
-                
-                # Executar LangGraph que irá para o node correto
-                result = await self.app.ainvoke(input_data, config=config)
-                
-            else:
-                logger.info(f"⚡ Bypassing LangGraph, using planned response")
-                # Usar resposta plannedresponse diretamente sem executar nodes
-                result = input_data.copy()  # Manter estado original
-                
-                # Adicionar routing decision ao resultado
-                result["routing_decision"] = {
-                    "target_node": routing_decision.target_node,
-                    "threshold_action": routing_decision.threshold_action,
-                    "confidence": routing_decision.confidence,
-                    "reasoning": routing_decision.reasoning,
-                    "rule_applied": routing_decision.rule_applied
-                }
-                
-                # Gerar resposta planejada usando ResponsePlanner
+                # Generate emergency response
                 from .router.response_planner import response_planner
                 await response_planner.plan_and_generate(result, routing_decision)
-                # Response is now in result["planned_response"]
+            else:
+                # NORMAL PATH: Execute LangGraph - Stage Node → Routing Node (edges) → DeliveryService
+                logger.info(f"🚀 Executing normal LangGraph workflow - target node: {routing_decision.target_node}")
+                
+                # Execute LangGraph: Stage Node will collect/validate, Edge will call Routing Node, DeliveryService sends
+                try:
+                    result = await self.app.ainvoke(input_data, config=config)
+                except Exception as critical_error:
+                    logger.error(f"🚨 Critical LangGraph error: {critical_error}")
+                    # Emergency bypass only on critical failure
+                    result = input_data.copy()
+                    result["routing_decision"]["bypass_reason"] = "critical_error"
+                    result["routing_decision"]["error"] = str(critical_error)
+                    
+                    # Generate emergency fallback response
+                    from .router.response_planner import response_planner
+                    await response_planner.plan_and_generate(result, routing_decision)
             
             # PHASE 3: Use DeliveryService for atomic message delivery and state updates
             # Extract data for delivery

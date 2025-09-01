@@ -199,12 +199,33 @@ class DeliveryService:
         delivery_result: Dict[str, Any],
         delivery_id: str
     ) -> CeciliaState:
-        """Apply state updates after successful delivery"""
+        """Apply state updates after successful delivery using canonical stage mapping"""
         
         target_node = routing_decision["target_node"]
+        current_stage = state.get("current_stage")
         
-        # Map target_node to stage updates
-        stage_updates = self._get_stage_updates_for_target(target_node, state)
+        # PHASE 2.3: Use canonical stage mapping utility
+        from ...core.state.stage_mapping import map_target_to_stage_step
+        
+        # Don't update stage if target_node is "fallback"
+        if target_node == "fallback":
+            logger.info(f"⚠️ Target is fallback - keeping current stage: {current_stage}")
+            stage_updates = {
+                "current_stage": current_stage,
+                "current_step": state.get("current_step")
+            }
+        else:
+            # Use canonical mapping for stage progression
+            new_stage, new_step = map_target_to_stage_step(target_node, current_stage)
+            stage_updates = {
+                "current_stage": new_stage,
+                "current_step": new_step
+            }
+            
+            # Log stage progression
+            old_stage = self._get_stage_value(current_stage)
+            new_stage_str = self._get_stage_value(new_stage)
+            logger.info(f"📊 Stage progression: {old_stage} → {new_stage_str} (target: {target_node})")
         
         # Add delivery metadata
         delivery_updates = {
@@ -223,55 +244,13 @@ class DeliveryService:
         # Apply updates atomically
         updated_state = StateManager.update_state(state, delivery_updates)
         
-        logger.info(
-            f"📊 Stage updated: {state.get('current_stage')} → {updated_state.get('current_stage')} "
-            f"(target: {target_node})"
-        )
-        
         return updated_state
     
-    def _get_stage_updates_for_target(
-        self,
-        target_node: str,
-        current_state: CeciliaState
-    ) -> Dict[str, Any]:
-        """Map target_node to appropriate stage/step updates"""
-        
-        from ...core.state.models import ConversationStage, ConversationStep
-        
-        # Define stage mappings
-        stage_mapping = {
-            "greeting": {
-                "current_stage": ConversationStage.GREETING,
-                "current_step": ConversationStep.WELCOME
-            },
-            "qualification": {
-                "current_stage": ConversationStage.QUALIFICATION,
-                "current_step": ConversationStep.CHILD_AGE_INQUIRY
-            },
-            "information": {
-                "current_stage": ConversationStage.INFORMATION_GATHERING,
-                "current_step": ConversationStep.METHODOLOGY_EXPLANATION
-            },
-            "scheduling": {
-                "current_stage": ConversationStage.SCHEDULING,
-                "current_step": ConversationStep.DATE_PREFERENCE
-            },
-            "confirmation": {
-                "current_stage": ConversationStage.CONFIRMATION,
-                "current_step": ConversationStep.APPOINTMENT_CONFIRMED
-            },
-            "handoff": {
-                "current_stage": ConversationStage.COMPLETED,
-                "current_step": ConversationStep.CONVERSATION_ENDED
-            }
-        }
-        
-        return stage_mapping.get(target_node, {
-            # Default: keep current stage
-            "current_stage": current_state.get("current_stage"),
-            "current_step": current_state.get("current_step")
-        })
+    def _get_stage_value(self, stage):
+        """Safely extract stage value for logging (handle both Enum and string)"""
+        if hasattr(stage, 'value'):
+            return stage.value
+        return str(stage) if stage else "unknown"
     
     async def _handle_delivery_failure(
         self,

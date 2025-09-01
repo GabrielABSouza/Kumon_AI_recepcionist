@@ -73,22 +73,24 @@ def universal_edge_router(
     valid_targets: list
 ) -> str:
     """
-    Universal edge router - SINGLE source of routing truth via SmartRouter
+    PHASE 2.2: Universal Routing Node implementation
     
-    All routing decisions flow through SmartRouter:
-    1. SmartRouter makes decision (includes circuit breaker, handoff logic)
-    2. ResponsePlanner generates response if needed
-    3. Return target node
+    Routing Node pattern: Stage Node → Routing Node (this edge) → DeliveryService
+    
+    Sequence:
+    1. smart_router_adapter.decide_route(state, edge_name)
+    2. response_planner.plan_and_generate(state, routing_decision) [without sending]
+    3. Return target_node for LangGraph progression
     
     Args:
-        state: Current conversation state
-        current_node: Node we're routing from
+        state: Current conversation state (after Stage Node execution)
+        current_node: Stage Node we're routing from
         valid_targets: Valid target nodes for this edge
     """
-    logger.info(f"Universal routing from {current_node} for {state['phone_number']}")
+    logger.info(f"🔄 Routing Node: {current_node} → ? for {state['phone_number']}")
     
     try:
-        # Run async SmartRouter in sync context (LangGraph compatibility)
+        # Run async operations in sync context (LangGraph compatibility)
         import asyncio
         try:
             loop = asyncio.get_event_loop()
@@ -96,59 +98,79 @@ def universal_edge_router(
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
         
-        # SmartRouter is the ONLY decision maker
+        # STEP 1: SmartRouter decision
         routing_decision = loop.run_until_complete(
             smart_router_adapter.decide_route(state, f"route_from_{current_node}")
         )
         
-        # Store routing decision in state for nodes to use
-        state["routing_decision"] = {
-            "target_node": routing_decision.target_node,
+        # STEP 2: ResponsePlanner generates planned_response (without sending)
+        logger.info(f"🎯 Routing Node calling ResponsePlanner for {current_node}")
+        loop.run_until_complete(
+            response_planner.plan_and_generate(state, routing_decision)
+        )
+        # planned_response is now in state["planned_response"]
+        
+        target = routing_decision.target_node
+        
+        # PHASE 2.2: Validate and correct invalid targets per edge
+        stage_fallbacks = {
+            "greeting": "qualification",  # GREETING defaults to qualification
+            "qualification": "information",  # QUALIFICATION defaults to information
+            "information": "scheduling",  # INFORMATION defaults to scheduling
+            "scheduling": "confirmation",  # SCHEDULING defaults to confirmation
+        }
+        
+        if target not in valid_targets:
+            # Apply stage-specific fallback mapping
+            fallback_target = stage_fallbacks.get(current_node)
+            if fallback_target and fallback_target in valid_targets:
+                target = fallback_target
+                logger.info(f"🔧 Corrected invalid target: {routing_decision.target_node} → {target} for {current_node}")
+            else:
+                # Generic fallback to first valid target
+                target = valid_targets[0]
+                logger.warning(f"⚠️ Using generic fallback: {target} for {current_node}")
+        
+        # Store final routing info for DeliveryService
+        state["routing_info"] = {
+            "target_node": target,
+            "original_target": routing_decision.target_node,
             "threshold_action": routing_decision.threshold_action,
             "confidence": routing_decision.confidence,
             "reasoning": routing_decision.reasoning,
             "from_node": current_node,
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "stage_type": type(state.get("current_stage")).__name__,
+            "target_validated": target == routing_decision.target_node
         }
         
-        # PHASE 2: Generate response based on threshold_action
-        # If NOT enhance_with_llm, generate response NOW (before node execution)
-        if routing_decision.threshold_action != "enhance_with_llm":
-            logger.info(f"Generating response via ResponsePlanner (action: {routing_decision.threshold_action})")
-            loop.run_until_complete(
-                response_planner.plan_and_generate(state, routing_decision)
-            )
-            # Response is now in state["planned_response"]
-            logger.info(f"Response generated, ready for delivery")
-        else:
-            logger.info(f"Skipping response generation - node will handle (enhance_with_llm)")
-            # Node will execute to gather data/RAG, then ResponsePlanner will generate
-        
-        target = routing_decision.target_node
-        
-        # Validate target is allowed for this edge
-        if target not in valid_targets:
-            logger.warning(
-                f"SmartRouter returned '{target}' which is not valid for {current_node}. "
-                f"Valid targets: {valid_targets}. Defaulting to {valid_targets[0]}"
-            )
-            target = valid_targets[0]
-        
         logger.info(
-            f"SmartRouter decision: {current_node} → {target} "
-            f"(confidence: {routing_decision.confidence:.2f}, action: {routing_decision.threshold_action})"
+            f"✅ Routing Node: {current_node} → {target} "
+            f"(action: {routing_decision.threshold_action}, confidence: {routing_decision.confidence:.2f})"
         )
         
         return target
         
     except Exception as e:
-        logger.error(f"SmartRouter failed in universal router: {e}, using safe fallback")
+        logger.error(f"🚨 Routing Node error: {e}, using fallback")
         
-        # CRITICAL FALLBACK: If SmartRouter completely fails, safe default
-        # This should rarely happen as SmartRouter has its own fallbacks
-        if "handoff" in valid_targets:
-            return "handoff"  # Safest option when system fails
-        return valid_targets[0]  # First valid target as last resort
+        # CRITICAL FALLBACK: Apply stage-specific safe defaults
+        stage_safe_fallbacks = {
+            "greeting": "qualification",
+            "qualification": "information", 
+            "information": "scheduling",
+            "scheduling": "confirmation",
+            "validation": "handoff",
+            "confirmation": "handoff"
+        }
+        
+        fallback = stage_safe_fallbacks.get(current_node)
+        if fallback and fallback in valid_targets:
+            return fallback
+        elif "handoff" in valid_targets:
+            return "handoff"  # Ultimate safety net
+        else:
+            return valid_targets[0]  # Last resort
 
 
 def route_from_greeting(

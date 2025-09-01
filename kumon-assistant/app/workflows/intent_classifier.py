@@ -377,9 +377,6 @@ class AdvancedIntentClassifier:
         from .pattern_scorer import PatternScorer
         pattern_scorer = PatternScorer()
         entities = pattern_scorer.extract_entities(message)
-        
-        # Get current stage for stage-aware classification
-        current_stage = context.conversation_state.get("current_stage") if context.conversation_state else None
 
         # Check each intent category
         for category, config in self.intent_patterns.items():
