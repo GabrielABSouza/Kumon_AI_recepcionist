@@ -140,8 +140,8 @@ class QualificationNode:
         elif current_step == ConversationStep.AVAILABILITY_CHECK:
             return await self._handle_availability_check(state, user_message)
         
-        # ========== QUALIFICATION_SUMMARY - NOVO STEP ==========
-        elif current_step == ConversationStep.QUALIFICATION_SUMMARY:
+        # ========== CURRENT_SCHOOL_GRADE - Qualification summary step ==========
+        elif current_step == ConversationStep.CURRENT_SCHOOL_GRADE:
             return await self._handle_qualification_summary(state, user_message)
         
         # Default
@@ -252,7 +252,7 @@ class QualificationNode:
         
         # Transition to summary
         updates = {
-            "current_step": ConversationStep.QUALIFICATION_SUMMARY
+            "current_step": ConversationStep.CURRENT_SCHOOL_GRADE
         }
         
         return await self._handle_qualification_summary(state, user_message, updates)
