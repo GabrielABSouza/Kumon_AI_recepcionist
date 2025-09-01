@@ -183,7 +183,8 @@ class CeciliaWorkflow:
             "greeting",
             route_from_greeting,
             {
-                "ROUTING": "ROUTING"
+                "ROUTING": "ROUTING",
+                "DELIVERY": "DELIVERY"
             }
         )
         
@@ -192,7 +193,8 @@ class CeciliaWorkflow:
             "qualification",
             route_from_qualification,
             {
-                "ROUTING": "ROUTING"
+                "ROUTING": "ROUTING",
+                "DELIVERY": "DELIVERY"
             }
         )
         
@@ -201,7 +203,8 @@ class CeciliaWorkflow:
             "information",
             route_from_information,
             {
-                "ROUTING": "ROUTING"
+                "ROUTING": "ROUTING",
+                "DELIVERY": "DELIVERY"
             }
         )
         
@@ -210,7 +213,8 @@ class CeciliaWorkflow:
             "scheduling",
             route_from_scheduling,
             {
-                "ROUTING": "ROUTING"
+                "ROUTING": "ROUTING",
+                "DELIVERY": "DELIVERY"
             }
         )
         
@@ -219,7 +223,8 @@ class CeciliaWorkflow:
             "validation",
             route_from_validation,
             {
-                "ROUTING": "ROUTING"
+                "ROUTING": "ROUTING",
+                "DELIVERY": "DELIVERY"
             }
         )
         
@@ -228,7 +233,8 @@ class CeciliaWorkflow:
             "confirmation",
             route_from_confirmation,
             {
-                "ROUTING": "ROUTING"
+                "ROUTING": "ROUTING",
+                "DELIVERY": "DELIVERY"
             }
         )
         
@@ -237,7 +243,8 @@ class CeciliaWorkflow:
             "emergency_progression", 
             route_from_emergency_progression,
             {
-                "ROUTING": "ROUTING"
+                "ROUTING": "ROUTING",
+                "DELIVERY": "DELIVERY"
             }
         )
         

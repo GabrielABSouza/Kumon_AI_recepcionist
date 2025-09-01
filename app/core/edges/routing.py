@@ -77,83 +77,93 @@ def universal_edge_router(
     
     Architecture: Stage Node → Simple Edge → ROUTING Node → DELIVERY Node
     
-    This edge is now simplified - it just sets context and routes to ROUTING node.
-    All routing logic moved to the dedicated ROUTING node.
+    This edge now checks if the node was already processed by ROUTING to prevent loops.
+    If it was, goes to DELIVERY. Otherwise goes to ROUTING for decision making.
     
     Args:
         state: Current conversation state (after Stage Node execution)
         current_node: Stage Node we're routing from  
-        valid_targets: Valid target nodes (should include "ROUTING")
+        valid_targets: Valid target nodes (should include "ROUTING" and "DELIVERY")
         
     Returns:
-        Always "ROUTING" to route to ROUTING node for decision making
+        "DELIVERY" if node already processed by ROUTING, "ROUTING" otherwise
     """
     phone_number = state.get("phone_number", "unknown")
-    logger.info(f"🔄 Simple Edge Router: {current_node} → ROUTING for {phone_number[-4:]}")
     
-    # Store context for ROUTING node to use
-    state["last_node"] = current_node
-    state["routing_requested_at"] = datetime.now(timezone.utc).isoformat()
+    # Check if this node was already processed by ROUTING to prevent loops
+    routing_decision = state.get("routing_decision", {})
+    target_node = routing_decision.get("target_node")
     
-    logger.info(f"✅ Simple Edge: Routing {current_node} → ROUTING node")
-    
-    # Route to ROUTING node for actual decision making
-    return "ROUTING"
+    if target_node == current_node and state.get("routing_complete"):
+        # This node was targeted by ROUTING and routing is complete
+        # Go to DELIVERY to send response
+        logger.info(f"🎯 Edge Router: {current_node} → DELIVERY (routing complete) for {phone_number[-4:]}")
+        return "DELIVERY"
+    else:
+        # First time processing or need routing decision
+        logger.info(f"🔄 Simple Edge Router: {current_node} → ROUTING for {phone_number[-4:]}")
+        
+        # Store context for ROUTING node to use
+        state["last_node"] = current_node
+        state["routing_requested_at"] = datetime.now(timezone.utc).isoformat()
+        
+        logger.info(f"✅ Simple Edge: Routing {current_node} → ROUTING node")
+        return "ROUTING"
 
 
 def route_from_greeting(
     state: CeciliaState
-) -> Literal["ROUTING"]:
-    """Route from greeting node - goes to ROUTING node for decision making"""
-    valid_targets = ["ROUTING"]
+) -> Literal["ROUTING", "DELIVERY"]:
+    """Route from greeting node - goes to ROUTING for decision or DELIVERY if already processed"""
+    valid_targets = ["ROUTING", "DELIVERY"]
     return universal_edge_router(state, "greeting", valid_targets)
 
 
 def route_from_qualification(
     state: CeciliaState
-) -> Literal["ROUTING"]:
-    """Route from qualification node - goes to ROUTING node for decision making"""
-    valid_targets = ["ROUTING"]
+) -> Literal["ROUTING", "DELIVERY"]:
+    """Route from qualification node - goes to ROUTING for decision or DELIVERY if already processed"""
+    valid_targets = ["ROUTING", "DELIVERY"]
     return universal_edge_router(state, "qualification", valid_targets)
 
 
 def route_from_information(
     state: CeciliaState
-) -> Literal["ROUTING"]:
-    """Route from information node - goes to ROUTING node for decision making"""
-    valid_targets = ["ROUTING"]
+) -> Literal["ROUTING", "DELIVERY"]:
+    """Route from information node - goes to ROUTING for decision or DELIVERY if already processed"""
+    valid_targets = ["ROUTING", "DELIVERY"]
     return universal_edge_router(state, "information", valid_targets)
 
 
 def route_from_scheduling(
     state: CeciliaState
-) -> Literal["ROUTING"]:
-    """Route from scheduling node - goes to ROUTING node for decision making"""
-    valid_targets = ["ROUTING"]
+) -> Literal["ROUTING", "DELIVERY"]:
+    """Route from scheduling node - goes to ROUTING for decision or DELIVERY if already processed"""
+    valid_targets = ["ROUTING", "DELIVERY"]
     return universal_edge_router(state, "scheduling", valid_targets)
 
 
 def route_from_validation(
     state: CeciliaState
-) -> Literal["ROUTING"]:
-    """Route from validation node - goes to ROUTING node for decision making"""
-    valid_targets = ["ROUTING"]
+) -> Literal["ROUTING", "DELIVERY"]:
+    """Route from validation node - goes to ROUTING for decision or DELIVERY if already processed"""
+    valid_targets = ["ROUTING", "DELIVERY"]
     return universal_edge_router(state, "validation", valid_targets)
 
 
 def route_from_emergency_progression(
     state: CeciliaState
-) -> Literal["ROUTING"]:
-    """Route from emergency progression node - goes to ROUTING node for decision making"""
-    valid_targets = ["ROUTING"]
+) -> Literal["ROUTING", "DELIVERY"]:
+    """Route from emergency progression node - goes to ROUTING for decision or DELIVERY if already processed"""
+    valid_targets = ["ROUTING", "DELIVERY"]
     return universal_edge_router(state, "emergency_progression", valid_targets)
 
 
 def route_from_confirmation(
     state: CeciliaState
-) -> Literal["ROUTING"]:
-    """Route from confirmation node - goes to ROUTING node for decision making"""
-    valid_targets = ["ROUTING"]
+) -> Literal["ROUTING", "DELIVERY"]:
+    """Route from confirmation node - goes to ROUTING for decision or DELIVERY if already processed"""
+    valid_targets = ["ROUTING", "DELIVERY"]
     return universal_edge_router(state, "confirmation", valid_targets)
 
 
