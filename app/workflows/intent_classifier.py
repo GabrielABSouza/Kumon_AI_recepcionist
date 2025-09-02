@@ -348,28 +348,47 @@ class AdvancedIntentClassifier:
         for category, config in self.intent_patterns.items():
             confidence = 0.0
             matched_patterns = []
-
-                # Use PatternScorer for pattern matching
+            
+            # Use PatternScorer for pattern matching
             pattern_scorer = PatternScorer()
             route_patterns = pattern_scorer.route_patterns
             
             # Match against route patterns if available
             category_value = self._get_enum_value(category)
-            if category_value in route_patterns:
-                route_config = route_patterns[category_value]
+            
+            # Map IntentCategory values to PatternScorer route_pattern keys
+            category_mapping = {
+                "information_request": "information",
+                "greeting": "greeting",
+                "scheduling": "scheduling", 
+                "clarification": "clarification",
+                "objection": "handoff",  # Map objection to handoff in PatternScorer
+                "decision": "confirmation",  # Map decision to confirmation in PatternScorer
+            }
+            
+            # Use mapped category name for route_patterns lookup
+            route_category = category_mapping.get(category_value, category_value)
+            if route_category in route_patterns:
+                route_config = route_patterns[route_category]
                 
                 # STAGE-AWARE LOGIC: Prevent incorrect classification based on conversation stage
                 if category_value == "greeting":
                     # Suppress greeting classification in non-greeting stages
                     current_stage_str = safe_enum_value(current_stage) if current_stage else "unknown"
+                    
+                    # CRITICAL FIX: Detect name pattern early to prevent greeting misclassification
+                    name_pattern = r"^[A-ZÁÊÉÔÕÂÎÇÜ][a.záêéôõâîçü]{2,}(?:\s+[A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,})*$"
+                    is_name_response = re.match(name_pattern, message.strip())
+                    
                     if current_stage and "greeting" not in current_stage_str.lower():
                         # User is NOT in greeting stage - reduce greeting score significantly
                         confidence += 0.05  # Very low score
                         matched_patterns = []
+                        if is_name_response and "qualification" in current_stage_str.lower():
+                            app_logger.info(f"[FIX] Name '{message}' in QUALIFICATION - suppressing greeting classification")
                     elif current_stage and "greeting" in current_stage_str.lower():
                         # Check if this looks like a name response
-                        name_pattern = r"^[A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,}(?:\s+[A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,})*$"
-                        if re.match(name_pattern, message.strip()):
+                        if is_name_response:
                             # This is a name response - very low greeting score
                             confidence += 0.1
                             matched_patterns = []
@@ -395,25 +414,35 @@ class AdvancedIntentClassifier:
                     
                     # STAGE-AWARE BOOSTS based on expected responses per stage
                     if current_stage:
-                        stage_str = current_stage_str
+                        stage_str = safe_enum_value(current_stage) if current_stage else "unknown"
+                        app_logger.debug(f"[STAGE DEBUG] current_stage={current_stage}, stage_str={stage_str}, category={category_value}")
                         
-                        # GREETING stage: Name responses boost information_request
-                        if (category_value == "information_request" and 
-                            "GREETING" in stage_str):
+                        # GREETING stage: Name responses boost information
+                        if (route_category == "information" and 
+                            "greeting" in stage_str.lower()):
                             name_pattern = r"^[A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,}(?:\s+[A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,})*$"
                             if re.match(name_pattern, message.strip()):
                                 confidence += 0.6  # Strong boost for name responses
+                                app_logger.info(f"[GREETING] Name '{message}' boosted information to {confidence}")
                         
-                        # QUALIFICATION stage: Age/grade responses boost information_request
-                        elif (category_value == "information_request" and 
-                              "QUALIFICATION" in stage_str):
+                        # QUALIFICATION stage: Name/Age/grade responses boost information
+                        elif (route_category == "information" and 
+                              "qualification" in stage_str.lower()):
+                            # Check for name pattern (single name or full name)
+                            name_pattern = r"^[A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,}(?:\s+[A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,})*$"
                             age_pattern = r"\b\d{1,2}\s*(anos?|meses)?\b"
                             grade_pattern = r"\b\d+[°ºª]?\s*(ano|série|grau)\b"
-                            if re.search(age_pattern, message_lower) or re.search(grade_pattern, message_lower):
+                            
+                            # CRITICAL FIX: Recognize names in QUALIFICATION stage
+                            if re.match(name_pattern, message.strip()):
+                                confidence += 0.8  # STRONG boost for name responses in QUALIFICATION
+                                app_logger.info(f"[QUALIFICATION FIX] Detected name response: {message} - boosting information to {confidence}")
+                            elif re.search(age_pattern, message_lower) or re.search(age_pattern, message_lower):
                                 confidence += 0.5  # Boost for age/grade responses
+                                app_logger.info(f"[QUALIFICATION] Age/grade response boosted to {confidence}")
                         
                         # SCHEDULING stage: Time/date responses boost scheduling
-                        elif (category_value == "scheduling" and 
+                        elif (route_category == "scheduling" and 
                               "SCHEDULING" in stage_str):
                             time_pattern = r"\b\d{1,2}[h:]\d{0,2}\b|\b(manhã|tarde|noite)\b"
                             date_pattern = r"\b(segunda|terça|quarta|quinta|sexta|sábado|domingo)\b"
