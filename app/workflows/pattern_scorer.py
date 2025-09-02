@@ -142,6 +142,24 @@ class PatternScorer:
                 ],
                 "base_score": 0.9,
                 "boost_factors": ["human_help_indicators", "dissatisfaction"]
+            },
+            "qualification": {
+                "patterns": [
+                    # Names (most common qualification response)
+                    r"^[A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,}(?:\s+[A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,})*$",
+                    # Ages
+                    r"\b(\d{1,2})\s+(anos?|meses?)\b",
+                    r"\b(idade\s+)?\d{1,2}\b",
+                    # School grades/years  
+                    r"\b\d+[°ºª]?\s*(ano|série|grau)\b",
+                    r"\b(fundamental|médio|ensino\s+médio)\b",
+                    # Simple yes/no responses
+                    r"^(sim|não|yes|no)$",
+                    # Child information
+                    r"\b(meu\s+filho|minha\s+filha|ele\s+tem|ela\s+tem)\b",
+                ],
+                "base_score": 0.8,  # High score for qualification responses
+                "boost_factors": ["person_names", "entity_ages", "stage_qualification"]
             }
         }
 

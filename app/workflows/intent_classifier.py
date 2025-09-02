@@ -30,6 +30,7 @@ class IntentCategory(Enum):
 
     GREETING = "greeting"
     INFORMATION_REQUEST = "information_request"
+    QUALIFICATION = "qualification"  # Data collection responses (names, ages, etc.)
     SCHEDULING = "scheduling"
     CLARIFICATION = "clarification"
     OBJECTION = "objection"
@@ -155,6 +156,25 @@ class AdvancedIntentClassifier:
                     "metodologia": IntentSubcategory.METHODOLOGY_GENERAL,
                 },
                 "context_continuation": True,
+            },
+            IntentCategory.QUALIFICATION: {
+                "patterns": [
+                    # Names (most common qualification response)
+                    r"^[A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,}(?:\s+[A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,})*$",
+                    # Ages
+                    r"\b(\d{1,2})\s+(anos?|meses?)\b",
+                    r"\b(idade\s+)?\d{1,2}\b",
+                    # School grades/years
+                    r"\b\d+[°ºª]?\s*(ano|série|grau)\b",
+                    r"\b(fundamental|médio|ensino\s+médio)\b",
+                    # Yes/No responses for qualification questions
+                    r"^(sim|não|yes|no)$",
+                    # Child information responses
+                    r"\b(meu\s+filho|minha\s+filha|ele\s+tem|ela\s+tem)\b",
+                ],
+                "context_indicators": ["parent_name_collection", "child_name_collection", "age_collection", "grade_collection"],
+                "confidence_boost": 0.3,
+                "stage_specific": True,  # Only applies in QUALIFICATION stage
             },
             IntentCategory.SCHEDULING: {
                 "patterns": [
@@ -359,6 +379,7 @@ class AdvancedIntentClassifier:
             # Map IntentCategory values to PatternScorer route_pattern keys
             category_mapping = {
                 "information_request": "information",
+                "qualification": "qualification",  # New category for data collection responses
                 "greeting": "greeting",
                 "scheduling": "scheduling", 
                 "clarification": "clarification",
@@ -425,7 +446,23 @@ class AdvancedIntentClassifier:
                                 confidence += 0.6  # Strong boost for name responses
                                 app_logger.info(f"[GREETING] Name '{message}' boosted information to {confidence}")
                         
-                        # QUALIFICATION stage: Name/Age/grade responses boost information
+                        # QUALIFICATION stage: Data collection responses should be classified as qualification
+                        elif (route_category == "qualification" and 
+                              "qualification" in stage_str.lower()):
+                            # Check for name pattern (single name or full name)
+                            name_pattern = r"^[A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,}(?:\s+[A-ZÁÊÉÔÕÂÎÇÜ][a-záêéôõâîçü]{2,})*$"
+                            age_pattern = r"\b\d{1,2}\s*(anos?|meses)?\b"
+                            grade_pattern = r"\b\d+[°ºª]?\s*(ano|série|grau)\b"
+                            
+                            # CRITICAL FIX: Recognize qualification responses in QUALIFICATION stage
+                            if re.match(name_pattern, message.strip()):
+                                confidence += 0.9  # VERY STRONG boost for name responses in QUALIFICATION
+                                app_logger.info(f"[QUALIFICATION] Detected name response: {message} - boosting qualification to {confidence}")
+                            elif re.search(age_pattern, message_lower) or re.search(grade_pattern, message_lower):
+                                confidence += 0.7  # Strong boost for age/grade responses
+                                app_logger.info(f"[QUALIFICATION] Age/grade response boosted to {confidence}")
+                        
+                        # QUALIFICATION stage: Name/Age/grade responses boost information (FALLBACK)
                         elif (route_category == "information" and 
                               "qualification" in stage_str.lower()):
                             # Check for name pattern (single name or full name)
@@ -433,13 +470,13 @@ class AdvancedIntentClassifier:
                             age_pattern = r"\b\d{1,2}\s*(anos?|meses)?\b"
                             grade_pattern = r"\b\d+[°ºª]?\s*(ano|série|grau)\b"
                             
-                            # CRITICAL FIX: Recognize names in QUALIFICATION stage
+                            # FALLBACK FIX: If qualification category doesn't work, boost information
                             if re.match(name_pattern, message.strip()):
                                 confidence += 0.8  # STRONG boost for name responses in QUALIFICATION
-                                app_logger.info(f"[QUALIFICATION FIX] Detected name response: {message} - boosting information to {confidence}")
+                                app_logger.info(f"[QUALIFICATION FALLBACK] Detected name response: {message} - boosting information to {confidence}")
                             elif re.search(age_pattern, message_lower) or re.search(age_pattern, message_lower):
                                 confidence += 0.5  # Boost for age/grade responses
-                                app_logger.info(f"[QUALIFICATION] Age/grade response boosted to {confidence}")
+                                app_logger.info(f"[QUALIFICATION FALLBACK] Age/grade response boosted to {confidence}")
                         
                         # SCHEDULING stage: Time/date responses boost scheduling
                         elif (route_category == "scheduling" and 
