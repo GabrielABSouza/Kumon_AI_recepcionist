@@ -299,9 +299,30 @@ class CeciliaWorkflow:
         
         # DELIVERY routes conditionally based on routing decision
         def route_from_delivery(state: CeciliaState) -> str:
-            """Route from DELIVERY node based on routing decision"""
+            """Route from DELIVERY node based on routing decision and conversation state"""
+            from .state.models import ConversationStage, ConversationStep
+            
+            # Check if conversation is completed
+            current_stage = state.get("current_stage")
+            current_step = state.get("current_step")
+            
+            # If stage is COMPLETED or step is CONVERSATION_ENDED, route to END
+            if (current_stage == ConversationStage.COMPLETED or 
+                current_step == ConversationStep.CONVERSATION_ENDED or
+                (hasattr(current_stage, 'value') and current_stage.value == 'completed') or
+                (hasattr(current_step, 'value') and current_step.value == 'conversation_ended')):
+                logger.info(f"📍 DELIVERY routing to END: conversation completed (stage={current_stage}, step={current_step})")
+                return "END"
+            
+            # Otherwise, use routing decision
             routing_decision = state.get("delivery_service_result", {}).get("routing_decision", {})
             target_node = routing_decision.get("target_node", "END")
+            
+            # Completion targets should route to END
+            completion_targets = {"completed", "END", "end"}
+            if target_node in completion_targets:
+                logger.info(f"📍 DELIVERY routing to END: completion target ({target_node})")
+                return "END"
             
             # Valid stage nodes that can be reached from DELIVERY
             valid_stage_nodes = {

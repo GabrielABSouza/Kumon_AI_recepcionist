@@ -66,6 +66,9 @@ class StateManager:
             CeciliaState: Updated state
         """
         # Update timestamp
+        if "conversation_metrics" not in state:
+            from datetime import datetime
+            state["conversation_metrics"] = {"message_count": 0, "session_start": datetime.utcnow().isoformat()}
         state["conversation_metrics"]["message_count"] += 1
         
         # Apply direct updates to core fields

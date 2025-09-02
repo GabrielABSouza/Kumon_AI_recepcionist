@@ -20,7 +20,8 @@ from ..core.config import settings
 from ..core.logger import app_logger
 from ..services.business_metrics_service import track_response_time
 from ..core.state.models import CeciliaState as ConversationState, ConversationStage, ConversationStep
-from .contracts import IntentResult
+from .contracts import IntentResult, DeliveryPayload
+from ..core.telemetry import TelemetryTracer, emit_intent_classification_event, generate_trace_id
 from .pattern_scorer import PatternScorer
 # Removed: intelligent_threshold_system - centralized in SmartRouter
 
@@ -121,6 +122,65 @@ class AdvancedIntentClassifier:
         if hasattr(enum_obj, 'value'):
             return enum_obj.value
         return str(enum_obj) if enum_obj else "unknown"
+
+    def _build_delivery_payload(
+        self, 
+        category: str, 
+        message: str, 
+        conversation_state: dict,
+        slots: Dict[str, Any] = None
+    ) -> DeliveryPayload:
+        """Build delivery payload based on intent category and channel"""
+        slots = slots or {}
+        
+        # Extract channel from state or default to whatsapp
+        channel = conversation_state.get("channel", "whatsapp")
+        
+        # Build content based on category
+        if category == "qualification":
+            content = {
+                "text": f"Obrigado pela informação! Vamos continuar com a qualificação.",
+                "type": "qualification_response"
+            }
+        elif category == "information_request":
+            content = {
+                "text": f"Entendi sua solicitação de informações. Vou te explicar sobre o Kumon.",
+                "type": "information_response"
+            }
+        elif category == "greeting":
+            parent_name = slots.get("parent_name", "")
+            if parent_name:
+                content = {
+                    "text": f"Olá, {parent_name}! Bem-vindo ao Kumon.",
+                    "type": "personalized_greeting"
+                }
+            else:
+                content = {
+                    "text": "Olá! Bem-vindo ao Kumon. Como posso te ajudar?",
+                    "type": "standard_greeting"
+                }
+        elif category == "scheduling":
+            content = {
+                "text": "Vamos agendar sua aula experimental. Que dia e horário seria melhor para você?",
+                "type": "scheduling_request"
+            }
+        else:
+            # Default fallback content
+            content = {
+                "text": "Entendi. Como posso te ajudar com mais informações sobre o Kumon?",
+                "type": "default_response"
+            }
+            
+        return DeliveryPayload(
+            channel=channel,
+            content=content,
+            attachments=[],
+            meta={
+                "intent_category": category,
+                "extracted_slots": slots,
+                "timestamp": datetime.now().isoformat()
+            }
+        )
 
     def _build_intent_patterns(self) -> Dict[IntentCategory, Dict]:
         """Build comprehensive intent patterns with context"""
@@ -266,6 +326,14 @@ class AdvancedIntentClassifier:
             # Get or create conversation context with safe access
             phone_number = conversation_state.get("phone_number", "unknown")
             context = self._get_conversation_context(phone_number, conversation_state)
+            
+            # Generate trace_id for telemetry
+            trace_id = generate_trace_id()
+            
+            # Extract telemetry context
+            current_stage = conversation_state.get("current_stage", "unknown")
+            current_step = conversation_state.get("current_step", "unknown") 
+            channel = conversation_state.get("channel", "whatsapp")
 
             # Step 1: Rule-based classification
             rule_based_result = self._classify_with_rules(message, context, conversation_state)
@@ -292,17 +360,36 @@ class AdvancedIntentClassifier:
                 f"[INTENT_CLASSIFIER] Raw classification complete: {final_result.category} "
                 f"(confidence: {final_result.confidence:.2f}) → sending to SmartRouter for threshold processing"
             )
+            
+            # Emit intent classification telemetry
+            response_time_ms = (datetime.now() - start_time).total_seconds() * 1000
+            emit_intent_classification_event(
+                trace_id=trace_id,
+                node_id="intent_classifier",
+                stage=str(current_stage),
+                step=str(current_step),
+                channel=channel,
+                duration_ms=response_time_ms,
+                intent_id=final_result.category,
+                confidence=final_result.confidence,
+                winning_rule=final_result.policy_action
+            )
 
             return final_result
 
         except Exception as e:
             app_logger.error(f"Error in intent classification: {e}")
-            # Return fallback classification
+            # Return fallback classification with delivery payload
+            delivery_payload = self._build_delivery_payload(
+                "clarification", message, conversation_state, {"error": str(e)}
+            )
             return IntentResult(
                 category="clarification",
                 subcategory="technical_confusion", 
                 confidence=0.5,
-                context_entities={"error": str(e)}
+                context_entities={"error": str(e)},
+                delivery_payload=delivery_payload,
+                slots={"error": str(e)}
             )
 
     # REMOVED: _classify_with_intelligent_thresholds()
@@ -514,20 +601,30 @@ class AdvancedIntentClassifier:
             if confidence > best_confidence:
                 best_confidence = confidence
                 subcategory = self._determine_subcategory(category, message_lower, entities)
+                delivery_payload = self._build_delivery_payload(
+                    self._get_enum_value(category), message, conversation_state, entities
+                )
                 best_match = IntentResult(
                     category=self._get_enum_value(category),
                     subcategory=self._get_enum_value(subcategory) if subcategory else None,
                     confidence=confidence,
-                    context_entities=entities
+                    context_entities=entities,
+                    delivery_payload=delivery_payload,
+                    slots=entities
                 )
 
         # Default fallback - only if really no good match found
         if not best_match or best_confidence < 0.2:
+            delivery_payload = self._build_delivery_payload(
+                "clarification", message, conversation_state, {"fallback_reason": "low_confidence"}
+            )
             best_match = IntentResult(
                 category="clarification",
                 subcategory="general_confusion",
                 confidence=0.5,
-                context_entities={"fallback_reason": "low_confidence"}
+                context_entities={"fallback_reason": "low_confidence"},
+                delivery_payload=delivery_payload,
+                slots={"fallback_reason": "low_confidence"}
             )
 
         return best_match
@@ -665,13 +762,18 @@ class AdvancedIntentClassifier:
                         rule_result.confidence = min(0.95, rule_result.confidence + 0.2)
                     else:
                         # LLM disagrees, create new result with moderate confidence
+                        delivery_payload = self._build_delivery_payload(
+                            self._get_enum_value(category), message, conversation_state, rule_result.context_entities
+                        )
                         rule_result = IntentResult(
                             category=self._get_enum_value(category),
                             subcategory=self._determine_subcategory(
                                 category, message.lower(), rule_result.context_entities
                             ),
                             confidence=0.7,
-                            context_entities=rule_result.context_entities
+                            context_entities=rule_result.context_entities,
+                            delivery_payload=delivery_payload,
+                            slots=rule_result.context_entities
                         )
                     break
 

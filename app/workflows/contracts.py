@@ -13,15 +13,39 @@ from typing import Dict, Any, Optional, Literal, List
 from ..core.state.models import ConversationStage
 
 
+# ========== DELIVERY CONTRACTS ==========
+
+@dataclass
+class DeliveryPayload:
+    """Payload for message delivery to channels"""
+    channel: Literal["web", "app", "whatsapp"]
+    content: Dict[str, Any]  # texto+rich, já adaptado por canal
+    attachments: List[Dict[str, Any]] = field(default_factory=list)
+    meta: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass  
+class DeliveryResult:
+    """Result from message delivery attempt"""
+    success: bool
+    channel: str
+    message_id: Optional[str] = None
+    status: Literal["ok", "degraded", "failed"] = "failed"
+    reason: Optional[str] = None
+
+
 # ========== INTENT CLASSIFICATION ==========
 
 @dataclass
 class IntentResult:
-    """Result from IntentClassifier analysis"""
+    """Result from IntentClassifier analysis with delivery integration"""
     category: str                                    # "greeting", "information", "scheduling", etc.
     subcategory: Optional[str] = None               # "appointment", "method_inquiry", etc.
     confidence: float = 0.0                         # [0,1] - confidence in classification
     context_entities: Dict[str, Any] = field(default_factory=dict)  # Extracted entities
+    delivery_payload: Optional[DeliveryPayload] = None  # Payload ready for delivery
+    policy_action: Optional[str] = None             # "clarify_multi_intent", etc.
+    slots: Dict[str, Any] = field(default_factory=dict)  # Extracted slots
 
 
 # ========== PATTERN SCORING ==========

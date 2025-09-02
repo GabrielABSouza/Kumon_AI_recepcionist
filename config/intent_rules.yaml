@@ -97,7 +97,7 @@ intents:
     lang: "pt"
     channels: ["whatsapp", "web", "app"]
     prefilter_literal: "anos"
-    pattern: '\b(tem|está\s+com|idade|tem\s*(?P<student_age>\d{1,2})\s*anos?|(?P<student_age>\d{1,2})\s*anos?)\b'
+    pattern: '\b(tem|está\s+com|idade|tem\s*(?P<student_age>\d{1,2})\s*anos?|\d{1,2}\s*anos?)\b'
     description: "Age mention during conversation"
     node_mapping: ["qualification_age_collection"]
     context_requirements:
@@ -121,9 +121,9 @@ intents:
     prefilter_literal: "saber"
     pattern: '\b(gostaria\s+de\s+saber|quero\s+(informações|saber)|quero\s+conhecer|preciso\s+entender)\b'
     description: "General information request"
-    node_mapping: ["information_gathering"]
+    node_mapping: ["information"]
     context_requirements:
-      stages: ["greeting", "qualification", "information_gathering"]
+      stages: ["greeting", "qualification", "information"]
     risk_cost: 0.8
     slots: []
 
@@ -135,9 +135,9 @@ intents:
     prefilter_literal: "kumon"
     pattern: '\b(conhecer\s+o\s+kumon|saber\s+mais|informações\s+sobre|o\s+que\s+(é|e)\s+kumon)\b'
     description: "Information about Kumon methodology"
-    node_mapping: ["information_gathering", "methodology_explanation"]
+    node_mapping: ["information", "methodology_explanation"]
     context_requirements:
-      stages: ["information_gathering"]
+      stages: ["information"]
     risk_cost: 0.6
     slots: []
 
@@ -151,7 +151,7 @@ intents:
     description: "Mathematics program information"
     node_mapping: ["program_explanation", "qualification_programs"]
     context_requirements:
-      stages: ["information_gathering", "qualification"]
+      stages: ["information", "qualification"]
     risk_cost: 0.4
     slots:
       - name: "programs_of_interest"
@@ -168,7 +168,7 @@ intents:
     description: "Portuguese program information"
     node_mapping: ["program_explanation", "qualification_programs"]
     context_requirements:
-      stages: ["information_gathering", "qualification"]
+      stages: ["information", "qualification"]
     risk_cost: 0.4
     slots:
       - name: "programs_of_interest"
@@ -185,7 +185,7 @@ intents:
     description: "English program information"
     node_mapping: ["program_explanation", "qualification_programs"]
     context_requirements:
-      stages: ["information_gathering", "qualification"]
+      stages: ["information", "qualification"]
     risk_cost: 0.4
     slots:
       - name: "programs_of_interest"
@@ -200,9 +200,9 @@ intents:
     prefilter_literal: "preço"
     pattern: '\b(preço|valor|custa|quanto|investimento|mensalidade|quanto\s+custa)\b'
     description: "Pricing information request"
-    node_mapping: ["information_gathering"]
+    node_mapping: ["information"]
     context_requirements:
-      stages: ["information_gathering"]
+      stages: ["information"]
     risk_cost: 0.7
     slots: []
 
@@ -216,7 +216,7 @@ intents:
     description: "Methodology information request"
     node_mapping: ["methodology_explanation"]
     context_requirements:
-      stages: ["information_gathering"]
+      stages: ["information"]
     risk_cost: 0.6
     slots: []
 
@@ -228,9 +228,9 @@ intents:
     prefilter_literal: "onde"
     pattern: '\b(onde\s+fica|endereço|localização|unidade|telefone|horário\s+de\s+funcionamento)\b'
     description: "Location and contact information"
-    node_mapping: ["information_gathering"]
+    node_mapping: ["information"]
     context_requirements:
-      stages: ["information_gathering"]
+      stages: ["information"]
     risk_cost: 0.5
     slots: []
 
@@ -242,9 +242,9 @@ intents:
     prefilter_literal: "resultado"
     pattern: '\b(resultado|melhora|progresso|sucesso|funciona\s+mesmo)\b'
     description: "Results and effectiveness inquiry"
-    node_mapping: ["information_gathering"]
+    node_mapping: ["information"]
     context_requirements:
-      stages: ["information_gathering"]
+      stages: ["information"]
     risk_cost: 0.6
     slots: []
 
@@ -262,7 +262,7 @@ intents:
     description: "Direct booking intent"
     node_mapping: ["scheduling", "availability_check"]
     context_requirements:
-      stages: ["information_gathering", "scheduling"]
+      stages: ["information", "scheduling"]
     risk_cost: 0.3
     slots: []
 
@@ -276,7 +276,7 @@ intents:
     description: "Visit or trial class request"
     node_mapping: ["scheduling", "availability_check"]
     context_requirements:
-      stages: ["information_gathering", "scheduling"]
+      stages: ["information", "scheduling"]
     risk_cost: 0.3
     slots: []
 
@@ -455,7 +455,7 @@ intents:
     description: "Price objection"
     node_mapping: ["objection_handling"]
     context_requirements:
-      stages: ["information_gathering", "scheduling"]
+      stages: ["information", "scheduling"]
     risk_cost: 1.2
     slots: []
 
@@ -469,7 +469,7 @@ intents:
     description: "Distance/location objection"
     node_mapping: ["objection_handling"]
     context_requirements:
-      stages: ["information_gathering", "scheduling"]
+      stages: ["information", "scheduling"]
     risk_cost: 1.0
     slots: []
 
@@ -483,7 +483,7 @@ intents:
     description: "Time constraint objection"
     node_mapping: ["objection_handling"]
     context_requirements:
-      stages: ["information_gathering", "scheduling"]
+      stages: ["information", "scheduling"]
     risk_cost: 1.1
     slots: []
 
@@ -559,6 +559,68 @@ intents:
     node_mapping: ["completed"]
     context_requirements: {}
     risk_cost: 0.1
+    slots: []
+
+  # ===============================
+  # EMERGENCY PROGRESSION RULES 
+  # ===============================
+
+  - id: "emergency_progression_urgent"
+    rule_version: "1.0.0"
+    priority: 95
+    lang: "pt"
+    channels: ["whatsapp", "web", "app"]
+    prefilter_literal: "urgente"
+    pattern: '\b(urgente|emergency|emergência|crítico|imediato|hoje)\b'
+    description: "Emergency or urgent assistance requests"
+    node_mapping: ["emergency_progression"]
+    context_requirements: {}  # Available from any stage
+    risk_cost: 0.1
+    slots: []
+
+  - id: "emergency_progression_problem"
+    rule_version: "1.0.0"
+    priority: 90
+    lang: "pt"
+    channels: ["whatsapp", "web", "app"]
+    prefilter_literal: "problema"
+    pattern: '\b(problema\s+grave|situação\s+difícil|preciso\s+de\s+ajuda\s+agora)\b'
+    description: "Problem requiring emergency assistance"
+    node_mapping: ["emergency_progression"]
+    context_requirements: {}
+    risk_cost: 0.2
+    slots: []
+
+  # ===============================
+  # QUALIFICATION NODE RULES
+  # ===============================
+
+  - id: "qualification_main_entry"
+    rule_version: "1.0.0"
+    priority: 75
+    lang: "pt"
+    channels: ["whatsapp", "web", "app"]
+    prefilter_literal: "informações"
+    pattern: '\b(preciso\s+fornecer|vou\s+falar\s+sobre|informações\s+sobre\s+o\s+aluno)\b'
+    description: "Main qualification stage entry"
+    node_mapping: ["qualification"]
+    context_requirements:
+      stages: ["greeting", "qualification"]
+    risk_cost: 0.5
+    slots: []
+
+  - id: "qualification_student_details"
+    rule_version: "1.0.0"
+    priority: 70
+    lang: "pt"
+    channels: ["whatsapp", "web", "app"]
+    prefilter_literal: "aluno"
+    pattern: '\b(sobre\s+o\s+aluno|dados\s+do\s+estudante|informações\s+do\s+filho)\b'
+    description: "Student details for qualification"
+    node_mapping: ["qualification"]
+    context_requirements:
+      stages: ["qualification"]
+    risk_cost: 0.4
     slots: []
 
   # ===============================

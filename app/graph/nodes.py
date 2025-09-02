@@ -41,7 +41,7 @@ def enumerate_nodes() -> List[Node]:
             "required_slots": ["parent_name"],
             "synonyms": ["welcome", "hello", "initial_contact"],
             "channels": ["whatsapp", "web", "app"],
-            "reachability": ["qualification", "information_gathering"]
+            "reachability": ["qualification", "information"]
         },
         
         # QUALIFICATION STAGE NODES  
@@ -51,7 +51,7 @@ def enumerate_nodes() -> List[Node]:
             "required_slots": ["parent_name", "child_name", "student_age", "education_level"],
             "synonyms": ["data_collection", "customer_info", "profile"],
             "channels": ["whatsapp", "web", "app"],
-            "reachability": ["information_gathering", "scheduling"]
+            "reachability": ["information", "scheduling"]
         },
         
         {
@@ -69,7 +69,7 @@ def enumerate_nodes() -> List[Node]:
             "required_slots": ["student_age", "education_level"],
             "synonyms": ["age_data", "school_grade"],
             "channels": ["whatsapp", "web", "app"],
-            "reachability": ["qualification_programs", "information_gathering"]
+            "reachability": ["qualification_programs", "information"]
         },
         
         {
@@ -78,12 +78,12 @@ def enumerate_nodes() -> List[Node]:
             "required_slots": ["programs_of_interest"],
             "synonyms": ["program_selection", "course_interest"],
             "channels": ["whatsapp", "web", "app"],
-            "reachability": ["information_gathering", "scheduling"]
+            "reachability": ["information", "scheduling"]
         },
         
         # INFORMATION GATHERING STAGE NODES
         {
-            "id": "information_gathering",
+            "id": "information",
             "purpose": "Provide Kumon methodology and program information", 
             "required_slots": ["programs_of_interest"],
             "synonyms": ["info_sharing", "program_explanation"],
@@ -220,7 +220,7 @@ def enumerate_nodes() -> List[Node]:
             "required_slots": [],
             "synonyms": ["help", "confusion", "unclear"],
             "channels": ["whatsapp", "web", "app"],
-            "reachability": ["greeting", "qualification", "information_gathering", "scheduling", "handoff"]
+            "reachability": ["greeting", "qualification", "information", "scheduling", "handoff"]
         },
         
         {
@@ -229,7 +229,17 @@ def enumerate_nodes() -> List[Node]:
             "required_slots": [],
             "synonyms": ["concerns", "doubts", "resistance"],
             "channels": ["whatsapp", "web", "app"],
-            "reachability": ["information_gathering", "scheduling", "confirmation", "handoff"]
+            "reachability": ["information", "scheduling", "confirmation", "handoff"]
+        },
+        
+        # EMERGENCY PROGRESSION NODE
+        {
+            "id": "emergency_progression",
+            "purpose": "Handle urgent customer needs and escalate appropriately",
+            "required_slots": [],
+            "synonyms": ["urgent", "emergency", "critical", "immediate"],
+            "channels": ["whatsapp", "web", "app"],
+            "reachability": ["handoff", "scheduling", "information"]
         },
         
         # DELIVERY NODE (technical infrastructure)
@@ -280,7 +290,7 @@ def get_nodes_by_stage(stage: ConversationStage) -> List[Node]:
     stage_filters = {
         "greeting": lambda n: n["id"] in ["greeting"],
         "qualification": lambda n: n["id"].startswith("qualification") or n["id"] == "qualification",
-        "information_gathering": lambda n: n["id"] in ["information_gathering", "methodology_explanation", "program_explanation"],
+        "information": lambda n: n["id"] in ["information", "methodology_explanation", "program_explanation"],
         "scheduling": lambda n: n["id"].startswith(("scheduling", "availability", "slot")) or n["id"] == "scheduling",
         "validation": lambda n: n["id"].startswith(("validation", "contact")) or n["id"] == "validation", 
         "confirmation": lambda n: n["id"].startswith("confirmation") or n["id"] in ["confirmation", "appointment_confirmed"],

@@ -16,6 +16,8 @@ import logging
 from ...core.state.models import CeciliaState
 from ...core.state.managers import StateManager
 from ...api.evolution import send_message
+from ...workflows.contracts import IntentResult, DeliveryResult
+from ..telemetry import emit_delivery_event, generate_trace_id
 
 logger = logging.getLogger(__name__)
 
@@ -43,26 +45,27 @@ class DeliveryService:
         self,
         state: CeciliaState,
         phone_number: str,
-        planned_response: str,
+        intent_result: IntentResult,
         routing_decision: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    ) -> DeliveryResult:
         """
-        Deliver response to user with atomic state updates
+        Deliver response using IntentResult with validated payload
         
         Args:
             state: Current conversation state
             phone_number: Target phone number
-            planned_response: Response to send
+            intent_result: IntentResult with delivery_payload
             routing_decision: SmartRouter decision with target_node
             
         Returns:
-            Dict with delivery result and updated state
+            DeliveryResult with delivery outcome and details
         """
         start_time = time.time()
         delivery_id = f"delivery_{int(time.time() * 1000)}"
+        trace_id = generate_trace_id()
         
         logger.info(
-            f"🚀 Starting delivery {delivery_id} for {phone_number[-4:]}"
+            f"🚀 Starting delivery {delivery_id} for {phone_number[-4:]} (trace: {trace_id[:8]})"
         )
         
         # DEBUG: Log what we received
@@ -71,16 +74,41 @@ class DeliveryService:
         logger.info(f"🔍 DEBUG routing_decision keys: {routing_decision.keys() if isinstance(routing_decision, dict) else 'Not a dict'}")
         
         try:
+            # Validate intent_result has delivery_payload
+            if not intent_result.delivery_payload:
+                return DeliveryResult(
+                    success=False,
+                    channel=routing_decision.get("channel", "unknown"),
+                    status="failed",
+                    reason="missing_delivery_payload"
+                )
+            
+            payload = intent_result.delivery_payload
+            channel = payload.channel
+            
             # Pre-delivery validation
-            validation_result = self._validate_delivery(state, planned_response, routing_decision)
+            validation_result = self._validate_delivery(state, payload, routing_decision)
             if not validation_result["valid"]:
+                # Emit validation failure telemetry
+                delivery_time_ms = (time.time() - start_time) * 1000
+                emit_delivery_event(
+                    trace_id=trace_id,
+                    node_id="delivery_service",
+                    stage=str(state.get("current_stage", "unknown")),
+                    step=str(state.get("current_step", "unknown")),
+                    channel=channel,
+                    duration_ms=delivery_time_ms,
+                    success=False,
+                    err_type=f"validation_failed_{validation_result['reason']}"
+                )
+                
                 return await self._handle_validation_failure(
-                    state, phone_number, validation_result, delivery_id
+                    state, phone_number, validation_result, delivery_id, channel, trace_id
                 )
             
             # Attempt message delivery
             delivery_result = await self._send_message_safe(
-                phone_number, planned_response, delivery_id
+                phone_number, payload, delivery_id, channel
             )
             
             if delivery_result["success"]:
@@ -98,59 +126,98 @@ class DeliveryService:
                     f"✅ Delivery {delivery_id} successful ({delivery_time_ms:.0f}ms)"
                 )
                 
-                return {
-                    "success": True,
-                    "delivery_id": delivery_id,
-                    "delivery_time_ms": delivery_time_ms,
-                    "updated_state": updated_state,
-                    "stage_updated": True,
-                    "message_sent": True
-                }
+                # Emit successful delivery telemetry
+                emit_delivery_event(
+                    trace_id=trace_id,
+                    node_id="delivery_service",
+                    stage=str(state.get("current_stage", "unknown")),
+                    step=str(state.get("current_step", "unknown")),
+                    channel=channel,
+                    duration_ms=delivery_time_ms,
+                    success=True,
+                    message_id=delivery_result.get("message_id")
+                )
+                
+                return DeliveryResult(
+                    success=True,
+                    channel=channel,
+                    message_id=delivery_result.get("message_id"),
+                    status="ok",
+                    reason=None
+                )
             
             else:
                 # FAILURE: Apply fallback strategy
+                delivery_time_ms = (time.time() - start_time) * 1000
+                
+                # Emit failure delivery telemetry
+                emit_delivery_event(
+                    trace_id=trace_id,
+                    node_id="delivery_service",
+                    stage=str(state.get("current_stage", "unknown")),
+                    step=str(state.get("current_step", "unknown")),
+                    channel=channel,
+                    duration_ms=delivery_time_ms,
+                    success=False,
+                    err_type=delivery_result.get("error", "delivery_failed")
+                )
+                
                 return await self._handle_delivery_failure(
-                    state, phone_number, delivery_result, routing_decision, delivery_id
+                    state, phone_number, delivery_result, routing_decision, delivery_id, trace_id
                 )
         
         except Exception as e:
             logger.error(f"🚨 Critical delivery error {delivery_id}: {e}", exc_info=True)
+            
+            # Emit critical failure telemetry
+            delivery_time_ms = (time.time() - start_time) * 1000
+            emit_delivery_event(
+                trace_id=trace_id,
+                node_id="delivery_service",
+                stage=str(state.get("current_stage", "unknown")),
+                step=str(state.get("current_step", "unknown")),
+                channel=routing_decision.get("channel", "unknown"),
+                duration_ms=delivery_time_ms,
+                success=False,
+                err_type="critical_delivery_exception"
+            )
+            
             return await self._handle_critical_failure(
-                state, phone_number, str(e), routing_decision, delivery_id
+                state, phone_number, str(e), routing_decision, delivery_id, trace_id
             )
     
     def _validate_delivery(
         self,
         state: CeciliaState,
-        planned_response: str,
+        payload: "DeliveryPayload",
         routing_decision: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Pre-delivery validation with guardrails and sanitization"""
         
         # Basic content validation
-        if not planned_response or len(planned_response.strip()) == 0:
+        if not payload.content or not payload.content.get("text", "").strip():
             return {
                 "valid": False,
-                "reason": "empty_response",
-                "details": "Planned response is empty"
+                "reason": "empty_content",
+                "details": "Delivery payload content is empty"
             }
         
         # PHASE 2.3: Sanitize template for user-facing content only
-        sanitized_response = self._sanitize_template_content(planned_response)
+        sanitized_text = self._sanitize_template_content(payload.content.get("text", ""))
         
-        # Replace the planned_response with sanitized version
-        state["planned_response"] = sanitized_response
+        # Update payload with sanitized text
+        payload.content["text"] = sanitized_text
         
         # Length validation (after sanitization)
-        if len(sanitized_response) > 4000:  # WhatsApp limit
+        if len(sanitized_text) > 4000:  # WhatsApp limit
             return {
                 "valid": False,
                 "reason": "response_too_long",
-                "details": f"Response length: {len(sanitized_response)} > 4000"
+                "details": f"Response length: {len(sanitized_text)} > 4000"
             }
         
         # Placeholder validation
-        if "{{" in sanitized_response or "}}" in sanitized_response:
+        if "{{" in sanitized_text or "}}" in sanitized_text:
             return {
                 "valid": False,
                 "reason": "unresolved_placeholders",
@@ -267,17 +334,139 @@ class DeliveryService:
             
         return sanitized_content
     
+    async def _send_to_channel(self, channel: str, phone_number: str, payload: "DeliveryPayload") -> Dict[str, Any]:
+        """Send message to web/app channels with proper error handling"""
+        
+        message_text = payload.content.get("text", "")
+        attachments = payload.attachments or []
+        meta = payload.meta or {}
+        
+        try:
+            if channel == "web":
+                return await self._send_web_message(phone_number, message_text, attachments, meta)
+            elif channel == "app":
+                return await self._send_app_message(phone_number, message_text, attachments, meta)
+            else:
+                return {
+                    "status": "error",
+                    "error": "unsupported_channel",
+                    "details": f"Channel {channel} not supported"
+                }
+                
+        except Exception as e:
+            logger.error(f"Channel {channel} delivery failed: {e}")
+            return {
+                "status": "error", 
+                "error": f"{channel}_delivery_exception",
+                "details": str(e)
+            }
+    
+    async def _send_web_message(
+        self, 
+        phone_number: str, 
+        message_text: str, 
+        attachments: list, 
+        meta: dict
+    ) -> Dict[str, Any]:
+        """Send message to web channel (WebSocket, HTTP API, etc.)"""
+        
+        # Simulate web delivery - in real implementation this would:
+        # 1. Send via WebSocket to active web sessions
+        # 2. Send via HTTP POST to webhook endpoints
+        # 3. Store in web message queue for pickup
+        
+        # For P1.D implementation: Create realistic failure scenarios for testing
+        import random
+        
+        # Simulate network issues, server downtime, etc.
+        if random.random() < 0.1:  # 10% failure rate for testing
+            return {
+                "status": "error",
+                "error": "web_api_timeout", 
+                "details": "Web API connection timeout"
+            }
+        
+        # Simulate successful delivery
+        message_id = f"web_{phone_number}_{int(time.time() * 1000)}"
+        
+        logger.info(f"📧 Web message sent: {message_id} to {phone_number[-4:]}")
+        
+        return {
+            "status": "success",
+            "message_id": message_id,
+            "delivery_method": "web_api",
+            "channel_info": {
+                "endpoint": "web_messaging_api", 
+                "delivery_time": time.time()
+            }
+        }
+    
+    async def _send_app_message(
+        self, 
+        phone_number: str, 
+        message_text: str, 
+        attachments: list, 
+        meta: dict
+    ) -> Dict[str, Any]:
+        """Send message to app channel (push notifications, in-app messaging, etc.)"""
+        
+        # Simulate app delivery - in real implementation this would:
+        # 1. Send push notification via Firebase/APNs
+        # 2. Store in in-app message inbox
+        # 3. Send via app-specific messaging API
+        
+        # For P1.D implementation: Create realistic failure scenarios for testing
+        import random
+        
+        # Simulate push notification service issues, app not installed, etc.
+        if random.random() < 0.15:  # 15% failure rate for testing (higher than web)
+            return {
+                "status": "error",
+                "error": "push_service_failed",
+                "details": "Push notification service unavailable"
+            }
+        
+        # Simulate successful delivery
+        message_id = f"app_{phone_number}_{int(time.time() * 1000)}"
+        
+        logger.info(f"📱 App message sent: {message_id} to {phone_number[-4:]}")
+        
+        return {
+            "status": "success", 
+            "message_id": message_id,
+            "delivery_method": "app_push",
+            "channel_info": {
+                "service": "firebase_fcm",
+                "delivery_time": time.time()
+            }
+        }
+    
     async def _send_message_safe(
         self,
         phone_number: str,
-        message: str,
-        delivery_id: str
+        payload: "DeliveryPayload",
+        delivery_id: str,
+        channel: str
     ) -> Dict[str, Any]:
         """Send message with error handling and retries"""
         
         try:
-            # Attempt delivery via Evolution API
-            send_result = await send_message(phone_number, message)
+            # Extract message text from payload
+            message_text = payload.content.get("text", "")
+            
+            # Channel-specific delivery logic
+            if channel == "whatsapp":
+                # Attempt delivery via Evolution API
+                send_result = await send_message(phone_number, message_text)
+            elif channel in ["web", "app"]:
+                # Placeholder for web/app delivery (P1.D will implement fallback)
+                send_result = await self._send_to_channel(channel, phone_number, payload)
+            else:
+                return {
+                    "success": False,
+                    "reason": "unsupported_channel",
+                    "details": f"Channel {channel} not supported"
+                }
             
             if send_result and send_result.get("status") == "success":
                 return {
@@ -378,8 +567,9 @@ class DeliveryService:
         phone_number: str,
         delivery_result: Dict[str, Any],
         routing_decision: Dict[str, Any],
-        delivery_id: str
-    ) -> Dict[str, Any]:
+        delivery_id: str,
+        trace_id: str
+    ) -> DeliveryResult:
         """Handle delivery failure with fallback strategies"""
         
         logger.warning(f"⚠️ Delivery {delivery_id} failed: {delivery_result.get('error')}")
@@ -388,13 +578,25 @@ class DeliveryService:
         self.delivery_stats["failed_deliveries"] += 1
         self.delivery_stats["total_deliveries"] += 1
         
-        # Apply fallback strategy
+        # Apply fallback strategy with channel-aware fallback
         if delivery_result.get("retry_possible", False):
-            # Attempt simple retry with fallback message
-            fallback_message = self._get_fallback_message(state, routing_decision)
+            # Get original channel from the payload that failed
+            original_channel = state.get("delivery_payload", {}).get("channel", "whatsapp")
+            fallback_channel, fallback_message = self._get_fallback_channel_and_message(
+                state, routing_decision, delivery_result, original_channel
+            )
+            
+            # Create fallback payload from simple message
+            from ...workflows.contracts import DeliveryPayload
+            fallback_payload = DeliveryPayload(
+                channel=fallback_channel,
+                content={"text": fallback_message},
+                attachments=[],
+                meta={}
+            )
             
             retry_result = await self._send_message_safe(
-                phone_number, fallback_message, f"{delivery_id}_retry"
+                phone_number, fallback_payload, f"{delivery_id}_retry", fallback_channel
             )
             
             if retry_result["success"]:
@@ -407,14 +609,13 @@ class DeliveryService:
                 )
                 updated_state["delivery_fallback_used"] = True
                 
-                return {
-                    "success": True,
-                    "delivery_id": delivery_id,
-                    "fallback_used": True,
-                    "updated_state": updated_state,
-                    "stage_updated": True,
-                    "message_sent": True
-                }
+                return DeliveryResult(
+                    success=True,
+                    channel=fallback_channel,
+                    message_id=retry_result.get("message_id"),
+                    status="ok",
+                    reason=None
+                )
         
         # Critical failure - do not update stage
         logger.error(f"🚨 Critical delivery failure {delivery_id} - stage NOT updated")
@@ -431,22 +632,23 @@ class DeliveryService:
         
         updated_state = StateManager.update_state(state, failure_updates)
         
-        return {
-            "success": False,
-            "delivery_id": delivery_id,
-            "error": delivery_result.get("error"),
-            "updated_state": updated_state,
-            "stage_updated": False,  # CRITICAL: Stage not updated on failure
-            "message_sent": False
-        }
+        return DeliveryResult(
+            success=False,
+            channel=routing_decision.get("channel", "unknown"),
+            message_id=None,
+            status="failed",
+            reason=delivery_result.get("error", "delivery_failed")
+        )
     
     async def _handle_validation_failure(
         self,
         state: CeciliaState,
         phone_number: str,
         validation_result: Dict[str, Any],
-        delivery_id: str
-    ) -> Dict[str, Any]:
+        delivery_id: str,
+        channel: str,
+        trace_id: str
+    ) -> DeliveryResult:
         """Handle pre-delivery validation failure"""
         
         logger.warning(f"⚠️ Validation failed {delivery_id}: {validation_result['reason']}")
@@ -454,8 +656,17 @@ class DeliveryService:
         # Try to send emergency fallback
         emergency_response = "Desculpe, houve um problema técnico. Nossa equipe entrará em contato em breve."
         
+        # Create emergency payload
+        from ...workflows.contracts import DeliveryPayload
+        emergency_payload = DeliveryPayload(
+            channel=channel,
+            content={"text": emergency_response},
+            attachments=[],
+            meta={}
+        )
+        
         emergency_result = await self._send_message_safe(
-            phone_number, emergency_response, f"{delivery_id}_emergency"
+            phone_number, emergency_payload, f"{delivery_id}_emergency", channel
         )
         
         validation_updates = {
@@ -466,14 +677,13 @@ class DeliveryService:
         
         updated_state = StateManager.update_state(state, validation_updates)
         
-        return {
-            "success": False,
-            "delivery_id": delivery_id,
-            "error": f"validation_failed: {validation_result['reason']}",
-            "updated_state": updated_state,
-            "stage_updated": False,
-            "message_sent": emergency_result["success"]
-        }
+        return DeliveryResult(
+            success=False,
+            channel=channel,
+            message_id=emergency_result.get("message_id") if emergency_result["success"] else None,
+            status="failed",
+            reason=f"validation_failed_{validation_result['reason']}"
+        )
     
     async def _handle_critical_failure(
         self,
@@ -481,8 +691,9 @@ class DeliveryService:
         phone_number: str,
         error: str,
         routing_decision: Dict[str, Any],
-        delivery_id: str
-    ) -> Dict[str, Any]:
+        delivery_id: str,
+        trace_id: str
+    ) -> DeliveryResult:
         """Handle critical system failures"""
         
         logger.error(f"🚨 CRITICAL FAILURE {delivery_id}: {error}")
@@ -495,15 +706,13 @@ class DeliveryService:
         
         updated_state = StateManager.update_state(state, critical_updates)
         
-        return {
-            "success": False,
-            "delivery_id": delivery_id,
-            "error": f"critical_failure: {error}",
-            "updated_state": updated_state,
-            "stage_updated": False,
-            "message_sent": False,
-            "requires_intervention": True
-        }
+        return DeliveryResult(
+            success=False,
+            channel=routing_decision.get("channel", "unknown"),
+            message_id=None,
+            status="failed",
+            reason=f"critical_failure_{error}"
+        )
     
     def _get_fallback_message(
         self,
@@ -527,6 +736,43 @@ class DeliveryService:
             target_node,
             "Obrigada pelo seu contato! Nossa equipe retornará em breve."
         )
+    
+    def _get_fallback_channel_and_message(
+        self,
+        state: CeciliaState,
+        routing_decision: Dict[str, Any],
+        delivery_result: Dict[str, Any],
+        original_channel: str
+    ) -> tuple[str, str]:
+        """Get fallback channel and message based on original channel and failure reason"""
+        failure_reason = delivery_result.get("error", "unknown")
+        
+        # Channel fallback strategy
+        fallback_channel_map = {
+            "web": "whatsapp",      # Web fallback to WhatsApp (most reliable)
+            "app": "whatsapp",      # App fallback to WhatsApp (most reliable)
+            "whatsapp": "whatsapp"  # WhatsApp fallback to itself (retry)
+        }
+        
+        fallback_channel = fallback_channel_map.get(original_channel, "whatsapp")
+        
+        # Get base fallback message
+        base_message = self._get_fallback_message(state, routing_decision)
+        
+        # Add channel-specific context if needed
+        if original_channel != fallback_channel:
+            if original_channel in ["web", "app"]:
+                # Inform user about channel switch
+                channel_message = (
+                    f"⚠️ Houve um problema na comunicação via {original_channel}. "
+                    f"Continuando via WhatsApp.\n\n{base_message}"
+                )
+                logger.info(f"📱 Fallback: {original_channel} → {fallback_channel}")
+                return fallback_channel, channel_message
+        
+        # Same channel retry - just use base message
+        logger.info(f"🔄 Retry on same channel: {fallback_channel}")
+        return fallback_channel, base_message
     
     def get_stats(self) -> Dict[str, Any]:
         """Get delivery statistics"""
