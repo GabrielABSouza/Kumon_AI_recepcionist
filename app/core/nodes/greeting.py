@@ -10,7 +10,7 @@ class GreetingNode:
     """
     Node de saudação - NOVA ARQUITETURA PHASE 2
     
-    - Se planned_response existe: Usa resposta pronta e aplica business updates
+    - Se intent_result.response existe: Usa resposta pronta e aplica business updates
     - Se enhance_with_llm: Coleta contexto para geração LLM
     """
     
@@ -21,7 +21,7 @@ class GreetingNode:
         """
         Processa estágio de saudação - NOVA ARQUITETURA
         
-        Se planned_response existe: Usa resposta pronta e aplica business updates
+        Se intent_result.response existe: Usa resposta pronta e aplica business updates
         Se enhance_with_llm: Executa lógica completa para coletar dados/contexto
         """
         logger.info(f"Processing greeting for {state['phone_number']} - step: {state['current_step']}")
@@ -32,19 +32,20 @@ class GreetingNode:
         elif "threshold_action" not in state.get("routing_decision", {}):
             state["routing_decision"]["threshold_action"] = "pending"
         
-        # PHASE 2 ARCHITECTURE: Check if response is pre-planned
-        if state.get("planned_response"):
-            response = state["planned_response"]
-            # Clear planned_response to avoid reuse
-            del state["planned_response"]
+        # PHASE 2 ARCHITECTURE: Check if response is provided by intent classification
+        intent_result = state.get("intent_result")
+        if intent_result and intent_result.get("response"):
+            response = intent_result["response"]
+            # Clear response to avoid reuse
+            intent_result["response"] = None
             
             # Apply business logic updates only (no response generation)
             updates = self._get_business_updates_for_greeting(state)
             
-            logger.info(f"✅ Using pre-planned response (threshold_action != enhance_with_llm)")
+            logger.info(f"✅ Using intent-classified response (threshold_action != enhance_with_llm)")
             return self._create_response(state, response, updates)
         
-        # FALLBACK PATH: No planned_response available - generate basic greeting
+        # FALLBACK PATH: No pre-classified response available - generate basic greeting
         routing_decision = state.get("routing_decision", {})
         threshold_action = routing_decision.get("threshold_action", "pending")
         

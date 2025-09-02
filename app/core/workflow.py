@@ -8,14 +8,14 @@ Segue rigorosamente a documentação do langgraph_orquestration.md
 """
 
 from typing import Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 from ..services.postgres_checkpointer import postgres_checkpointer
 from ..services.workflow_state_repository import workflow_state_repository, WorkflowState
 from ..core.config import settings
 from ..workflows.workflow_orchestrator import workflow_orchestrator, WorkflowDefinition, WorkflowStep, WorkflowPriority
-from .state.models import CeciliaState
+from .state.models import CeciliaState, create_initial_cecilia_state, ConversationStage
 from .state.managers import StateManager
 from .nodes import (
     greeting_node,
@@ -131,7 +131,7 @@ class CeciliaWorkflow:
 
             # 2) Plan response
             loop.run_until_complete(response_planner.plan_and_generate(state, decision))
-            planned_response = state.get("planned_response") or ""
+            response_text = state.get("intent_result", {}).get("response") or ""
 
             # 3) Deliver
             decision_dict = {
@@ -142,11 +142,16 @@ class CeciliaWorkflow:
                 "rule_applied": getattr(decision, "rule_applied", "")
             }
 
+            # Convert to IntentResult format for delivery service
+            intent_result = state.get("intent_result", {})
+            if not isinstance(intent_result, dict):
+                intent_result = {"response": response_text}
+            
             delivery_result = loop.run_until_complete(
                 delivery_service.deliver_response(
                     state=state,
                     phone_number=phone_number,
-                    planned_response=planned_response,
+                    intent_result=intent_result,
                     routing_decision=decision_dict,
                 )
             )
@@ -639,98 +644,55 @@ class CeciliaWorkflow:
             # Wave 3: Check for existing state and attempt recovery if needed
             existing_state = None
             session_id = None
-            active_session = None
             
-            # CORRECT APPROACH: CeciliaWorkflow manages conversation sessions after receiving preprocessed messages
+            # CeciliaState Management - Pure state system without legacy dependencies
             try:
-                from ..services.conversation_memory_service import conversation_memory_service
+                logger.info(f"📞 CeciliaWorkflow managing CeciliaState for {phone_number}")
                 
-                # Validate that ConversationMemoryService is ready (should be initialized by main.py)
-                if not conversation_memory_service._initialized or conversation_memory_service.postgres_pool is None:
-                    logger.error(f"🚨 ConversationMemoryService not ready for {phone_number} - startup initialization failed")
-                    raise RuntimeError("ConversationMemoryService not properly initialized during startup")
+                # Use optimized CeciliaState system exclusively
+                existing_state = None
+                session_id = f"conv_{phone_number}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
                 
-                logger.info(f"📞 CeciliaWorkflow managing conversation session for {phone_number}")
-                
-                # Check for existing active session
-                active_session = await conversation_memory_service.get_active_session_by_phone(phone_number)
-                
-                # Check if session should be reused or recreated
-                should_create_new = False
-                if active_session:
-                    # Check if session is completed or errored
-                    if active_session.current_stage in ['completed', 'error', 'cancelled']:
-                        logger.info(f"📋 Found {active_session.current_stage} session {active_session.session_id}, creating new session")
-                        should_create_new = True
-                    elif active_session.status in ['completed', 'ended', 'error']:
-                        logger.info(f"📋 Found session with status {active_session.status}, creating new session")
-                        should_create_new = True
-                    else:
-                        # Reuse active session for continuation
-                        existing_state = self._convert_session_to_workflow_state(active_session)
-                        session_id = active_session.session_id
-                        logger.info(f"🔄 Resuming active conversation session: {session_id} (stage: {active_session.current_stage})")
-                
-                if not active_session or should_create_new:
-                    # Create new conversation session (this is the correct place to do it)
-                    logger.info(f"🆕 CeciliaWorkflow creating new conversation session for {phone_number}")
-                    session = await conversation_memory_service.create_session(
-                        phone_number=phone_number,
-                        user_name=None,  # Will be extracted during conversation
-                        initial_message=user_message
-                    )
-                    session_id = session.session_id
-                    active_session = session
-                    # Clear existing_state to ensure fresh start
+                # Try to get existing state from PostgreSQL checkpointer (if available)
+                try:
+                    if hasattr(self, 'checkpointer') and self.checkpointer:
+                        existing_state = await self.checkpointer.get_state(phone_number)
+                        if existing_state:
+                            # Check if state is complete and should create new
+                            current_stage = existing_state.get("current_stage")
+                            if current_stage == ConversationStage.COMPLETED:
+                                logger.info(f"📋 Found completed state, creating new session")
+                                existing_state = None
+                            else:
+                                logger.info(f"🔄 Resuming CeciliaState session for {phone_number}")
+                except Exception as e:
+                    logger.warning(f"Failed to retrieve existing state: {e}")
                     existing_state = None
-                    logger.info(f"✅ CeciliaWorkflow created conversation session: {session_id}")
-                    
-            except Exception as memory_error:
-                logger.error(f"🚨 CeciliaWorkflow session management failed for {phone_number}: {memory_error}")
-                logger.error(f"Error details: {type(memory_error).__name__}: {str(memory_error)}")
-                # Use PostgreSQL fallback if conversation memory fails
-                active_session = None
-                session_id = None
-                logger.warning(f"⚠️ Using PostgreSQL fallback for {phone_number}")
-            
-            # Fallback to PostgreSQL if Redis not available or disabled
-            if not active_session and self.use_postgres_persistence:
-                existing_state = await self.state_repository.get_workflow_state(thread_id)
                 
-                # If no existing state, create initial state
+                # Create new CeciliaState if no existing state found
                 if not existing_state:
-                    initial_state = WorkflowState(
-                        phone_number=phone_number,
-                        thread_id=thread_id,
-                        current_stage="greeting",
-                        state_data={"phone_number": phone_number},
-                        conversation_history=[],
-                        user_profile={}
-                    )
-                    
-                    state_id = await self.state_repository.create_workflow_state(initial_state)
-                    logger.debug(f"Created initial workflow state: {state_id}")
+                    logger.info(f"🆕 Creating new CeciliaState for {phone_number}")
+                    existing_state = create_initial_cecilia_state(phone_number, user_message)
+                    session_id = existing_state["conversation_id"]
+                    logger.info(f"✅ Created new CeciliaState session: {session_id}")
+                else:
+                    session_id = existing_state["conversation_id"]
+                
+                # Update last user message in existing state
+                existing_state["last_user_message"] = user_message
+                existing_state["conversation_metrics"]["message_count"] += 1
+                
+            except Exception as state_error:
+                logger.error(f"🚨 CeciliaState management failed for {phone_number}: {state_error}")
+                logger.error(f"Error details: {type(state_error).__name__}: {str(state_error)}")
+                # Create minimal fallback state
+                existing_state = create_initial_cecilia_state(phone_number, user_message)
+                session_id = existing_state["conversation_id"]
+                logger.warning(f"⚠️ Using fallback CeciliaState for {phone_number}")
             
-            # Preparar input para o workflow - CeciliaState completo otimizado
-            # CRITICAL FIX: Avoid double initialization - use existing_state if available
-            if existing_state:
-                # Use existing state from conversation memory, but ensure it's a proper CeciliaState
-                input_data = StateManager.create_initial_state(phone_number, user_message)
-                # Apply existing state data with correct dict access (not attribute access)
-                input_data["current_stage"] = existing_state["current_stage"]
-                input_data["current_step"] = existing_state["current_step"]
-                if "conversation_id" in existing_state.get("state_data", {}):
-                    input_data["conversation_id"] = existing_state["state_data"]["conversation_id"]
-                logger.info(f"🔄 Restored existing state: stage={existing_state['current_stage']}, step={existing_state['current_step']}")
-            else:
-                # Create fresh state only if no existing state
-                input_data = StateManager.create_initial_state(phone_number, user_message)
-                logger.info(f"🆕 Created fresh initial state for {phone_number}")
-            
-            # PHASE 1.1: Normalize state enums for type consistency
-            from .state.utils import normalize_state_enums
-            input_data = normalize_state_enums(input_data)
-            logger.info(f"🔧 State normalized: stage={input_data['current_stage']}, step={input_data['current_step']}")
+            # Use the existing_state directly as CeciliaState input - no conversion needed
+            input_data = existing_state
+            logger.info(f"🔄 Using CeciliaState: stage={input_data['current_stage']}, step={input_data['current_step']}, conversation_id={input_data['conversation_id']}")
             
             # PHASE 2.1: Execute LangGraph directly - Stage Node → Routing Node (edges) → DeliveryService
             logger.info(f"🚀 Executing LangGraph workflow for {phone_number}")
@@ -773,7 +735,7 @@ class CeciliaWorkflow:
             if result.get("delivery_service_result"):
                 delivery_result = result["delivery_service_result"]
                 logger.info("🚚 Delivery executed in DELIVERY node; skipping post-invoke delivery")
-                response = result.get("planned_response") or ""
+                response = result.get("intent_result", {}).get("response") or ""
                 current_stage = result.get("current_stage", "greeting")
                 current_step = result.get("current_step")
                 processing_time = (time.time() - start_time) * 1000
@@ -786,7 +748,7 @@ class CeciliaWorkflow:
                 }
 
             # If for any reason DELIVERY did not execute, provide a safe fallback response (no send here)
-            response = result.get("planned_response") or "Olá! Obrigada por entrar em contato. Em instantes retorno com mais informações."
+            response = result.get("intent_result", {}).get("response") or "Olá! Obrigada por entrar em contato. Em instantes retorno com mais informações."
             current_stage = result.get("current_stage", "greeting")
             current_step = result.get("current_step")
             processing_time = (time.time() - start_time) * 1000
@@ -794,7 +756,7 @@ class CeciliaWorkflow:
             # Wave 3: Fallback persistence to PostgreSQL (if DeliveryService didn't handle it)
             
             # Only do fallback persistence if DeliveryService failed or Redis unavailable
-            if self.use_postgres_persistence and not active_session:
+            if self.use_postgres_persistence:
                 # DeliveryService failed, use PostgreSQL fallback
                 conversation_history = existing_state.conversation_history if existing_state else []
                 conversation_history.append({
@@ -837,55 +799,8 @@ class CeciliaWorkflow:
             else:
                 logger.info(f"ℹ️ Skipping DB persistence or already handled")
                 
-            # Update Redis session if active (independent of DeliveryService)
-            if active_session and session_id:
-                try:
-                    # Add user message to session
-                    await conversation_memory_service.add_message_to_session(
-                        session_id=session_id,
-                        content=user_message,
-                        is_from_user=True
-                    )
-                    
-                    # Add assistant response to session
-                    await conversation_memory_service.add_message_to_session(
-                        session_id=session_id,
-                        content=response,
-                        is_from_user=False
-                    )
-                    
-                    # Update session state - map workflow stages to conversation stages
-                    stage_mapping = {
-                        "greeting": "greeting",
-                        "qualification": "qualification", 
-                        "information_gathering": "information_gathering",
-                        "scheduling": "scheduling",
-                        "confirmation": "confirmation",
-                        "follow_up": "follow_up"
-                    }
-                    
-                    step_mapping = {
-                        "welcome": "welcome",
-                        "parent_name_collection": "parent_name_collection",
-                        "initial_response": "initial_response",
-                        "child_name_collection": "child_name_collection",
-                        "child_age_collection": "child_age_collection",
-                        "program_interest_detection": "program_interest_detection"
-                    }
-                    
-                    # Update session with current workflow state (use DeliveryService updated state if available)
-                    final_stage = current_stage
-                    final_step = current_step
-                    
-                    active_session.current_stage = stage_mapping.get(final_stage, final_stage)
-                    active_session.current_step = step_mapping.get(final_step, final_step) if final_step else "welcome"
-                    active_session.last_activity = datetime.now()
-                    
-                    await conversation_memory_service.update_session(active_session)
-                    logger.info(f"✅ Updated Redis session {session_id}: stage={final_stage}, step={final_step}")
-                    
-                except Exception as redis_update_error:
-                    logger.error(f"🚨 Failed to update Redis session {session_id}: {redis_update_error}")
+            # State is already managed by CeciliaState and PostgreSQL checkpointer
+            # No need for legacy session management
             
             return {
                 "response": response,
@@ -896,7 +811,7 @@ class CeciliaWorkflow:
                 "persistence_enabled": self.use_postgres_persistence,
                 "coordination_method": "direct_langgraph",
                 "redis_session_id": session_id,
-                "redis_enabled": active_session is not None,
+                "redis_enabled": False,  # Using CeciliaState only
                 "delivery_service": result.get("delivery_service_result", {}),
                 "success": True
             }
@@ -909,7 +824,7 @@ class CeciliaWorkflow:
                 "error_message": str(e),
                 "processing_time_ms": processing_time,
                 "session_id": session_id if 'session_id' in locals() else None,
-                "redis_enabled": active_session is not None if 'active_session' in locals() else False
+                "redis_enabled": False  # Using CeciliaState only
             }
             logger.error(f"🚨 Error processing message: {error_details}")
             
@@ -992,51 +907,7 @@ class CeciliaWorkflow:
             logger.error(f"Error resetting conversation {thread_id}: {str(e)}")
             return False
     
-    def _convert_session_to_workflow_state(self, active_session) -> Dict[str, Any]:
-        """
-        Convert ConversationMemoryService session to workflow state
-        
-        Args:
-            active_session: Session object from conversation_memory_service
-            
-        Returns:
-            Dict compatible with WorkflowState
-        """
-        try:
-            # Map conversation session to workflow state format
-            workflow_state = {
-                "current_stage": active_session.current_stage or "greeting",
-                "current_step": active_session.current_step or "welcome",
-                "state_data": {
-                    "phone_number": active_session.phone_number,
-                    "session_id": active_session.session_id,
-                    "user_profile": {
-                        "phone_number": active_session.phone_number,
-                        "user_name": getattr(active_session, 'user_name', None),
-                        "created_at": active_session.created_at.isoformat() if hasattr(active_session, 'created_at') else None
-                    }
-                },
-                "conversation_history": [],
-                "user_profile": {
-                    "phone_number": active_session.phone_number,
-                    "user_name": getattr(active_session, 'user_name', None)
-                },
-                "last_activity": active_session.last_activity.isoformat() if hasattr(active_session, 'last_activity') else None
-            }
-            
-            logger.debug(f"Converted session {active_session.session_id} to workflow state")
-            return workflow_state
-            
-        except Exception as e:
-            logger.error(f"Failed to convert session to workflow state: {e}")
-            # Return minimal state as fallback
-            return {
-                "current_stage": "greeting",
-                "current_step": "welcome",
-                "state_data": {"phone_number": getattr(active_session, 'phone_number', 'unknown')},
-                "conversation_history": [],
-                "user_profile": {}
-            }
+    # Legacy conversion method removed - using CeciliaState exclusively
 
 
 # handoff_node agora está em nodes/handoff.py

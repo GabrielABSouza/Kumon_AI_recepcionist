@@ -24,11 +24,12 @@ class InformationNode:
         3. PERFORMANCE TARGET: 80% queries answered in <1s, 70% reduction in RAG calls
         """
         
-        # NEW ARCHITECTURE: Check if response is pre-planned by ResponsePlanner
-        if state.get("planned_response"):
-            response = state["planned_response"]
-            # Clear planned_response to avoid reuse
-            del state["planned_response"]
+        # NEW ARCHITECTURE: Check if response is provided by intent classification
+        intent_result = state.get("intent_result")
+        if intent_result and intent_result.get("response"):
+            response = intent_result["response"]
+            # Clear response to avoid reuse
+            intent_result["response"] = None
             
             # Apply business logic updates only (no response generation)
             updates = self._get_business_updates_for_information(state)
@@ -37,7 +38,7 @@ class InformationNode:
             return self._create_response(state, response, updates)
         
         # LEGACY PATH: Original logic (will be removed in Fase 2)
-        logger.info(f"⚠️ Using legacy information logic (planned_response not found)")
+        logger.info(f"⚠️ Using legacy information logic (intent_result.response not found)")
         
         user_message = state["last_user_message"]
         start_time = time.time()
