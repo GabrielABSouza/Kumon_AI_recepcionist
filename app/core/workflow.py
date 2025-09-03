@@ -181,51 +181,19 @@ class CeciliaWorkflow:
 
         workflow.add_node("DELIVERY", delivery_node)
         
-        # ========== DYNAMIC ENTRY POINT ROUTER ==========
-        def dynamic_entry_router(state: CeciliaState) -> str:
-            """
-            Dynamic Entry Point Router - Routes to appropriate node based on current stage
-            
-            Solves CAUSA RAIZ #2: Fixed entry point causing wrong node execution
-            
-            Args:
-                state: Current conversation state
-                
-            Returns:
-                str: Target node name based on current stage
-            """
-            from .state.models import ConversationStage
-            
-            current_stage = state.get("current_stage", ConversationStage.GREETING)
-            phone_number = state.get("phone_number", "unknown")
-            
-            # Stage → Node mapping
-            stage_to_node = {
-                ConversationStage.GREETING: "greeting",
-                ConversationStage.QUALIFICATION: "qualification", 
-                ConversationStage.INFORMATION_GATHERING: "information",
-                ConversationStage.SCHEDULING: "scheduling",
-                ConversationStage.VALIDATION: "validation",
-                ConversationStage.CONFIRMATION: "confirmation",
-                ConversationStage.HANDOFF: "handoff"
-            }
-            
-            target_node = stage_to_node.get(current_stage, "greeting")
-            
-            logger.info(f"🎯 Dynamic Entry Router: {current_stage.name if hasattr(current_stage, 'name') else current_stage} → {target_node} (for {phone_number[-4:]})")
-            
-            return target_node
+        # ========== V2 ARCHITECTURE: UNIVERSAL EDGE ROUTER ==========
+        from .edges.routing import universal_edge_router
         
-        # Add dynamic entry router node
-        workflow.add_node("ENTRY_ROUTER", lambda state: state)
+        # Add Universal Edge Router node  
+        workflow.add_node("UNIVERSAL_EDGE_ROUTER", lambda state: state)
         
-        # ========== DEFINIR PONTO DE ENTRADA DINÂMICO ==========
-        workflow.set_entry_point("ENTRY_ROUTER")
+        # ========== V2 ENTRY POINT: Direct to Universal Edge Router ==========
+        workflow.set_entry_point("UNIVERSAL_EDGE_ROUTER")
         
-        # ========== DYNAMIC ENTRY ROUTER EDGES ==========
+        # ========== V2 UNIVERSAL EDGE ROUTER ROUTING ==========
         workflow.add_conditional_edges(
-            "ENTRY_ROUTER",
-            dynamic_entry_router,
+            "UNIVERSAL_EDGE_ROUTER",
+            universal_edge_router,
             {
                 "greeting": "greeting",
                 "qualification": "qualification", 
@@ -233,7 +201,8 @@ class CeciliaWorkflow:
                 "scheduling": "scheduling",
                 "validation": "validation",
                 "confirmation": "confirmation",
-                "handoff": "handoff"
+                "handoff": "handoff",
+                "DELIVERY": "DELIVERY"  # Direct delivery for V2 flow
             }
         )
         

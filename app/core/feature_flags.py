@@ -27,9 +27,10 @@ class FeatureFlags:
     
     def __init__(self):
         # Environment variables with defaults
-        self.router_v2_enabled = self._get_bool_flag("ROUTER_V2_ENABLED", False)
+        self.workflow_v2_enabled = self._get_bool_flag("WORKFLOW_V2_ENABLED", True)  # V2 is default now
+        self.router_v2_enabled = self._get_bool_flag("ROUTER_V2_ENABLED", True)  # V2 is default now  
         self.router_v2_shadow = self._get_bool_flag("ROUTER_V2_SHADOW", True)  # Default shadow on
-        self.router_v2_percentage = self._get_int_flag("ROUTER_V2_PERCENTAGE", 0)  # 0% live rollout
+        self.router_v2_percentage = self._get_int_flag("ROUTER_V2_PERCENTAGE", 100)  # 100% V2 rollout
         
         # Shadow telemetry
         self.shadow_logging_enabled = self._get_bool_flag("SHADOW_LOGGING", True)
