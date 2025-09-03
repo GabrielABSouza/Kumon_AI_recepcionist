@@ -355,6 +355,26 @@ Key information:
 # Singleton instance
 response_planner = ResponsePlanner()
 
+# ========== COMPATIBILITY LAYER ==========
+
+@staticmethod  
+def plan(state: dict) -> dict:
+    """
+    Static method for backward compatibility with old calls to ResponsePlanner.plan()
+    
+    Redirects to the proper response_planner_node function which handles V2 architecture.
+    
+    Args:
+        state: Conversation state
+        
+    Returns:
+        dict: Updated state with intent_result
+    """
+    return response_planner_node(state)
+
+# Add static method to class
+ResponsePlanner.plan = plan
+
 
 # ========== NEW FACADE FUNCTIONS FOR MIGRATION ==========
 

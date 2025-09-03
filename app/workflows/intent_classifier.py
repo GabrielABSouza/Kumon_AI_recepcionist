@@ -127,14 +127,14 @@ class AdvancedIntentClassifier:
         self, 
         category: str, 
         message: str, 
-        conversation_state: ConversationState,
+        state: ConversationState,
         slots: Dict[str, Any] = None
     ) -> DeliveryPayload:
         """Build delivery payload based on intent category and channel"""
         slots = slots or {}
         
         # Extract channel from state or default to whatsapp
-        channel = conversation_state.get("channel", "whatsapp")
+        channel = state.get("channel", "whatsapp")
         
         # Build content based on category
         if category == "qualification":
@@ -307,14 +307,14 @@ class AdvancedIntentClassifier:
     # Entity patterns moved to PatternScorer for centralized management
 
     async def classify_intent(
-        self, message: str, conversation_state: ConversationState
+        self, message: str, state: ConversationState
     ) -> IntentResult:
         """
         Classify intent with intelligent threshold system
 
         Args:
             message: User's message
-            conversation_state: Current conversation state
+            state: Current conversation state
 
         Returns:
             IntentResult: Comprehensive intent analysis with intelligent fallback
@@ -324,22 +324,22 @@ class AdvancedIntentClassifier:
             start_time = datetime.now()
 
             # Get or create conversation context with safe access
-            phone_number = conversation_state.get("phone_number", "unknown")
-            context = self._get_conversation_context(phone_number, conversation_state)
+            phone_number = state.get("phone_number", "unknown")
+            context = self._get_conversation_context(phone_number, state)
             
             # Generate trace_id for telemetry
             trace_id = generate_trace_id()
             
             # Extract telemetry context
-            current_stage = conversation_state.get("current_stage", "unknown")
-            current_step = conversation_state.get("current_step", "unknown") 
-            channel = conversation_state.get("channel", "whatsapp")
+            current_stage = state.get("current_stage", "unknown")
+            current_step = state.get("current_step", "unknown") 
+            channel = state.get("channel", "whatsapp")
 
             # Step 1: Rule-based classification
-            rule_based_result = self._classify_with_rules(message, context, conversation_state)
+            rule_based_result = self._classify_with_rules(message, context, state)
 
             # Step 2: Context integration (threshold processing moved to SmartRouter)
-            final_result = self._integrate_context(rule_based_result, context, conversation_state)
+            final_result = self._integrate_context(rule_based_result, context, state)
 
             # Step 4: Update context
             self._update_context(phone_number, context, final_result, message)
@@ -381,7 +381,7 @@ class AdvancedIntentClassifier:
             app_logger.error(f"Error in intent classification: {e}")
             # Return fallback classification with delivery payload
             delivery_payload = self._build_delivery_payload(
-                "clarification", message, conversation_state, {"error": str(e)}
+                "clarification", message, state, {"error": str(e)}
             )
             return IntentResult(
                 category="clarification",
@@ -602,7 +602,7 @@ class AdvancedIntentClassifier:
                 best_confidence = confidence
                 subcategory = self._determine_subcategory(category, message_lower, entities)
                 delivery_payload = self._build_delivery_payload(
-                    self._get_enum_value(category), message, conversation_state, entities
+                    self._get_enum_value(category), message, state, entities
                 )
                 best_match = IntentResult(
                     category=self._get_enum_value(category),
@@ -616,7 +616,7 @@ class AdvancedIntentClassifier:
         # Default fallback - only if really no good match found
         if not best_match or best_confidence < 0.2:
             delivery_payload = self._build_delivery_payload(
-                "clarification", message, conversation_state, {"fallback_reason": "low_confidence"}
+                "clarification", message, state, {"fallback_reason": "low_confidence"}
             )
             best_match = IntentResult(
                 category="clarification",
@@ -674,7 +674,7 @@ class AdvancedIntentClassifier:
         message: str,
         context: ConversationContext,
         rule_result: IntentResult,
-        conversation_state: ConversationState,
+        state: ConversationState,
     ) -> IntentResult:
         """Enhance classification using LLM for complex cases"""
         # Only use LLM for ambiguous cases or low confidence
@@ -703,7 +703,7 @@ class AdvancedIntentClassifier:
 
         try:
             # Build context for LLM
-            context_str = self._build_context_string(context, conversation_state)
+            context_str = self._build_context_string(context, state)
 
             classification_prompt = ChatPromptTemplate.from_messages(
                 [
@@ -763,7 +763,7 @@ class AdvancedIntentClassifier:
                     else:
                         # LLM disagrees, create new result with moderate confidence
                         delivery_payload = self._build_delivery_payload(
-                            self._get_enum_value(category), message, conversation_state, rule_result.context_entities
+                            self._get_enum_value(category), message, state, rule_result.context_entities
                         )
                         rule_result = IntentResult(
                             category=self._get_enum_value(category),

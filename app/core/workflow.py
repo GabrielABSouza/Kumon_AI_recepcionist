@@ -82,6 +82,17 @@ class CeciliaWorkflow:
         """
         logger.info("Creating Cecilia workflow graph...")
         
+        # Check if V2 architecture should be used
+        from .feature_flags import get_feature_flags
+        feature_flags = get_feature_flags()
+        
+        if feature_flags.workflow_v2_enabled:
+            logger.info("🚀 V2 Architecture Enabled: Using workflow_migration.py")
+            from .workflow_migration import create_migrated_workflow
+            return create_migrated_workflow()
+        
+        logger.info("📍 V1 Architecture: Using legacy workflow.py")
+        
         # Inicializar o grafo
         workflow = StateGraph(CeciliaState)
         
