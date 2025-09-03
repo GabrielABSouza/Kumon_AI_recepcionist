@@ -427,7 +427,7 @@ async def handle_messages_update_direct(request: Request, background_tasks: Back
 
 
 @router.post("/messages-upsert")
-async def handle_messages_upsert_direct(request: Request):
+async def handle_messages_upsert_direct(request: Request, background_tasks: BackgroundTasks):
     """Handle messages-upsert webhook directly"""
     try:
         webhook_data = await request.json()
@@ -445,8 +445,14 @@ async def handle_messages_upsert_direct(request: Request):
 
         app_logger.info(f"📱 Processing message from instance: {instance}")
 
-        # Process message immediately for debugging - PASS REQUEST HEADERS
-        await process_message_from_webhook(webhook_data, request.headers)
+        # Parse message from the webhook
+        parsed_message = evolution_api_client.parse_webhook_message(webhook_data)
+        
+        if parsed_message:
+            # Process message in background to avoid webhook timeout
+            background_tasks.add_task(process_message_background, parsed_message, dict(request.headers))
+        else:
+            app_logger.info("No processable message found in messages-upsert webhook")
 
         return {"status": "ok", "message": "Message received and queued for processing"}
 
@@ -770,29 +776,6 @@ async def handle_new_jwt_token(request: Request):
         return {"success": False, "error": "Failed to process new-jwt-token webhook"}
 
 
-async def process_message_from_webhook(webhook_data: Dict[str, Any], headers: Optional[Dict] = None):
-    """Process message from webhook data"""
-    app_logger.info(f"DEBUG: STARTING process_message_from_webhook function")
-    try:
-        app_logger.info(f"DEBUG: About to parse webhook data: {webhook_data}")
-
-        # Parse message from the webhook
-        parsed_message = evolution_api_client.parse_webhook_message(webhook_data)
-
-        app_logger.info(f"DEBUG: Parsed message result: {parsed_message}")
-
-        if parsed_message:
-            app_logger.info(
-                f"✅ Message parsed successfully: {parsed_message.phone} | '{parsed_message.message}'"
-            )
-
-            # Process message in background to avoid webhook timeout - PASS HEADERS
-            await process_message_background(parsed_message, headers or {})
-        else:
-            app_logger.info("ℹ️ No processable message found in webhook")
-
-    except Exception as e:
-        app_logger.error(f"❌ Error processing message from webhook: {str(e)}")
 
 
 async def process_message_background(message: WhatsAppMessage, headers: Optional[Dict] = None):

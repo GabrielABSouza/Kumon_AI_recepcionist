@@ -16,7 +16,7 @@ import logging
 from ...core.state.models import CeciliaState
 from ...core.state.managers import StateManager
 from ...api.evolution import send_message
-from ...workflows.contracts import IntentResult, DeliveryResult, RoutingDecision, normalize_routing_decision, normalize_intent_result, safe_get_payload
+from ...workflows.contracts import IntentResult, DeliveryResult, RoutingDecision, normalize_routing_decision, normalize_intent_result, safe_get_payload, safe_get_delivery_field
 from ..telemetry import emit_delivery_event, generate_trace_id
 
 logger = logging.getLogger(__name__)
@@ -151,13 +151,13 @@ class DeliveryService:
                     channel=channel,
                     duration_ms=delivery_time_ms,
                     success=True,
-                    message_id=delivery_result.get("message_id")
+                    message_id=safe_get_delivery_field(delivery_result, "message_id")
                 )
                 
                 return DeliveryResult(
                     success=True,
                     channel=channel,
-                    message_id=delivery_result.get("message_id"),
+                    message_id=safe_get_delivery_field(delivery_result, "message_id"),
                     status="ok",
                     reason=None
                 )
@@ -175,7 +175,7 @@ class DeliveryService:
                     channel=channel,
                     duration_ms=delivery_time_ms,
                     success=False,
-                    err_type=delivery_result.get("error", "delivery_failed")
+                    err_type=safe_get_delivery_field(delivery_result, "reason", "delivery_failed")
                 )
                 
                 return await self._handle_delivery_failure(
@@ -566,7 +566,7 @@ class DeliveryService:
                 "delivery_id": delivery_id,
                 "timestamp": delivery_result["timestamp"],
                 "method": delivery_result["delivery_method"],
-                "message_id": delivery_result.get("message_id"),
+                "message_id": safe_get_delivery_field(delivery_result, "message_id"),
                 "target_node": target_node
             },
             "last_activity": datetime.now(timezone.utc),
@@ -595,14 +595,15 @@ class DeliveryService:
     ) -> DeliveryResult:
         """Handle delivery failure with fallback strategies"""
         
-        logger.warning(f"⚠️ Delivery {delivery_id} failed: {delivery_result.get('error')}")
+        logger.warning(f"⚠️ Delivery {delivery_id} failed: {safe_get_delivery_field(delivery_result, 'reason')}")
         
         # Update failure stats
         self.delivery_stats["failed_deliveries"] += 1
         self.delivery_stats["total_deliveries"] += 1
         
         # Apply fallback strategy with channel-aware fallback
-        if delivery_result.get("retry_possible", False):
+        # Check if retry is possible based on delivery status
+        if safe_get_delivery_field(delivery_result, "status") != "failed":
             # Get original channel from the payload that failed
             original_channel = state.get("delivery_payload", {}).get("channel", "whatsapp")
             fallback_channel, fallback_message = self._get_fallback_channel_and_message(
@@ -647,7 +648,7 @@ class DeliveryService:
             "delivery_failed": True,
             "last_delivery_error": {
                 "delivery_id": delivery_id,
-                "error": delivery_result.get("error"),
+                "error": safe_get_delivery_field(delivery_result, "reason"),
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "target_node": routing_decision.target_node
             }
@@ -660,7 +661,7 @@ class DeliveryService:
             channel=getattr(routing_decision, "channel", "unknown"),
             message_id=None,
             status="failed",
-            reason=delivery_result.get("error", "delivery_failed")
+            reason=safe_get_delivery_field(delivery_result, "reason", "delivery_failed")
         )
     
     async def _handle_validation_failure(
@@ -768,7 +769,7 @@ class DeliveryService:
         original_channel: str
     ) -> tuple[str, str]:
         """Get fallback channel and message based on original channel and failure reason"""
-        failure_reason = delivery_result.get("error", "unknown")
+        failure_reason = safe_get_delivery_field(delivery_result, "reason", "unknown")
         
         # Channel fallback strategy
         fallback_channel_map = {

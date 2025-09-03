@@ -273,6 +273,16 @@ def normalize_delivery_result(data: Dict[str, Any] | DeliveryResult) -> Delivery
     return DeliveryResult.from_dict(data)
 
 
+def safe_get_delivery_field(result: DeliveryResult | Dict[str, Any], field_name: str, default=None):
+    """Safely get field from DeliveryResult object or dict"""
+    if isinstance(result, DeliveryResult):
+        return getattr(result, field_name, default)
+    elif isinstance(result, dict):
+        return result.get(field_name, default)
+    else:
+        return default
+
+
 def safe_get_payload(intent_result: IntentResult | Dict[str, Any]) -> Dict[str, Any]:
     """Safely extract delivery_payload from IntentResult (dict or dataclass)"""
     if isinstance(intent_result, dict):
