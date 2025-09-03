@@ -43,6 +43,35 @@ class SmartRouterAdapter:
         self._fallback_enabled = True
         app_logger.info("[ADAPTER] SmartRouterAdapter initialized")
     
+    def decide_route(self, state: CeciliaState) -> CoreRoutingDecision:
+        """
+        Synchronous wrapper for decide_route - for Universal Edge Router
+        
+        Args:
+            state: Current conversation state
+            
+        Returns:
+            CoreRoutingDecision: Routing decision
+        """
+        try:
+            # Run the async method in event loop
+            import asyncio
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            
+            return loop.run_until_complete(self.decide_route_async(state))
+            
+        except Exception as e:
+            app_logger.error(f"[ADAPTER] Sync decide_route error: {e}")
+            return self._fallback_decision(state, f"sync_wrapper_error: {str(e)}")
+    
+    def __call__(self, state: CeciliaState) -> CoreRoutingDecision:
+        """Allow calling adapter as function"""
+        return self.decide_route(state)
+    
     async def _get_smart_router(self):
         """Lazy load SmartRouter to avoid import cycles"""
         if self._smart_router is None:
@@ -55,7 +84,7 @@ class SmartRouterAdapter:
                 self._smart_router = None
         return self._smart_router
     
-    async def decide_route(
+    async def decide_route_async(
         self, 
         state: CeciliaState,
         current_function: str = "unknown"

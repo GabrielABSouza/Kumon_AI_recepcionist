@@ -83,6 +83,10 @@ def universal_edge_router(state: CeciliaState) -> str:
     Returns:
         str: Next node to route to (usually "DELIVERY")
     """
+    from ..router.smart_router_adapter import SmartRouterAdapter
+    from ..router.response_planner import ResponsePlanner
+    from ..router.normalizers import normalize_routing_decision, normalize_intent_result
+    
     phone_number = state.get("phone_number", "unknown")
     logger.info(f"🎯 Universal Edge Router: routing & planning for {phone_number[-4:]}")
     
@@ -90,69 +94,26 @@ def universal_edge_router(state: CeciliaState) -> str:
         # Step 1: Execute SmartRouter to get routing decision
         logger.info(f"🔍 Step 1: SmartRouter deciding route")
         
-        from ..router.smart_router_adapter import SmartRouterAdapter
-        decision_raw = SmartRouterAdapter.decide_route(state)
+        # Garantir instância do adapter e passar state corretamente
+        adapter = SmartRouterAdapter()
+        decision_raw = adapter.decide_route(state)  # 👈 PASSAR state
         
-        # Normalize and persist routing decision
-        routing_decision = {
-            "target_node": getattr(decision_raw, "target_node", "delivery"),
-            "threshold_action": getattr(decision_raw, "threshold_action", "fallback_level1"),
-            "confidence": getattr(decision_raw, "confidence", 0.5),
-            "intent_confidence": getattr(decision_raw, "intent_confidence", 0.5),
-            "pattern_confidence": getattr(decision_raw, "pattern_confidence", 0.5),
-            "rule_applied": getattr(decision_raw, "rule_applied", "unknown"),
-            "reasoning": getattr(decision_raw, "reasoning", "No reasoning provided"),
-            "timestamp": datetime.now().isoformat()
-        }
+        # Normalizar e persistir routing decision
+        state["routing_decision"] = normalize_routing_decision(decision_raw)
         
-        # PERSIST routing decision in state BEFORE accessing
-        state["routing_decision"] = routing_decision
-        
-        logger.info(f"✅ Step 1 complete: routing decision = {routing_decision['target_node']} (confidence: {routing_decision['confidence']:.2f})")
+        logger.info(f"✅ Step 1 complete: routing decision = {state['routing_decision'].get('target_node', 'unknown')}")
         
         # Step 2: Execute ResponsePlanner to generate response
         logger.info(f"🔍 Step 2: ResponsePlanner generating response")
         
-        try:
-            from ..router.response_planner import ResponsePlanner
-            planner = ResponsePlanner()
-            intent_result_raw = planner.plan(state)
-            
-            # Normalize and persist intent result - never use .get() on raw result
-            if intent_result_raw is not None:
-                intent_result = {
-                    "category": getattr(intent_result_raw, "category", "fallback"),
-                    "subcategory": getattr(intent_result_raw, "subcategory", None),
-                    "confidence": getattr(intent_result_raw, "confidence", 0.5),
-                    "context_entities": getattr(intent_result_raw, "context_entities", {}),
-                    "delivery_payload": getattr(intent_result_raw, "delivery_payload", {}),
-                    "policy_action": getattr(intent_result_raw, "policy_action", None),
-                    "slots": getattr(intent_result_raw, "slots", {})
-                }
-            else:
-                intent_result = {
-                    "category": "fallback",
-                    "delivery_payload": {
-                        "channel": "whatsapp",
-                        "content": {"text": "Obrigada pelo seu contato! Nossa equipe retornará em breve."}
-                    }
-                }
-            
-            # PERSIST intent result in state BEFORE accessing
-            state["intent_result"] = intent_result
-            
-            logger.info(f"✅ Step 2 complete: response planned for category={intent_result['category']}")
-            
-        except Exception as planner_error:
-            logger.error(f"❌ Step 2 failed: ResponsePlanner error: {planner_error}")
-            # Create fallback intent_result 
-            state["intent_result"] = {
-                "category": "fallback", 
-                "delivery_payload": {
-                    "channel": "whatsapp",
-                    "content": {"text": "Obrigada pelo seu contato! Nossa equipe retornará em breve."}
-                }
-            }
+        # Planejar resposta
+        intent_res_raw = ResponsePlanner.plan(state)
+        
+        # Normalizar e persistir intent result
+        state["intent_result"] = (normalize_intent_result(intent_res_raw) 
+                                 if intent_res_raw is not None else None)
+        
+        logger.info(f"✅ Step 2 complete: response planned for category={state['intent_result'].get('category', 'unknown') if state['intent_result'] else 'none'}")
         
     except Exception as router_error:
         logger.error(f"❌ Universal Edge Router error: {router_error}")
@@ -172,9 +133,9 @@ def universal_edge_router(state: CeciliaState) -> str:
             }
         }
     
-    # Determine next node from routing decision - access from state, not raw objects
+    # Definir próximo nó com base na decisão já persistida
     routing_decision = state.get("routing_decision", {})
-    target_node = routing_decision.get("target_node", "delivery")
+    next_stage = routing_decision.get("next_stage") or routing_decision.get("target_node", "delivery")
     
     # Route decision: direct to DELIVERY for V2 flow
     logger.info(f"🎯 Universal Edge Router: → DELIVERY (routing & planning complete)")

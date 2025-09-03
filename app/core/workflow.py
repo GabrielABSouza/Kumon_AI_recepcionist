@@ -167,7 +167,14 @@ class CeciliaWorkflow:
 
             # Merge updated state if available
             try:
-                updated = delivery_result.get("updated_state")
+                # Use getattr for DeliveryResult dataclass, .get() for dict
+                if hasattr(delivery_result, "updated_state"):
+                    updated = getattr(delivery_result, "updated_state", None)
+                elif isinstance(delivery_result, dict):
+                    updated = delivery_result.get("updated_state")
+                else:
+                    updated = None
+                    
                 if isinstance(updated, dict):
                     state.update({
                         "current_stage": updated.get("current_stage", state.get("current_stage")),
@@ -727,8 +734,8 @@ class CeciliaWorkflow:
                 current_step = result.get("current_step")
                 processing_time = (time.time() - start_time) * 1000
                 return {
-                    "success": delivery_result.get("success", True),
-                    "delivery_id": delivery_result.get("delivery_id"),
+                    "success": getattr(delivery_result, "success", True) if hasattr(delivery_result, "success") else delivery_result.get("success", True) if isinstance(delivery_result, dict) else True,
+                    "delivery_id": getattr(delivery_result, "delivery_id", None) if hasattr(delivery_result, "delivery_id") else delivery_result.get("delivery_id") if isinstance(delivery_result, dict) else None,
                     "final_state": result,
                     "response_sent": response,
                     "processing_time_ms": processing_time
