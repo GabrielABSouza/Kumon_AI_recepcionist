@@ -210,3 +210,33 @@ class SmartRouterAdapter:
 
 # Global singleton instance
 smart_router_adapter = SmartRouterAdapter()
+
+
+def routing_mode_from_decision(rd) -> str:
+    """
+    Converte RoutingDecision (threshold_action + flags) em modo interno do ResponsePlanner:
+    "template" | "llm_rag" | "handoff" | "fallback_l1" | "fallback_l2"
+    """
+    ta = getattr(rd, "threshold_action", None)
+    if getattr(rd, "stage_progression_blocked", False):
+        return "handoff"
+    mapping = {
+        "proceed": "template",
+        "enhance_with_llm": "llm_rag", 
+        "escalate_human": "handoff",
+        "fallback_level1": "fallback_l1",
+        "fallback_level2": "fallback_l2",
+        # se houver "clarify" em threshold_action, trate como fallback_l1
+        "clarify": "fallback_l1",
+    }
+    return mapping.get(ta, "fallback_l2")
+
+
+def normalize_rd_obj(rd_obj):
+    """Permite rd como dataclass ou dict."""
+    if isinstance(rd_obj, dict):
+        class RD: pass
+        r = RD()
+        for k, v in rd_obj.items(): setattr(r, k, v)
+        return r
+    return rd_obj

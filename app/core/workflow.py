@@ -25,6 +25,7 @@ from .nodes import (
     validation_node,
     confirmation_node
 )
+from .shadow_integration import with_shadow_v2
 from .nodes.handoff import handoff_node
 from .nodes.emergency_progression import emergency_progression_node
 from .edges.routing import (
@@ -84,13 +85,14 @@ class CeciliaWorkflow:
         # Inicializar o grafo
         workflow = StateGraph(CeciliaState)
         
-        # ========== ADICIONAR NODES ==========
-        workflow.add_node("greeting", greeting_node)
-        workflow.add_node("qualification", qualification_node)
-        workflow.add_node("information", information_node)
-        workflow.add_node("scheduling", scheduling_node)
-        workflow.add_node("confirmation", confirmation_node)
-        workflow.add_node("validation", validation_node)
+        # ========== ADICIONAR NODES COM SHADOW TRAFFIC ==========
+        # Apply shadow traffic middleware to business nodes
+        workflow.add_node("greeting", with_shadow_v2("greeting")(greeting_node))
+        workflow.add_node("qualification", with_shadow_v2("qualification")(qualification_node))
+        workflow.add_node("information", with_shadow_v2("information")(information_node))
+        workflow.add_node("scheduling", with_shadow_v2("scheduling")(scheduling_node))
+        workflow.add_node("confirmation", confirmation_node)  # No V2 implementation yet
+        workflow.add_node("validation", validation_node)     # No V2 implementation yet
         workflow.add_node("handoff", handoff_node)
         workflow.add_node("emergency_progression", emergency_progression_node)
         

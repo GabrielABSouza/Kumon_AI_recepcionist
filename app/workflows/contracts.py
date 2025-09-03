@@ -9,11 +9,46 @@ Based on orchestration_flow.md specifications.
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, Any, Optional, Literal, List
+from typing import Dict, Any, Optional, Literal, List, Mapping
+import json
 from ..core.state.models import ConversationStage
 
 
 # ========== DELIVERY CONTRACTS ==========
+
+@dataclass
+class MessageEnvelope:
+    """Standard message envelope for outbox pattern"""
+    text: str
+    channel: Literal["web","app","whatsapp"]   # canais reais  
+    meta: Mapping[str, Any]
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize to dict for outbox storage"""
+        return {
+            "text": self.text,
+            "channel": self.channel,
+            "meta": dict(self.meta)
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "MessageEnvelope":
+        """Deserialize from dict"""
+        return cls(
+            text=data["text"],
+            channel=data["channel"], 
+            meta=data.get("meta", {})
+        )
+    
+    def to_json(self) -> str:
+        """Serialize to JSON string"""
+        return json.dumps(self.to_dict(), ensure_ascii=False)
+    
+    @classmethod
+    def from_json(cls, json_str: str) -> "MessageEnvelope":
+        """Deserialize from JSON string"""
+        return cls.from_dict(json.loads(json_str))
+
 
 @dataclass
 class DeliveryPayload:

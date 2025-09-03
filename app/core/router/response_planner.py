@@ -1,13 +1,14 @@
 from typing import Dict, Any, Optional, Union
 import time
 import logging
+from dataclasses import asdict
 from ...prompts.manager import prompt_manager
 from ...prompts.template_variables import template_variable_resolver
 from ...core.service_factory import get_langchain_rag_service
 from ...services.production_llm_service import ProductionLLMService
 from ..state.models import CeciliaState
-from ...workflows.contracts import RoutingDecision
-from .smart_router_adapter import CoreRoutingDecision
+from ...workflows.contracts import RoutingDecision, MessageEnvelope
+from .smart_router_adapter import CoreRoutingDecision, routing_mode_from_decision, normalize_rd_obj
 
 logger = logging.getLogger(__name__)
 
@@ -353,3 +354,153 @@ Key information:
 
 # Singleton instance
 response_planner = ResponsePlanner()
+
+
+# ========== NEW FACADE FUNCTIONS FOR MIGRATION ==========
+
+def resolve_channel(state: Dict[str, Any]) -> str:
+    """Resolve channel from state context"""
+    channel_mapping = state.get("channel_mapping", {})
+    default_channel = state.get("default_channel", "whatsapp")
+    
+    # Logic to determine channel based on state
+    # For now, use whatsapp as default but preserve existing logic
+    return channel_mapping.get("preferred", default_channel)
+
+
+def render_template(template_name: str, state: Dict[str, Any]) -> str:
+    """Render template with state variables"""
+    variables = template_variable_resolver.get_template_variables(state)
+    
+    # Use existing prompt_manager infrastructure
+    import asyncio
+    try:
+        response = asyncio.run(prompt_manager.get_prompt(
+            name=template_name,
+            variables=variables,
+            conversation_state=state
+        ))
+        return response
+    except Exception as e:
+        logger.warning(f"Template render failed: {e}")
+        return f"Obrigada pelo contato! Para atendimento, ligue (51) 99692-1999."
+
+
+def response_planner_node(state: dict) -> dict:
+    """
+    ResponsePlanner Node - Action façade que enfileira MessageEnvelope
+    
+    Responsibilities:
+    - Read routing_decision from SmartRouter
+    - Convert to internal mode (template/llm_rag/handoff/fallback)
+    - Enqueue MessageEnvelope in state["outbox"] 
+    - NO IO operations (defer to Delivery)
+    """
+    
+    rd = state.get("routing_decision")
+    mode = routing_mode_from_decision(normalize_rd_obj(rd)) if rd else "fallback_l2"
+    
+    state.setdefault("outbox", [])
+    
+    if mode == "template":
+        return _plan_template(state, fallback_level=None)
+    elif mode == "llm_rag":
+        return _plan_llm_rag(state)
+    elif mode == "handoff":
+        return _plan_handoff(state)
+    elif mode == "fallback_l1":
+        return _plan_template(state, fallback_level=1)
+    else:  # fallback_l2
+        return _plan_template(state, fallback_level=2)
+
+
+def _plan_template(state: dict, fallback_level: int | None):
+    """Generate template-based response and enqueue"""
+    
+    # Determine template name based on stage + intent
+    stage = state.get("current_stage", "greeting")
+    
+    if fallback_level == 1:
+        template_name = f"kumon:fallback:level1:general"
+    elif fallback_level == 2:
+        template_name = f"kumon:fallback:level2:basic"
+    else:
+        # Use existing template_mappings logic
+        planner = response_planner
+        template_key = (stage.lower(), "general")
+        template_name = planner.template_mappings.get(template_key, f"kumon:{stage}:response:general")
+    
+    # Render template
+    text = render_template(template_name, state)
+    
+    # Create MessageEnvelope and enqueue
+    env = MessageEnvelope(
+        text=text,
+        channel=resolve_channel(state),
+        meta={"template_id": template_name, "fallback_level": fallback_level, "mode": "template"}
+    )
+    
+    state["outbox"].append(asdict(env))
+    return state
+
+
+def _plan_llm_rag(state: dict):
+    """Generate LLM+RAG response and enqueue"""
+    
+    # Use existing ResponsePlanner LLM logic as fallback
+    try:
+        # Simplified LLM call - reuse existing infrastructure
+        user_message = state.get("last_user_message", "")
+        llm_service = ProductionLLMService()
+        
+        # Build context (reuse existing method)
+        variables = template_variable_resolver.get_template_variables(state)
+        parent_name = variables.get("parent_name", "")
+        
+        simple_prompt = f"""
+Você é Cecília, recepcionista do Kumon Vila A em Porto Alegre.
+Responda de forma profissional e acolhedora.
+
+{f"Nome dos pais: {parent_name}" if parent_name else ""}
+Pergunta: {user_message}
+
+Responda brevemente sobre o método Kumon e como podemos ajudar.
+"""
+        
+        import asyncio
+        answer = asyncio.run(llm_service.generate_response(simple_prompt))
+        
+    except Exception as e:
+        logger.warning(f"LLM generation failed: {e}")
+        answer = "Obrigada pela pergunta! Para melhor esclarecimento, entre em contato: (51) 99692-1999"
+    
+    # Create MessageEnvelope and enqueue
+    env = MessageEnvelope(
+        text=answer,
+        channel=resolve_channel(state),
+        meta={"mode": "llm_rag", "llm_used": True}
+    )
+    
+    state["outbox"].append(asdict(env))
+    return state
+
+
+def _plan_handoff(state: dict):
+    """Generate handoff response and enqueue"""
+    
+    handoff_text = (
+        "Para melhor atendimento, nossa equipe especializada "
+        "entrará em contato:\n\n"
+        "📞 **(51) 99692-1999**\n"
+        "🕐 Segunda a Sexta, 8h às 18h"
+    )
+    
+    # Create MessageEnvelope and enqueue
+    env = MessageEnvelope(
+        text=handoff_text,
+        channel=resolve_channel(state),
+        meta={"mode": "handoff", "escalated": True}
+    )
+    
+    state["outbox"].append(asdict(env))
+    return state
