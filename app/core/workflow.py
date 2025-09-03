@@ -684,6 +684,11 @@ class CeciliaWorkflow:
                     existing_state = create_initial_cecilia_state(phone_number, user_message)
                     session_id = existing_state["conversation_id"]
                     logger.info(f"✅ Created new CeciliaState session: {session_id}")
+                    
+                    # Apply StageResolver to define initial context for V2 architecture
+                    from .nodes.stage_resolver import StageResolver
+                    existing_state = StageResolver.apply(existing_state)
+                    logger.info(f"🎯 StageResolver applied: stage={existing_state['current_stage']}, step={existing_state['current_step']}")
                 else:
                     session_id = existing_state["conversation_id"]
                 
@@ -697,7 +702,11 @@ class CeciliaWorkflow:
                 # Create minimal fallback state
                 existing_state = create_initial_cecilia_state(phone_number, user_message)
                 session_id = existing_state["conversation_id"]
-                logger.warning(f"⚠️ Using fallback CeciliaState for {phone_number}")
+                
+                # Apply StageResolver to fallback state too
+                from .nodes.stage_resolver import StageResolver
+                existing_state = StageResolver.apply(existing_state)
+                logger.warning(f"⚠️ Using fallback CeciliaState for {phone_number} with StageResolver applied")
             
             # Use the existing_state directly as CeciliaState input - no conversion needed
             input_data = existing_state

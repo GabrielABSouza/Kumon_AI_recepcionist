@@ -36,9 +36,9 @@ def normalize_state_enums(state: CeciliaState) -> CeciliaState:
     current_stage = state.get("current_stage")
     
     if current_stage is None:
-        # No stage set - use default
-        state["current_stage"] = ConversationStage.GREETING
-        logger.info("🔧 Set default current_stage: GREETING")
+        # No stage set - use neutral default (StageResolver will define context)
+        state["current_stage"] = ConversationStage.UNSET
+        logger.info("🔧 Set neutral current_stage: UNSET (StageResolver will resolve)")
         
     elif isinstance(current_stage, str):
         # String representation - convert to Enum
@@ -50,18 +50,18 @@ def normalize_state_enums(state: CeciliaState) -> CeciliaState:
             logger.debug(f"🔧 Normalized current_stage: {current_stage} → {normalized_stage}")
             
         except ValueError:
-            # Invalid stage string - use default
-            logger.warning(f"⚠️ Invalid current_stage '{current_stage}', using GREETING")
-            state["current_stage"] = ConversationStage.GREETING
+            # Invalid stage string - use neutral default (StageResolver will resolve)
+            logger.warning(f"⚠️ Invalid current_stage '{current_stage}', using UNSET")
+            state["current_stage"] = ConversationStage.UNSET
             
     elif isinstance(current_stage, ConversationStage):
         # Already an Enum - pass through
         logger.debug(f"✅ current_stage already normalized: {current_stage}")
         
     else:
-        # Unexpected type - use default
-        logger.warning(f"⚠️ Unexpected current_stage type {type(current_stage)}, using GREETING")
-        state["current_stage"] = ConversationStage.GREETING
+        # Unexpected type - use neutral default (StageResolver will resolve)
+        logger.warning(f"⚠️ Unexpected current_stage type {type(current_stage)}, using UNSET")
+        state["current_stage"] = ConversationStage.UNSET
     
     
     # Normalize current_step

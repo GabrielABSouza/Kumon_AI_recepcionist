@@ -17,6 +17,7 @@ from langgraph.graph import add_messages
 
 class ConversationStage(str, Enum):
     """Estados principais da conversa"""
+    UNSET = "unset"  # Estado inicial neutro antes do StageResolver
     GREETING = "greeting"
     QUALIFICATION = "qualification"
     INFORMATION_GATHERING = "information_gathering"
@@ -29,6 +30,9 @@ class ConversationStage(str, Enum):
 
 class ConversationStep(str, Enum):
     """Passos específicos dentro de cada estágio"""
+    # Initial state
+    NONE = "none"  # Estado inicial neutro antes do StageResolver
+    
     # Greeting steps
     WELCOME = "welcome"
     INITIAL_RESPONSE = "initial_response"
@@ -183,9 +187,9 @@ def create_initial_cecilia_state(phone_number: str, user_message: str = "", chan
         session_id=conversation_id,  # Usar conversation_id como session_id
         channel=channel,
         
-        # CONTROLE DE FLUXO
-        current_stage=ConversationStage.GREETING,
-        current_step=ConversationStep.WELCOME,
+        # CONTROLE DE FLUXO (inicial neutro - StageResolver define o contexto)
+        current_stage=ConversationStage.UNSET,
+        current_step=ConversationStep.NONE,
         messages=[{"role": "user", "content": user_message, "timestamp": now.isoformat()}] if user_message else [],
         last_user_message=user_message,
         

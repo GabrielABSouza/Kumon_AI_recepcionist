@@ -10,7 +10,7 @@ Responsabilidades:
 
 from typing import Dict, Any
 import logging
-from ..state.models import CeciliaState, ConversationStage, ConversationStep
+from ..state.models import CeciliaState, ConversationStage, ConversationStep, safe_update_state
 from ...graph.nodes import get_node_by_id, get_nodes_by_stage
 
 logger = logging.getLogger(__name__)
@@ -52,6 +52,7 @@ def get_required_slots_for_stage(stage: ConversationStage) -> list[str]:
     
     # Mapeamento baseado em app/graph/nodes.py business logic
     stage_slots = {
+        ConversationStage.UNSET: [],  # Estado inicial neutro
         ConversationStage.GREETING: ["parent_name"],
         ConversationStage.QUALIFICATION: ["parent_name", "child_name", "student_age", "education_level"],
         ConversationStage.INFORMATION_GATHERING: ["programs_of_interest"],
@@ -62,6 +63,65 @@ def get_required_slots_for_stage(stage: ConversationStage) -> list[str]:
     }
     
     return stage_slots.get(stage, [])
+
+
+class StageResolver:
+    """StageResolver V2 - Define contexto inicial para estados neutros"""
+    
+    @staticmethod
+    def apply(state: CeciliaState) -> CeciliaState:
+        """
+        Define stage inicial para estado V2 neutro
+        
+        1) Se já há stage em andamento e slots faltando, mantém
+        2) Sessão nova (UNSET) → define greeting como contexto inicial  
+        3) Preenche required_slots a partir do stage atual
+        """
+        try:
+            current_stage = state.get("current_stage")
+            current_step = state.get("current_step")
+            
+            # 1) Se já há stage em andamento e slots faltando, mantém
+            if (current_stage not in (ConversationStage.UNSET, None) and 
+                current_stage != ConversationStage.UNSET.value and
+                state.get("required_slots")):
+                logger.info(f"StageResolver.apply: mantendo stage={current_stage} (slots em andamento)")
+                return state
+
+            # 2) Sessão nova → define greeting como contexto inicial
+            if (current_stage in (ConversationStage.UNSET, ConversationStage.UNSET.value, None) or
+                current_step in (ConversationStep.NONE, ConversationStep.NONE.value, None)):
+                
+                logger.info("StageResolver.apply: sessão nova → definindo contexto inicial greeting")
+                
+                safe_update_state(state, {
+                    "current_stage": ConversationStage.GREETING,
+                    "current_step": ConversationStep.WELCOME
+                })
+                
+            # 3) Preencher required_slots a partir do stage atual
+            resolved_stage = ConversationStage(state["current_stage"])
+            required_slots = get_required_slots_for_stage(resolved_stage)
+            
+            safe_update_state(state, {
+                "required_slots": required_slots
+            })
+            
+            logger.info(f"StageResolver.apply: resolved stage={resolved_stage.value}, step={state['current_step']}, slots={len(required_slots)}")
+            
+            return state
+            
+        except Exception as e:
+            logger.error(f"StageResolver.apply error: {e}")
+            
+            # Fallback seguro
+            safe_update_state(state, {
+                "current_stage": ConversationStage.GREETING,
+                "current_step": ConversationStep.WELCOME,
+                "required_slots": ["parent_name"]
+            })
+            
+            return state
 
 
 def stage_resolver_node(state: Dict[str, Any]) -> Dict[str, Any]:
