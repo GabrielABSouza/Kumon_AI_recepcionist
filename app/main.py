@@ -48,7 +48,7 @@ from app.api.v1 import conversation, health, units, whatsapp
 from app.core.config import settings
 from app.core.logger import app_logger
 from app.services.cache_manager import cache_manager
-from app.core.workflow import cecilia_workflow
+# Lazy initialization - workflow created in startup event
 # from app.workflows.development_workflow import development_workflow_manager  # File missing
 # from app.workflows.maintainability_engine import maintainability_engine  # File missing
 
@@ -355,6 +355,17 @@ async def startup_event():
     """Application startup validation and initialization"""
     app_logger.info("🚀 Kumon AI Receptionist API v2.0 starting up...")
 
+    # CRITICAL: Lazy workflow initialization to prevent startup crashes
+    try:
+        app_logger.info("🔄 Initializing Cecilia Workflow (lazy pattern)...")
+        from app.core.workflow import cecilia_workflow
+        app_logger.info("✅ Cecilia workflow created successfully")
+    except Exception as e:
+        app_logger.error(f"❌ CRITICAL: Failed to initialize Cecilia Workflow: {e}")
+        import traceback
+        app_logger.error(f"Full traceback: {traceback.format_exc()}")
+        raise RuntimeError(f"Cecilia Workflow initialization failed: {e}")
+
     # DEBUG: Print ALL environment variables to identify the problem
     app_logger.info("🔍 DEBUG: All environment variables:")
     for key in sorted(os.environ.keys()):
@@ -420,7 +431,7 @@ async def startup_event():
     dependencies.intent_classifier = optimized_startup_manager.service_instances.get(
         "intent_classifier"
     )
-    # UPDATED: Using CeciliaWorkflow instead of secure_workflow
+    # UPDATED: Using CeciliaWorkflow instead of secure_workflow - use lazily initialized instance
     dependencies.cecilia_workflow = cecilia_workflow
     dependencies.langchain_rag_service = optimized_startup_manager.service_instances.get(
         "langchain_rag_service"
@@ -485,7 +496,7 @@ async def startup_event():
 
     # Test critical service resolution via unified resolver
     try:
-        # UPDATED: Test CeciliaWorkflow instead of secure_workflow
+        # UPDATED: Test CeciliaWorkflow instead of secure_workflow - use lazily initialized instance
         if cecilia_workflow:
             app_logger.info("✅ Critical service 'cecilia_workflow' available directly")
         else:
