@@ -127,7 +127,7 @@ class AdvancedIntentClassifier:
         self, 
         category: str, 
         message: str, 
-        conversation_state: dict,
+        conversation_state: ConversationState,
         slots: Dict[str, Any] = None
     ) -> DeliveryPayload:
         """Build delivery payload based on intent category and channel"""
@@ -436,7 +436,7 @@ class AdvancedIntentClassifier:
 
         return context
 
-    def _classify_with_rules(self, message: str, context: ConversationContext, state: dict) -> IntentResult:
+    def _classify_with_rules(self, message: str, context: ConversationContext, state: ConversationState) -> IntentResult:
         """Rule-based intent classification with stage-aware logic"""
         message_lower = message.lower().strip()
         best_match = None

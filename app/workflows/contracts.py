@@ -67,6 +67,17 @@ class DeliveryResult:
     message_id: Optional[str] = None
     status: Literal["ok", "degraded", "failed"] = "failed"
     reason: Optional[str] = None
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "DeliveryResult":
+        """Convert dict to DeliveryResult dataclass"""
+        return cls(
+            success=data.get("success", False),
+            channel=data.get("channel", "unknown"),
+            message_id=data.get("message_id"),
+            status=data.get("status", "failed"),
+            reason=data.get("reason")
+        )
 
 
 # ========== INTENT CLASSIFICATION ==========
@@ -78,9 +89,22 @@ class IntentResult:
     subcategory: Optional[str] = None               # "appointment", "method_inquiry", etc.
     confidence: float = 0.0                         # [0,1] - confidence in classification
     context_entities: Dict[str, Any] = field(default_factory=dict)  # Extracted entities
-    delivery_payload: Optional[DeliveryPayload] = None  # Payload ready for delivery
+    delivery_payload: Optional[Dict[str, Any]] = None  # Payload ready for delivery (normalized as dict)
     policy_action: Optional[str] = None             # "clarify_multi_intent", etc.
     slots: Dict[str, Any] = field(default_factory=dict)  # Extracted slots
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "IntentResult":
+        """Convert dict to IntentResult dataclass"""
+        return cls(
+            category=data.get("category", ""),
+            subcategory=data.get("subcategory"),
+            confidence=data.get("confidence", 0.0),
+            context_entities=data.get("context_entities", {}),
+            delivery_payload=data.get("delivery_payload"),
+            policy_action=data.get("policy_action"),
+            slots=data.get("slots", {})
+        )
 
 
 # ========== PATTERN SCORING ==========
@@ -139,6 +163,22 @@ class RoutingDecision:
     # Overrides and flags
     mandatory_data_override: bool = False         # True if forced by missing data
     stage_progression_blocked: bool = False       # True if stage transition was blocked
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "RoutingDecision":
+        """Convert dict to RoutingDecision dataclass"""
+        return cls(
+            target_node=data.get("target_node", ""),
+            threshold_action=data.get("threshold_action", ""),
+            final_confidence=data.get("final_confidence", 0.0),
+            intent_confidence=data.get("intent_confidence", 0.0),
+            pattern_confidence=data.get("pattern_confidence", 0.0),
+            rule_applied=data.get("rule_applied", ""),
+            reasoning=data.get("reasoning", ""),
+            timestamp=data.get("timestamp", datetime.now()),
+            mandatory_data_override=data.get("mandatory_data_override", False),
+            stage_progression_blocked=data.get("stage_progression_blocked", False)
+        )
 
 
 # ========== PREREQUISITES CONFIGURATION ==========
@@ -208,3 +248,34 @@ def get_fallback_stage_for_missing_data(target_stage: ConversationStage) -> Conv
     stage_key = target_stage.value
     requirements = STAGE_PREREQUISITES.get(stage_key, {})
     return requirements.get("fallback_stage", ConversationStage.GREETING)
+
+
+# ========== TYPE NORMALIZERS ==========
+
+def normalize_routing_decision(data: Dict[str, Any] | RoutingDecision) -> RoutingDecision:
+    """Normalize routing decision to dataclass"""
+    if isinstance(data, RoutingDecision):
+        return data
+    return RoutingDecision.from_dict(data)
+
+
+def normalize_intent_result(data: Dict[str, Any] | IntentResult) -> IntentResult:
+    """Normalize intent result to dataclass"""  
+    if isinstance(data, IntentResult):
+        return data
+    return IntentResult.from_dict(data)
+
+
+def normalize_delivery_result(data: Dict[str, Any] | DeliveryResult) -> DeliveryResult:
+    """Normalize delivery result to dataclass"""
+    if isinstance(data, DeliveryResult):
+        return data
+    return DeliveryResult.from_dict(data)
+
+
+def safe_get_payload(intent_result: IntentResult | Dict[str, Any]) -> Dict[str, Any]:
+    """Safely extract delivery_payload from IntentResult (dict or dataclass)"""
+    if isinstance(intent_result, dict):
+        return intent_result.get("delivery_payload", {})
+    else:
+        return getattr(intent_result, "delivery_payload", {}) or {}

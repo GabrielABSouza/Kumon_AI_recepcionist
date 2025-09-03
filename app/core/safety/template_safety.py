@@ -19,29 +19,48 @@ class TemplateSafetyFilter:
     """
     
     def __init__(self):
-        # Configuration template detection patterns
+        # Configuration template detection patterns - ONLY for unrendered templates
         self.config_patterns = [
             # Template variable indicators (should never be shown to users)
             r'\{\{[\w_]+\}\}',
-            r'\{[\w_]+\}',
+            r'\{[A-Z_]{3,}\}',  # Only all-caps template variables
             
-            # System instructions (but exclude simple greeting context)
-            r'personagem|identidade.*Cecília|CECÍLIA.*recepcionista',
-            r'método.*educacional|MÉTODO.*EDUCACIONAL',
+            # System instructions - ONLY explicit instruction patterns
+            r'^Você é.*recepcionista.*Kumon',  # Line start only
+            r'^DIRETRIZES:',
+            r'^INSTRUÇÕES:',
+            r'^POLÍTICA:',
             
-            # Template structure indicators
+            # Template structure indicators - ONLY explicit template markers
             r'RESPOSTA\s+OBRIGATÓRIA',
-            r'Como.*ajudá.*hoje.*método',
+            r'^## (DIRETRIZES|INSTRUÇÕES|POLÍTICA)',
             
-            # Specific dangerous content from base template
-            r'Sempre responda pergunta diretamente',
-            r'Nunca refuse ajudar',
-            r'Nunca quebre o personagem',
-            r'Sempre mantenha identidade'
+            # Specific dangerous content from base template - ONLY if at line start
+            r'^Sempre responda pergunta diretamente',
+            r'^Nunca refuse ajudar',
+            r'^Nunca quebre o personagem',
+            r'^Sempre mantenha identidade'
+        ]
+        
+        # Allowlist for safe content that should pass even if it matches some patterns
+        self.safe_content_patterns = [
+            # Normal business content
+            r'método educacional.*Kumon',  # Allow mentions of Kumon method
+            r'nosso método',  # Allow "our method"
+            r'método de ensino',  # Allow "teaching method"
         ]
         
         # Compile patterns for performance
-        self.compiled_patterns = [re.compile(pattern, re.IGNORECASE) for pattern in self.config_patterns]
+        self.compiled_patterns = [re.compile(pattern, re.IGNORECASE | re.MULTILINE) for pattern in self.config_patterns]
+        self.compiled_safe_patterns = [re.compile(pattern, re.IGNORECASE) for pattern in self.safe_content_patterns]
+        
+        # Template files that are allowed to contain configuration content
+        self.allowed_template_files = {
+            "app/prompts/templates/fallback/general_assistance.txt",
+            "app/prompts/templates/greeting/",
+            "app/prompts/templates/information/",
+            "app/prompts/templates/scheduling/"
+        }
         
         # Safe fallback templates for different contexts
         self.safe_fallbacks = {
@@ -80,6 +99,12 @@ class TemplateSafetyFilter:
                     return True
             return False
             
+        # Check if content is explicitly safe first
+        for safe_pattern in self.compiled_safe_patterns:
+            if safe_pattern.search(template_content):
+                logger.info(f"✅ Content matches safe pattern: {safe_pattern.pattern}")
+                return False  # Safe content, not a config template
+        
         # Check against all config patterns for other contexts
         for pattern in self.compiled_patterns:
             if pattern.search(template_content):
@@ -88,13 +113,14 @@ class TemplateSafetyFilter:
                 
         return False
     
-    def sanitize_template(self, template_content: str, context: str = "general") -> str:
+    def sanitize_template(self, template_content: str, context: str = "general", source_file: str = None) -> str:
         """
         Ensure template is safe for user consumption
         
         Args:
             template_content: Original template content
             context: Context for fallback selection (greeting, information, etc.)
+            source_file: Source template file path (if known) for allowlist checking
             
         Returns:
             Safe template content or safe fallback
@@ -102,6 +128,13 @@ class TemplateSafetyFilter:
         if not template_content:
             logger.warning("🚨 Empty template provided, using safe fallback")
             return self.safe_fallbacks.get(context, self.safe_fallbacks["general"])
+        
+        # Check if source file is in allowlist
+        if source_file:
+            for allowed_path in self.allowed_template_files:
+                if allowed_path in source_file:
+                    logger.info(f"✅ Template from allowed path: {source_file}")
+                    return template_content  # Skip safety check for allowed files
         
         # Check if template is safe
         if self.is_configuration_template(template_content, context):
@@ -123,10 +156,10 @@ class TemplateSafetyFilter:
 template_safety_filter = TemplateSafetyFilter()
 
 
-def ensure_safe_template(content: str, context: str = "general") -> str:
+def ensure_safe_template(content: str, context: str = "general", source_file: str = None) -> str:
     """
     Convenience function to ensure template safety
     
     CRITICAL: This should be called before any template is sent to users
     """
-    return template_safety_filter.sanitize_template(content, context)
+    return template_safety_filter.sanitize_template(content, context, source_file)

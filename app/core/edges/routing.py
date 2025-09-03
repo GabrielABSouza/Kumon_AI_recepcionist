@@ -71,12 +71,12 @@ def universal_edge_router(
     valid_targets: list
 ) -> str:
     """
-    Universal Edge Router - Always plans response and returns DELIVERY
+    Universal Edge Router - Routes and plans BEFORE going to DELIVERY
     
     Architecture: Stage Node → Universal Edge Router → DELIVERY Node
     
-    This router executes SmartRouter + ResponsePlanner and always returns "DELIVERY".
-    The DeliveryService will update stage/step canonically after sending the message.
+    This router executes SmartRouter + ResponsePlanner BEFORE delivery.
+    The DeliveryService only sends messages, not routing/planning.
     
     Args:
         state: Current conversation state (after Stage Node execution)
@@ -84,53 +84,149 @@ def universal_edge_router(
         valid_targets: Valid target nodes (should include "DELIVERY")
         
     Returns:
-        Always "DELIVERY" after planning response
+        Always "DELIVERY" after routing and planning
     """
-    phone_number = state.get("phone_number", "unknown")
+    import asyncio
+    from ..router import smart_router_adapter
     
-    logger.info(f"🎯 Universal Edge Router: {current_node} → DELIVERY for {phone_number[-4:]}")
-    # Zero side-effects: DELIVERY node centralizes routing/planning/sending
+    phone_number = state.get("phone_number", "unknown")
+    logger.info(f"🎯 Universal Edge Router: {current_node} → routing & planning for {phone_number[-4:]}")
+    
+    # Create local loop for async calls
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    
+    try:
+        # Step 1: Execute SmartRouter to get routing decision
+        logger.info(f"🔍 Step 1: SmartRouter deciding route from {current_node}")
+        routing_decision = loop.run_until_complete(
+            smart_router_adapter.decide_route(state, f"universal_edge_router_from_{current_node}")
+        )
+        
+        # Store routing decision in state for DELIVERY consumption
+        state["routing_decision"] = {
+            "target_node": routing_decision.target_node,
+            "threshold_action": routing_decision.threshold_action,
+            "final_confidence": routing_decision.confidence,
+            "intent_confidence": routing_decision.intent_confidence,
+            "pattern_confidence": routing_decision.pattern_confidence,
+            "rule_applied": routing_decision.rule_applied,
+            "reasoning": routing_decision.reasoning,
+            "timestamp": datetime.now().isoformat(),
+            "mandatory_data_override": routing_decision.mandatory_data_override
+        }
+        
+        logger.info(f"✅ Step 1 complete: routing decision = {routing_decision.target_node} (confidence: {routing_decision.confidence:.2f})")
+        
+        # Step 2: Execute ResponsePlanner to generate response
+        logger.info(f"🔍 Step 2: ResponsePlanner generating response")
+        try:
+            from ...workflows.response_planner import response_planner
+            
+            # Plan response based on routing decision
+            intent_result = loop.run_until_complete(
+                response_planner.plan_and_generate(state, routing_decision)
+            )
+            
+            # Store intent result in state for DELIVERY consumption
+            state["intent_result"] = {
+                "category": intent_result.get("category", ""),
+                "subcategory": intent_result.get("subcategory"),
+                "confidence": intent_result.get("confidence", 0.0),
+                "context_entities": intent_result.get("context_entities", {}),
+                "delivery_payload": intent_result.get("delivery_payload", {}),
+                "policy_action": intent_result.get("policy_action"),
+                "slots": intent_result.get("slots", {})
+            }
+            
+            logger.info(f"✅ Step 2 complete: response planned for category={intent_result.get('category', 'unknown')}")
+            
+        except ImportError as e:
+            logger.error(f"❌ Step 2 failed: ResponsePlanner not available: {e}")
+            # Create fallback intent_result
+            state["intent_result"] = {
+                "category": "fallback",
+                "delivery_payload": {
+                    "channel": "whatsapp",
+                    "content": {"text": "Obrigada pelo seu contato! Nossa equipe retornará em breve."}
+                }
+            }
+        
+    except Exception as e:
+        logger.error(f"❌ Universal Edge Router error: {e}")
+        # Create emergency fallback
+        state["routing_decision"] = {
+            "target_node": "fallback",
+            "threshold_action": "fallback_level2",
+            "confidence": 0.3,
+            "reasoning": f"Router error: {str(e)}",
+            "rule_applied": "emergency_fallback"
+        }
+        state["intent_result"] = {
+            "category": "emergency",
+            "delivery_payload": {
+                "channel": "whatsapp", 
+                "content": {"text": "Desculpe, houve um problema técnico. Nossa equipe entrará em contato em breve."}
+            }
+        }
+    
+    # Check routing decision to see if we should go to a different stage instead of DELIVERY
+    routing_decision = state.get("routing_decision", {})
+    target_node = routing_decision.get("target_node", "delivery")
+    
+    # If routing decision suggests going to a different stage node, honor it
+    if target_node != "delivery" and target_node != "fallback" and target_node in valid_targets:
+        logger.info(f"🎯 Universal Edge Router: {current_node} → {target_node} (stage transition required)")
+        state["last_node"] = current_node
+        return target_node.upper() if target_node in ["greeting", "qualification", "information", "scheduling", "validation", "confirmation"] else target_node
+    
+    # Mark the last node for telemetry
     state["last_node"] = current_node
+    
+    logger.info(f"🎯 Universal Edge Router: {current_node} → DELIVERY (routing & planning complete)")
     return "DELIVERY"
 
 
 def route_from_greeting(
     state: CeciliaState
-) -> Literal["DELIVERY"]:
-    """Route from greeting node - always goes to DELIVERY after planning response"""
-    valid_targets = ["DELIVERY"]
+) -> Literal["DELIVERY", "qualification", "information", "scheduling"]:
+    """Route from greeting node - may transition to other stages or DELIVERY"""
+    valid_targets = ["DELIVERY", "qualification", "information", "scheduling"]
     return universal_edge_router(state, "greeting", valid_targets)
 
 
 def route_from_qualification(
     state: CeciliaState
-) -> Literal["DELIVERY"]:
-    """Route from qualification node - always goes to DELIVERY after planning response"""
-    valid_targets = ["DELIVERY"]
+) -> Literal["DELIVERY", "information", "scheduling", "greeting"]:
+    """Route from qualification node - may transition to other stages or DELIVERY"""
+    valid_targets = ["DELIVERY", "information", "scheduling", "greeting"]
     return universal_edge_router(state, "qualification", valid_targets)
 
 
 def route_from_information(
     state: CeciliaState
-) -> Literal["DELIVERY"]:
-    """Route from information node - always goes to DELIVERY after planning response"""
-    valid_targets = ["DELIVERY"]
+) -> Literal["DELIVERY", "scheduling", "qualification", "greeting"]:
+    """Route from information node - may transition to other stages or DELIVERY"""
+    valid_targets = ["DELIVERY", "scheduling", "qualification", "greeting"]
     return universal_edge_router(state, "information", valid_targets)
 
 
 def route_from_scheduling(
     state: CeciliaState
-) -> Literal["DELIVERY"]:
-    """Route from scheduling node - always goes to DELIVERY after planning response"""
-    valid_targets = ["DELIVERY"]
+) -> Literal["DELIVERY", "confirmation", "validation", "information"]:
+    """Route from scheduling node - may transition to other stages or DELIVERY"""
+    valid_targets = ["DELIVERY", "confirmation", "validation", "information"]
     return universal_edge_router(state, "scheduling", valid_targets)
 
 
 def route_from_validation(
     state: CeciliaState
-) -> Literal["DELIVERY"]:
-    """Route from validation node - always goes to DELIVERY after planning response"""
-    valid_targets = ["DELIVERY"]
+) -> Literal["DELIVERY", "confirmation", "scheduling"]:
+    """Route from validation node - may transition to other stages or DELIVERY"""
+    valid_targets = ["DELIVERY", "confirmation", "scheduling"]
     return universal_edge_router(state, "validation", valid_targets)
 
 

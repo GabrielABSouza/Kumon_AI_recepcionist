@@ -89,7 +89,7 @@ class ShadowIntegrationMiddleware:
         """Execute V2 architecture for live traffic"""
         try:
             # Route to V2 implementation if available
-            v2_func = self._get_v2_node_function(node_name)
+            v2_func = self._get_v2_node_function(node_name, state)
             
             if v2_func:
                 result = v2_func(state, *args, **kwargs)
@@ -168,7 +168,7 @@ class ShadowIntegrationMiddleware:
         """Execute V2 node in shadow mode"""
         try:
             # Get V2 implementation
-            v2_func = self._get_v2_node_function(node_name)
+            v2_func = self._get_v2_node_function(node_name, state)
             
             if not v2_func:
                 return {"shadow_status": "not_implemented", "node_name": node_name}
@@ -207,7 +207,7 @@ class ShadowIntegrationMiddleware:
                 "_shadow_timestamp": datetime.now().isoformat()
             }
     
-    def _get_v2_node_function(self, node_name: str) -> Optional[Callable]:
+    def _get_v2_node_function(self, node_name: str, state: Dict[str, Any]) -> Optional[Callable]:
         """Get V2 implementation for node"""
         
         # Map V1 node names to V2 implementations
@@ -218,9 +218,12 @@ class ShadowIntegrationMiddleware:
             "scheduling": self._get_scheduling_v2
         }
         
-        return v2_node_mapping.get(node_name)
+        v2_method = v2_node_mapping.get(node_name)
+        if v2_method:
+            return v2_method(state)
+        return None
     
-    def _get_greeting_v2(self) -> Callable:
+    def _get_greeting_v2(self, state: Dict[str, Any]) -> Callable:
         """Get V2 greeting node implementation"""
         try:
             from .nodes.greeting_migrated import greeting_node_migrated
@@ -228,7 +231,7 @@ class ShadowIntegrationMiddleware:
         except ImportError:
             return None
     
-    def _get_qualification_v2(self) -> Callable:
+    def _get_qualification_v2(self, state: Dict[str, Any]) -> Callable:
         """Get V2 qualification node implementation"""
         try:
             from .nodes.qualification_migrated import qualification_node_migrated
@@ -236,11 +239,11 @@ class ShadowIntegrationMiddleware:
         except ImportError:
             return None
     
-    def _get_information_v2(self) -> Callable:
+    def _get_information_v2(self, state: Dict[str, Any]) -> Callable:
         """Get V2 information node implementation (placeholder)"""
         return None  # Not yet migrated
     
-    def _get_scheduling_v2(self) -> Callable:
+    def _get_scheduling_v2(self, state: Dict[str, Any]) -> Callable:
         """Get V2 scheduling node implementation (placeholder)"""
         return None  # Not yet migrated
     

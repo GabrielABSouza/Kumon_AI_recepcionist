@@ -143,6 +143,8 @@ class CeciliaState(TypedDict):
     # IDENTIFICAÇÃO (automática do WhatsApp)
     phone_number: str
     conversation_id: str
+    session_id: str
+    channel: str
     
     # CONTROLE DE FLUXO (gerenciado pelo sistema)
     current_stage: ConversationStage
@@ -165,7 +167,7 @@ class CeciliaState(TypedDict):
 
 
 # ========== STATE UTILITIES ==========
-def create_initial_cecilia_state(phone_number: str, user_message: str = "") -> CeciliaState:
+def create_initial_cecilia_state(phone_number: str, user_message: str = "", channel: str = "whatsapp") -> CeciliaState:
     """
     Create initial CeciliaState following state_solving.md
     
@@ -178,6 +180,8 @@ def create_initial_cecilia_state(phone_number: str, user_message: str = "") -> C
         # IDENTIFICAÇÃO
         phone_number=phone_number,
         conversation_id=conversation_id,
+        session_id=conversation_id,  # Usar conversation_id como session_id
+        channel=channel,
         
         # CONTROLE DE FLUXO
         current_stage=ConversationStage.GREETING,

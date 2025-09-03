@@ -96,12 +96,10 @@ class CeciliaWorkflow:
         workflow.add_node("handoff", handoff_node)
         workflow.add_node("emergency_progression", emergency_progression_node)
         
-        # DELIVERY node: Centralizes routing + planning + sending
+        # DELIVERY node: ONLY consumes routing_decision and intent_result from state
         def delivery_node(state: CeciliaState) -> CeciliaState:
             import asyncio
             from .state.utils import normalize_state_enums
-            from .router.smart_router_adapter import smart_router_adapter
-            from .router.response_planner import response_planner
             from .services.delivery_service import delivery_service
 
             phone_number = state.get("phone_number", "unknown")
@@ -126,35 +124,39 @@ class CeciliaWorkflow:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
 
-            # 1) Routing decision
-            decision = loop.run_until_complete(
-                smart_router_adapter.decide_route(state, f"delivery_from_{last_node}")
-            )
+            # IMPORTANT: Use routing_decision already set by previous nodes/edges
+            # DO NOT call smart_router_adapter here - that violates separation of concerns
+            routing_decision = state.get("routing_decision", {})
+            if not routing_decision:
+                logger.warning("🚨 No routing_decision found in state - using fallback")
+                routing_decision = {
+                    "target_node": "fallback",
+                    "threshold_action": "fallback_level2",
+                    "confidence": 0.3,
+                    "reasoning": "No routing_decision in state",
+                    "rule_applied": "emergency_fallback"
+                }
 
-            # 2) Plan response
-            loop.run_until_complete(response_planner.plan_and_generate(state, decision))
-            response_text = state.get("intent_result", {}).get("response") or ""
-
-            # 3) Deliver
-            decision_dict = {
-                "target_node": getattr(decision, "target_node", "fallback"),
-                "threshold_action": getattr(decision, "threshold_action", "proceed"),
-                "confidence": getattr(decision, "confidence", 0.0),
-                "reasoning": getattr(decision, "reasoning", ""),
-                "rule_applied": getattr(decision, "rule_applied", "")
-            }
-
-            # Convert to IntentResult format for delivery service
+            # Get already planned response from state
             intent_result = state.get("intent_result", {})
-            if not isinstance(intent_result, dict):
-                intent_result = {"response": response_text}
+            if not intent_result:
+                logger.warning("🚨 No intent_result found in state - creating minimal fallback")
+                intent_result = {
+                    "response": "Obrigada pelo seu contato! Nossa equipe retornará em breve.",
+                    "delivery_payload": {
+                        "channel": "whatsapp",
+                        "content": {"text": "Obrigada pelo seu contato! Nossa equipe retornará em breve."}
+                    }
+                }
+
+            # DELIVERY: Just consume what's already in state
             
             delivery_result = loop.run_until_complete(
                 delivery_service.deliver_response(
                     state=state,
                     phone_number=phone_number,
                     intent_result=intent_result,
-                    routing_decision=decision_dict,
+                    routing_decision=routing_decision,
                 )
             )
 
@@ -655,10 +657,15 @@ class CeciliaWorkflow:
                 existing_state = None
                 session_id = f"conv_{phone_number}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
                 
-                # Try to get existing state from PostgreSQL checkpointer (if available)
+                # Try to get existing state from checkpointer (if available)
                 try:
                     if hasattr(self, 'checkpointer') and self.checkpointer:
-                        existing_state = await self.checkpointer.get_state(phone_number)
+                        # MemorySaver uses different API than PostgreSQL checkpointer
+                        if hasattr(self.checkpointer, 'get_state'):
+                            existing_state = await self.checkpointer.get_state(phone_number)
+                        else:
+                            # MemorySaver stores by thread_id, try different approach
+                            existing_state = None
                         if existing_state:
                             # Check if state is complete and should create new
                             current_stage = existing_state.get("current_stage")

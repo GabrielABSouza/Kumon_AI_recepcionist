@@ -16,10 +16,18 @@ import logging
 from ...core.state.models import CeciliaState
 from ...core.state.managers import StateManager
 from ...api.evolution import send_message
-from ...workflows.contracts import IntentResult, DeliveryResult
+from ...workflows.contracts import IntentResult, DeliveryResult, RoutingDecision, normalize_routing_decision, normalize_intent_result, safe_get_payload
 from ..telemetry import emit_delivery_event, generate_trace_id
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_get(obj, key: str, default=None):
+    """Safely get value from dict or dataclass object"""
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    else:
+        return getattr(obj, key, default)
 
 
 class DeliveryService:
@@ -46,7 +54,7 @@ class DeliveryService:
         state: CeciliaState,
         phone_number: str,
         intent_result: IntentResult,
-        routing_decision: Dict[str, Any]
+        routing_decision: Dict[str, Any] | RoutingDecision
     ) -> DeliveryResult:
         """
         Deliver response using IntentResult with validated payload
@@ -71,23 +79,31 @@ class DeliveryService:
         # DEBUG: Log what we received
         logger.info(f"🔍 DEBUG received routing_decision: {routing_decision}")
         logger.info(f"🔍 DEBUG routing_decision type: {type(routing_decision)}")
-        logger.info(f"🔍 DEBUG routing_decision keys: {routing_decision.keys() if isinstance(routing_decision, dict) else 'Not a dict'}")
+        if isinstance(routing_decision, dict):
+            logger.info(f"🔍 DEBUG routing_decision keys: {routing_decision.keys()}")
+        else:
+            logger.info(f"🔍 DEBUG routing_decision attrs: {[attr for attr in dir(routing_decision) if not attr.startswith('_')]}")
         
         try:
-            # Validate intent_result has delivery_payload
-            if not intent_result.delivery_payload:
+            # Normalize inputs to dataclasses
+            intent_result = normalize_intent_result(intent_result)
+            routing_decision = normalize_routing_decision(routing_decision)
+            
+            # Extract delivery payload safely
+            delivery_payload = safe_get_payload(intent_result)
+            if not delivery_payload:
                 return DeliveryResult(
                     success=False,
-                    channel=routing_decision.get("channel", "unknown"),
+                    channel=getattr(routing_decision, "channel", "unknown"),
                     status="failed",
                     reason="missing_delivery_payload"
                 )
             
-            payload = intent_result.delivery_payload
-            channel = payload.channel
+            # Extract channel from payload (now guaranteed to be dict)
+            channel = delivery_payload.get("channel", "whatsapp")
             
             # Pre-delivery validation
-            validation_result = self._validate_delivery(state, payload, routing_decision)
+            validation_result = self._validate_delivery(state, delivery_payload, routing_decision)
             if not validation_result["valid"]:
                 # Emit validation failure telemetry
                 delivery_time_ms = (time.time() - start_time) * 1000
@@ -108,7 +124,7 @@ class DeliveryService:
             
             # Attempt message delivery
             delivery_result = await self._send_message_safe(
-                phone_number, payload, delivery_id, channel
+                phone_number, delivery_payload, delivery_id, channel
             )
             
             if delivery_result["success"]:
@@ -176,7 +192,7 @@ class DeliveryService:
                 node_id="delivery_service",
                 stage=str(state.get("current_stage", "unknown")),
                 step=str(state.get("current_step", "unknown")),
-                channel=routing_decision.get("channel", "unknown"),
+                channel=getattr(routing_decision, "channel", "unknown"),
                 duration_ms=delivery_time_ms,
                 success=False,
                 err_type="critical_delivery_exception"
@@ -189,13 +205,16 @@ class DeliveryService:
     def _validate_delivery(
         self,
         state: CeciliaState,
-        payload: "DeliveryPayload",
-        routing_decision: Dict[str, Any]
+        payload: Dict[str, Any],
+        routing_decision: RoutingDecision
     ) -> Dict[str, Any]:
         """Pre-delivery validation with guardrails and sanitization"""
         
-        # Basic content validation
-        if not payload.content or not payload.content.get("text", "").strip():
+        # Basic content validation - payload is now guaranteed to be dict
+        content = payload.get("content", {})
+        text = content.get("text", "") if content else ""
+            
+        if not text.strip():
             return {
                 "valid": False,
                 "reason": "empty_content",
@@ -203,10 +222,12 @@ class DeliveryService:
             }
         
         # PHASE 2.3: Sanitize template for user-facing content only
-        sanitized_text = self._sanitize_template_content(payload.content.get("text", ""))
+        sanitized_text = self._sanitize_template_content(text)
         
         # Update payload with sanitized text
-        payload.content["text"] = sanitized_text
+        if not payload.get("content"):
+            payload["content"] = {}
+        payload["content"]["text"] = sanitized_text
         
         # Length validation (after sanitization)
         if len(sanitized_text) > 4000:  # WhatsApp limit
@@ -226,9 +247,9 @@ class DeliveryService:
         
         # Routing decision validation
         logger.info(f"🔍 DEBUG _validate_delivery routing_decision: {routing_decision}")
-        logger.info(f"🔍 DEBUG routing_decision.get('target_node'): {routing_decision.get('target_node') if isinstance(routing_decision, dict) else 'Not a dict'}")
+        logger.info(f"🔍 DEBUG routing_decision target_node: {routing_decision.target_node}")
         
-        if not routing_decision.get("target_node"):
+        if not routing_decision.target_node:
             return {
                 "valid": False,
                 "reason": "invalid_routing",
@@ -334,12 +355,13 @@ class DeliveryService:
             
         return sanitized_content
     
-    async def _send_to_channel(self, channel: str, phone_number: str, payload: "DeliveryPayload") -> Dict[str, Any]:
+    async def _send_to_channel(self, channel: str, phone_number: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Send message to web/app channels with proper error handling"""
         
-        message_text = payload.content.get("text", "")
-        attachments = payload.attachments or []
-        meta = payload.meta or {}
+        content = payload.get("content", {})
+        message_text = content.get("text", "") if content else ""
+        attachments = payload.get("attachments", [])
+        meta = payload.get("meta", {})
         
         try:
             if channel == "web":
@@ -444,7 +466,7 @@ class DeliveryService:
     async def _send_message_safe(
         self,
         phone_number: str,
-        payload: "DeliveryPayload",
+        payload: Dict[str, Any],
         delivery_id: str,
         channel: str
     ) -> Dict[str, Any]:
@@ -452,7 +474,8 @@ class DeliveryService:
         
         try:
             # Extract message text from payload
-            message_text = payload.content.get("text", "")
+            content = payload.get("content", {})
+            message_text = content.get("text", "") if content else ""
             
             # Channel-specific delivery logic
             if channel == "whatsapp":
@@ -495,7 +518,7 @@ class DeliveryService:
     async def _apply_successful_delivery_updates(
         self,
         state: CeciliaState,
-        routing_decision: Dict[str, Any],
+        routing_decision: RoutingDecision,
         delivery_result: Dict[str, Any],
         delivery_id: str
     ) -> CeciliaState:
@@ -503,11 +526,11 @@ class DeliveryService:
         
         # PHASE 2.3: Use corrected target from routing_info (set by edges after validation)
         routing_info = state.get("routing_info", {})
-        target_node = routing_info.get("target_node", routing_decision.get("target_node", "fallback"))
+        target_node = routing_info.get("target_node", routing_decision.target_node or "fallback")
         current_stage = state.get("current_stage")
         
         # Log which target we're using
-        original_target = routing_info.get("original_target", routing_decision.get("target_node"))
+        original_target = routing_info.get("original_target", routing_decision.target_node)
         if target_node != original_target:
             logger.info(f"🔧 Using corrected target: {original_target} → {target_node}")
         else:
@@ -566,7 +589,7 @@ class DeliveryService:
         state: CeciliaState,
         phone_number: str,
         delivery_result: Dict[str, Any],
-        routing_decision: Dict[str, Any],
+        routing_decision: RoutingDecision,
         delivery_id: str,
         trace_id: str
     ) -> DeliveryResult:
@@ -626,7 +649,7 @@ class DeliveryService:
                 "delivery_id": delivery_id,
                 "error": delivery_result.get("error"),
                 "timestamp": datetime.now(timezone.utc).isoformat(),
-                "target_node": routing_decision["target_node"]
+                "target_node": routing_decision.target_node
             }
         }
         
@@ -634,7 +657,7 @@ class DeliveryService:
         
         return DeliveryResult(
             success=False,
-            channel=routing_decision.get("channel", "unknown"),
+            channel=getattr(routing_decision, "channel", "unknown"),
             message_id=None,
             status="failed",
             reason=delivery_result.get("error", "delivery_failed")
@@ -690,7 +713,7 @@ class DeliveryService:
         state: CeciliaState,
         phone_number: str,
         error: str,
-        routing_decision: Dict[str, Any],
+        routing_decision: RoutingDecision,
         delivery_id: str,
         trace_id: str
     ) -> DeliveryResult:
@@ -708,7 +731,7 @@ class DeliveryService:
         
         return DeliveryResult(
             success=False,
-            channel=routing_decision.get("channel", "unknown"),
+            channel=getattr(routing_decision, "channel", "unknown"),
             message_id=None,
             status="failed",
             reason=f"critical_failure_{error}"
@@ -717,11 +740,11 @@ class DeliveryService:
     def _get_fallback_message(
         self,
         state: CeciliaState,
-        routing_decision: Dict[str, Any]
+        routing_decision: RoutingDecision
     ) -> str:
         """Generate simple fallback message"""
         
-        target_node = routing_decision["target_node"]
+        target_node = routing_decision.target_node
         
         fallback_messages = {
             "greeting": "Olá! Sou Cecília do Kumon Vila A. Como posso ajudá-lo hoje? 😊",
@@ -740,7 +763,7 @@ class DeliveryService:
     def _get_fallback_channel_and_message(
         self,
         state: CeciliaState,
-        routing_decision: Dict[str, Any],
+        routing_decision: RoutingDecision,
         delivery_result: Dict[str, Any],
         original_channel: str
     ) -> tuple[str, str]:
