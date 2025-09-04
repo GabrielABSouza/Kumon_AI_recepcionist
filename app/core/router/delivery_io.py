@@ -153,51 +153,14 @@ def delivery_node(state: dict, *, max_batch: int = 10) -> dict:
     
     logger.info(f"Delivery completed: {len(emitted)} messages sent, {len(state['outbox'])} queued")
     
+    # Anti-loop fail-safe: If no messages were sent and outbox is empty, mark for termination
+    if len(emitted) == 0 and len(state["outbox"]) == 0:
+        logger.warning("No messages delivered and outbox empty - marking conversation for termination to prevent loops")
+        state["should_end"] = True
+        state["stop_reason"] = "no_delivery_content"
+    
     return state
 
 
-def smart_router_node(state: dict) -> dict:
-    """
-    SmartRouter Node - Decision-only operations
-    
-    Responsibilities:
-    - Analyze state and user input
-    - Write routing_decision ONLY
-    - NO message generation or outbox manipulation
-    """
-    
-    from .smart_router_adapter import smart_router_adapter
-    
-    try:
-        # Use existing SmartRouter infrastructure 
-        decision = smart_router_adapter.make_decision(state)
-        
-        # Store decision in state
-        state["routing_decision"] = {
-            "target_node": decision.target_node,
-            "threshold_action": decision.threshold_action,
-            "final_confidence": decision.confidence,
-            "intent_confidence": decision.intent_confidence,
-            "pattern_confidence": decision.pattern_confidence,
-            "rule_applied": decision.rule_applied,
-            "reasoning": decision.reasoning,
-            "mandatory_data_override": decision.mandatory_data_override
-        }
-        
-        logger.info(f"SmartRouter decision: {decision.target_node} ({decision.threshold_action})")
-        
-        return state
-        
-    except Exception as e:
-        logger.error(f"SmartRouter failed: {e}")
-        
-        # Fallback decision
-        state["routing_decision"] = {
-            "target_node": "fallback",
-            "threshold_action": "fallback_level2", 
-            "final_confidence": 0.3,
-            "rule_applied": "error_fallback",
-            "reasoning": f"SmartRouter error: {str(e)}"
-        }
-        
-        return state
+# REMOVED: smart_router_node moved to dedicated routing_and_planning.py
+# This file is now IO-ONLY as per V2 architecture

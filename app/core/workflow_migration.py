@@ -13,26 +13,33 @@ from typing import Dict, Any
 from langgraph.graph import StateGraph, END
 from .state.models import CeciliaState
 from .nodes.stage_resolver import stage_resolver_node
-from .router.delivery_io import smart_router_node, delivery_node  
-from .router.response_planner import response_planner_node
+from .router.delivery_io import delivery_node  
+from .router.routing_and_planning import routing_and_planning_node
 
 logger = logging.getLogger(__name__)
 
 
 def should_continue(state: dict) -> str:
     """
-    Loop termination logic with explicit criteria
+    Loop termination logic with explicit criteria and anti-loop fail-safes
     
     Stops when:
-    1. handoff or completed stage reached
-    2. outbox is empty AND stage/slots unchanged from last iteration
-    3. max_iters exceeded (safety net)
+    1. should_end flag is set (from delivery_io or error handling)
+    2. handoff or completed stage reached
+    3. outbox is empty AND stage/slots unchanged from last iteration
+    4. max_iters exceeded (safety net)
     
     Returns:
         str: "STAGE_RESOLVER" to continue loop, "END" to terminate
     """
     
     current_stage = state.get("current_stage")
+    
+    # Anti-loop fail-safe: Check should_end flag first
+    if state.get("should_end", False):
+        stop_reason = state.get("stop_reason", "unknown")
+        logger.info(f"Workflow terminated by fail-safe: {stop_reason}")
+        return "END"
     
     # Terminal conditions
     if current_stage in ["completed", "handoff"]:
@@ -52,10 +59,12 @@ def should_continue(state: dict) -> str:
         logger.info("Workflow terminated: no changes detected")
         return "END"
     
-    # Safety net: max iterations
+    # Safety net: max iterations (reduced from 25 to 5)
     iterations = state.get("_iterations", 0)
-    if iterations >= 3:
-        logger.warning("Workflow terminated: max iterations exceeded")
+    if iterations >= 5:
+        logger.warning(f"Workflow terminated: max iterations exceeded ({iterations})")
+        state["should_end"] = True
+        state["stop_reason"] = "max_iterations_exceeded"
         return "END"
     
     # Continue loop
@@ -63,6 +72,7 @@ def should_continue(state: dict) -> str:
     state["_prev_stage"] = current_stage
     state["_prev_slots"] = current_slots
     
+    logger.debug(f"Workflow continuing: iteration {iterations + 1}, stage={current_stage}")
     return "STAGE_RESOLVER"
 
 
@@ -72,10 +82,9 @@ def create_migrated_workflow() -> StateGraph:
     
     Pipeline:
     1. STAGE_RESOLVER: Infer stage + required_slots (perception)
-    2. SMART_ROUTER: Make routing_decision (decision) 
-    3. RESPONSE_PLANNER: Enqueue MessageEnvelope (action)
-    4. DELIVERY: Emit messages + update state (delivery)
-    5. Loop with termination criteria
+    2. ROUTING_AND_PLANNING: Make routing_decision + enqueue messages (combined decision+action)
+    3. DELIVERY: Emit messages + update state (IO-only delivery)
+    4. Loop with termination criteria
     
     Returns:
         StateGraph: Configured workflow ready for execution
@@ -88,8 +97,7 @@ def create_migrated_workflow() -> StateGraph:
     
     # ========== ADD NODES ==========
     workflow.add_node("STAGE_RESOLVER", stage_resolver_node)
-    workflow.add_node("SMART_ROUTER", smart_router_node) 
-    workflow.add_node("RESPONSE_PLANNER", response_planner_node)
+    workflow.add_node("ROUTING_AND_PLANNING", routing_and_planning_node)
     workflow.add_node("DELIVERY", delivery_node)
     
     # ========== SET ENTRY POINT ==========
@@ -97,9 +105,8 @@ def create_migrated_workflow() -> StateGraph:
     
     # ========== ADD EDGES ==========
     # Linear pipeline
-    workflow.add_edge("STAGE_RESOLVER", "SMART_ROUTER")
-    workflow.add_edge("SMART_ROUTER", "RESPONSE_PLANNER") 
-    workflow.add_edge("RESPONSE_PLANNER", "DELIVERY")
+    workflow.add_edge("STAGE_RESOLVER", "ROUTING_AND_PLANNING")
+    workflow.add_edge("ROUTING_AND_PLANNING", "DELIVERY")
     
     # Loop with termination criteria
     workflow.add_conditional_edges(
