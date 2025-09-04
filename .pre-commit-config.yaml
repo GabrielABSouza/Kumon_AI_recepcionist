@@ -44,12 +44,12 @@ repos:
     hooks:
     -   id: detect-secrets
 
-# Template linting (security-critical)
+# Template linting V2 (security-critical)
 -   repo: local
     hooks:
-    -   id: lint-templates
-        name: Lint Template Files
-        entry: python3 scripts/lint_templates.py --strict
+    -   id: lint-templates-v2
+        name: Advanced Template Linting V2
+        entry: python3 scripts/lint_templates_v2.py --strict --ci
         language: system
         files: 'app/prompts/templates/.*\.txt$'
         pass_filenames: false
