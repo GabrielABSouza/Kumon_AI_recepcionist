@@ -919,4 +919,25 @@ class CeciliaWorkflow:
 
 
 # Instância global do workflow
-cecilia_workflow = CeciliaWorkflow()
+# Lazy initialization to avoid circular imports and startup crashes
+_cecilia_workflow = None
+
+
+def get_cecilia_workflow() -> CeciliaWorkflow:
+    """
+    Get the global Cecilia workflow instance with lazy initialization
+    
+    Returns:
+        CeciliaWorkflow: The global workflow instance
+    """
+    global _cecilia_workflow
+    if _cecilia_workflow is None:
+        logger.info("🔄 Initializing Cecilia workflow (lazy loading)")
+        _cecilia_workflow = CeciliaWorkflow()
+    return _cecilia_workflow
+
+
+# Legacy compatibility for immediate imports
+def get_workflow():
+    """Legacy alias for get_cecilia_workflow()"""
+    return get_cecilia_workflow()

@@ -58,7 +58,7 @@ class SendButtonRequest(BaseModel):
 
 # Clean Architecture: Use MessagePreprocessor + direct workflow call
 from ..services.message_preprocessor import message_preprocessor
-from ..core.workflow import cecilia_workflow
+from ..core.workflow import get_cecilia_workflow
 
 app_logger.info("🔄 Evolution route using clean MessagePreprocessor + CeciliaWorkflow")
 
@@ -826,7 +826,7 @@ async def process_message_background(message: WhatsAppMessage, headers: Optional
                 app_logger.info("✅ Message preprocessed successfully")
 
             # Step 2: Process through workflow (only if preprocessing succeeded)
-            workflow_result = await cecilia_workflow.process_message(
+            workflow_result = await get_cecilia_workflow().process_message(
                 phone_number=final_message.phone,
                 user_message=final_message.message,
             )

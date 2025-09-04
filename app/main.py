@@ -358,7 +358,9 @@ async def startup_event():
     # CRITICAL: Lazy workflow initialization to prevent startup crashes
     try:
         app_logger.info("🔄 Initializing Cecilia Workflow (lazy pattern)...")
-        from app.core.workflow import cecilia_workflow
+        from app.core.workflow import get_cecilia_workflow
+        # Initialize workflow (lazy loading)
+        workflow = get_cecilia_workflow()
         app_logger.info("✅ Cecilia workflow created successfully")
     except Exception as e:
         app_logger.error(f"❌ CRITICAL: Failed to initialize Cecilia Workflow: {e}")
@@ -432,7 +434,7 @@ async def startup_event():
         "intent_classifier"
     )
     # UPDATED: Using CeciliaWorkflow instead of secure_workflow - use lazily initialized instance
-    dependencies.cecilia_workflow = cecilia_workflow
+    dependencies.cecilia_workflow = get_cecilia_workflow()
     dependencies.langchain_rag_service = optimized_startup_manager.service_instances.get(
         "langchain_rag_service"
     )
@@ -470,7 +472,7 @@ async def startup_event():
         dependencies.llm_service = await service_factory.get_service("llm_service")
         dependencies.intent_classifier = await service_factory.get_service("intent_classifier")
         # UPDATED: Using CeciliaWorkflow instead of secure_workflow from service factory
-        dependencies.cecilia_workflow = cecilia_workflow
+        dependencies.cecilia_workflow = get_cecilia_workflow()
         dependencies.langchain_rag_service = await service_factory.get_service(
             "langchain_rag_service"
         )
@@ -497,7 +499,7 @@ async def startup_event():
     # Test critical service resolution via unified resolver
     try:
         # UPDATED: Test CeciliaWorkflow instead of secure_workflow - use lazily initialized instance
-        if cecilia_workflow:
+        if workflow:
             app_logger.info("✅ Critical service 'cecilia_workflow' available directly")
         else:
             app_logger.error("❌ Critical service 'cecilia_workflow' not available")

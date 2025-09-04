@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional
 
 from app.core.config import settings
 from app.core.logger import app_logger
-from app.core.workflow import cecilia_workflow
+from app.core.workflow import get_cecilia_workflow
 from app.models.message import MessageResponse, MessageType, WhatsAppMessage
 from app.models.webhook import WebhookResponse, WhatsAppWebhook
 from app.services.message_preprocessor import message_preprocessor
@@ -477,7 +477,7 @@ async def process_incoming_message(message_data: Dict[str, Any], value: Dict[str
             )
 
             # Process through CeciliaWorkflow
-            workflow_result = await cecilia_workflow.process_message(
+            workflow_result = await get_cecilia_workflow().process_message(
                 phone_number=from_number,
                 user_message=final_message_content,
             )
@@ -911,7 +911,7 @@ async def test_cecilia_workflow():
     try:
         from datetime import datetime
 
-        from ...core.workflow import cecilia_workflow
+        from ...core.workflow import get_cecilia_workflow
 
         # Test CeciliaWorkflow with sample message
         test_phone = "test_cecilia_workflow"
@@ -919,7 +919,7 @@ async def test_cecilia_workflow():
 
         # Process test message
         start_time = datetime.now()
-        workflow_result = await cecilia_workflow.process_message(
+        workflow_result = await get_cecilia_workflow().process_message(
             phone_number=test_phone, user_message=test_message
         )
         end_time = datetime.now()
@@ -1405,7 +1405,7 @@ async def integration_health_check():
         # Check CeciliaWorkflow integration
         workflow_status = "configured"
         try:
-            from app.core.workflow import cecilia_workflow
+            from app.core.workflow import get_cecilia_workflow
 
             workflow_status = "active"
         except Exception as e:

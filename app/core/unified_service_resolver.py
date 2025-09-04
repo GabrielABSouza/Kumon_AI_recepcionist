@@ -269,16 +269,16 @@ class UnifiedServiceResolver:
     async def _lazy_init_cecilia_workflow(self) -> Optional[Any]:
         """Lazy initialize CeciliaWorkflow"""
         try:
-            from ..core.workflow import cecilia_workflow
+            from ..core.workflow import get_cecilia_workflow
             
             self.logger.info("🔄 Lazy initializing CeciliaWorkflow...")
             
-            # CeciliaWorkflow is already instantiated as global instance
+            # CeciliaWorkflow is lazy-loaded via get_cecilia_workflow()
             # Just cache it in our systems
-            self.service_cache["cecilia_workflow"] = cecilia_workflow
+            self.service_cache["cecilia_workflow"] = get_cecilia_workflow()
             
             self.logger.info("✅ CeciliaWorkflow lazy initialized successfully")
-            return cecilia_workflow
+            return get_cecilia_workflow()
 
         except Exception as e:
             self.logger.error(f"Failed to lazy initialize cecilia_workflow: {e}")

@@ -5,7 +5,7 @@ Conversation API endpoints for managing conversation flow and progress
 from typing import Any, Dict
 
 from app.core.logger import app_logger
-from app.core.workflow import cecilia_workflow
+from app.core.workflow import get_cecilia_workflow
 from fastapi import APIRouter, HTTPException, Path, Query
 
 router = APIRouter()
@@ -19,7 +19,7 @@ async def get_conversation_progress(
     try:
         # Get conversation state from CeciliaWorkflow
         thread_id = f"thread_{phone_number}"
-        conversation_state = await cecilia_workflow.get_conversation_state(thread_id)
+        conversation_state = await get_cecilia_workflow().get_conversation_state(thread_id)
 
         if conversation_state:
             progress = {
@@ -54,7 +54,7 @@ async def reset_conversation(
     """Reset conversation state for a phone number using CeciliaWorkflow"""
     try:
         thread_id = f"thread_{phone_number}"
-        success = await cecilia_workflow.reset_conversation(thread_id)
+        success = await get_cecilia_workflow().reset_conversation(thread_id)
 
         if success:
             app_logger.info(f"Reset conversation for {phone_number}")
@@ -177,13 +177,13 @@ async def simulate_conversation_step(
     """Simulate a conversation step using CeciliaWorkflow"""
     try:
         # Process message through CeciliaWorkflow
-        workflow_result = await cecilia_workflow.process_message(
+        workflow_result = await get_cecilia_workflow().process_message(
             phone_number=phone_number, user_message=user_input
         )
 
         # Get current state
         thread_id = f"thread_{phone_number}"
-        conversation_state = await cecilia_workflow.get_conversation_state(thread_id)
+        conversation_state = await get_cecilia_workflow().get_conversation_state(thread_id)
 
         return {
             "user_input": user_input,

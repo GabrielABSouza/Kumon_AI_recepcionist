@@ -14,6 +14,7 @@ import random
 import hashlib
 from typing import Dict, Any, Optional
 from datetime import datetime
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
@@ -256,3 +257,34 @@ class ShadowTrafficManager:
 # Global instances
 feature_flags = FeatureFlags()
 shadow_traffic_manager = ShadowTrafficManager(feature_flags)
+
+
+# Compatibility shim for legacy imports
+class LegacyFeatureFlags:
+    def __init__(self):
+        def flag(name, default="false"):
+            return os.getenv(name, str(default)).lower() in ("1","true","yes","on")
+        def percent(name, default="0"):
+            try: return int(os.getenv(name, default))
+            except: return 0
+        
+        # Field names that workflow.py expects
+        self.workflow_v2_enabled = flag("WORKFLOW_V2_ENABLED", "true")  # V2 default
+        self.router_v2_enabled = flag("ROUTER_V2_ENABLED", "true")     # V2 default 
+        self.router_v2_shadow = flag("ROUTER_V2_SHADOW", "true")
+        self.router_v2_percentage = percent("ROUTER_V2_PERCENTAGE", "100")  # 100% V2
+        
+        # Dataclass-style attributes for backwards compatibility
+        self.WORKFLOW_V2_ENABLED = self.workflow_v2_enabled
+        self.ROUTER_V2_ENABLED = self.router_v2_enabled  
+        self.ROUTER_V2_SHADOW = self.router_v2_shadow
+        self.ROUTER_V2_PERCENTAGE = self.router_v2_percentage
+    
+    @staticmethod
+    def from_env() -> "LegacyFeatureFlags":
+        return LegacyFeatureFlags()
+
+
+def get_feature_flags() -> LegacyFeatureFlags:
+    """Legacy compatibility function for workflow.py imports"""
+    return LegacyFeatureFlags.from_env()

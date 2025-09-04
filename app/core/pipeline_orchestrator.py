@@ -30,7 +30,7 @@ from ..core.logger import app_logger
 from ..services.message_preprocessor import message_preprocessor, PreprocessorResponse
 from ..services.message_postprocessor import message_postprocessor, FormattedMessage
 from ..services.business_rules_engine import business_rules_engine, RuleType, ValidationResult
-from ..core.workflow import cecilia_workflow
+from ..core.workflow import get_cecilia_workflow
 from ..services.enhanced_cache_service import enhanced_cache_service, CacheLayer
 from ..clients.evolution_api import WhatsAppMessage, EvolutionAPIClient
 
@@ -551,7 +551,7 @@ class PipelineOrchestrator:
             
             # Execute workflow with timeout
             workflow_result = await asyncio.wait_for(
-                cecilia_workflow.process_message(
+                get_cecilia_workflow().process_message(
                     phone_number=message.phone,
                     user_message=message.message,
                     use_orchestrator=False  # Direct execution to avoid circular dependency
