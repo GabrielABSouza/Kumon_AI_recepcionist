@@ -14,6 +14,7 @@ Responsibilities:
 
 import logging
 from typing import Dict, Any
+from .outbox_helpers import enqueue_message, enqueue_fallback_message, log_outbox_sanity_check
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,9 @@ def routing_and_planning_node(state: Dict[str, Any]) -> Dict[str, Any]:
         
         logger.info(f"[ACTION] ResponsePlanner enqueued {messages_enqueued} message(s) to outbox")
         
+        # Sanity check before sending to delivery
+        log_outbox_sanity_check(state, "post-planning")
+        
         return state
         
     except Exception as e:
@@ -65,16 +69,8 @@ def routing_and_planning_node(state: Dict[str, Any]) -> Dict[str, Any]:
             "reasoning": f"Routing/planning error: {str(e)}"
         }
         
-        # Enqueue fallback message
-        fallback_message = {
-            "text": "Desculpe, tivemos um problema técnico. Como posso ajudar?",
-            "channel": "whatsapp",
-            "meta": {"fallback": True, "error": str(e)}
-        }
-        
-        if "outbox" not in state:
-            state["outbox"] = []
-        state["outbox"].append(fallback_message)
+        # Enqueue fallback message using helper
+        enqueue_fallback_message(state, f"routing_planning_error: {str(e)}")
         
         # Mark for termination to prevent loops
         state["stop_reason"] = "planner_error"
@@ -150,14 +146,11 @@ def _generate_response_plan(state: Dict[str, Any], routing_decision: Dict[str, A
 
 def _enqueue_messages(state: Dict[str, Any], intent_result: Dict[str, Any]) -> int:
     """
-    Extract messages from intent_result and enqueue to state.outbox
+    Extract messages from intent_result and enqueue to state.outbox using helpers
     
     Returns:
         int: Number of messages enqueued
     """
-    
-    if "outbox" not in state:
-        state["outbox"] = []
     
     messages_added = 0
     
@@ -167,19 +160,19 @@ def _enqueue_messages(state: Dict[str, Any], intent_result: Dict[str, Any]) -> i
         messages = delivery_payload.get("messages", [])
         
         for msg in messages:
-            # Convert to standardized message format
-            message_envelope = {
-                "text": msg.get("text", ""),
-                "channel": msg.get("channel", "whatsapp"),
-                "meta": {
+            # Use unified helper for enqueueing
+            success = enqueue_message(
+                state=state,
+                text=msg.get("text", ""),
+                channel=msg.get("channel", "whatsapp"),
+                meta={
                     "type": msg.get("type", "text"),
                     "source": "response_planner",
                     "routing_decision": state.get("routing_decision", {}).get("target_node", "unknown")
                 }
-            }
+            )
             
-            if message_envelope["text"]:  # Only enqueue non-empty messages
-                state["outbox"].append(message_envelope)
+            if success:
                 messages_added += 1
         
         return messages_added

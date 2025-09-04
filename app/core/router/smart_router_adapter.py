@@ -14,6 +14,41 @@ from ..logger import app_logger
 from ..state.models import CeciliaState, ConversationStage, ConversationStep
 
 
+def _normalize_enum_value(value, enum_class, default):
+    """
+    Normalize enum/string values safely - handles both Enum objects and string values
+    
+    Args:
+        value: Can be Enum object, string, or None
+        enum_class: Target enum class (ConversationStage, ConversationStep, etc.)
+        default: Default enum value to use if conversion fails
+        
+    Returns:
+        str: The string value (.value for enums, or original string)
+    """
+    if value is None:
+        return default.value if hasattr(default, 'value') else str(default)
+    
+    # If already an enum, return its value
+    if hasattr(value, 'value'):
+        return value.value
+    
+    # If string, validate it's a valid enum value
+    if isinstance(value, str):
+        try:
+            # Try to create enum from string to validate
+            enum_class(value)
+            return value
+        except (ValueError, TypeError):
+            # Invalid enum value, use default
+            app_logger.warning(f"Invalid {enum_class.__name__} value: '{value}', using default: {default.value}")
+            return default.value if hasattr(default, 'value') else str(default)
+    
+    # Unknown type, use default
+    app_logger.warning(f"Unknown {enum_class.__name__} type: {type(value)}, using default: {default.value}")
+    return default.value if hasattr(default, 'value') else str(default)
+
+
 @dataclass
 class CoreRoutingDecision:
     """Simplified routing decision for core integration"""
@@ -100,6 +135,13 @@ class SmartRouterAdapter:
             CoreRoutingDecision: Simplified decision for core consumption
         """
         try:
+            # Normalize enum values safely before logging
+            current_stage_normalized = _normalize_enum_value(
+                state.get("current_stage"), 
+                ConversationStage, 
+                ConversationStage.GREETING
+            )
+            
             # Structured telemetry for adapter usage
             app_logger.info(
                 f"[ADAPTER] Processing routing decision",
@@ -108,7 +150,7 @@ class SmartRouterAdapter:
                     "operation": "decide_route", 
                     "current_function": current_function,
                     "phone_number": state.get("phone_number", "unknown")[-4:],
-                    "current_stage": state.get("current_stage", ConversationStage.GREETING).value
+                    "current_stage": current_stage_normalized
                 }
             )
             
@@ -186,16 +228,21 @@ class SmartRouterAdapter:
     
     def _fallback_decision(self, state: CeciliaState, reason: str) -> CoreRoutingDecision:
         """Generate safe fallback decision when SmartRouter fails"""
-        current_stage = state.get("current_stage", ConversationStage.GREETING)
+        current_stage_raw = state.get("current_stage", ConversationStage.GREETING)
+        current_stage_normalized = _normalize_enum_value(
+            current_stage_raw,
+            ConversationStage, 
+            ConversationStage.GREETING
+        )
         
-        # Simple stage-based fallback logic
-        if current_stage == ConversationStage.GREETING:
+        # Simple stage-based fallback logic using normalized string values
+        if current_stage_normalized == "greeting":
             target = "qualification"
-        elif current_stage == ConversationStage.QUALIFICATION:
+        elif current_stage_normalized == "qualification":
             target = "information"  
-        elif current_stage == ConversationStage.INFORMATION_GATHERING:
+        elif current_stage_normalized == "information_gathering":
             target = "scheduling"
-        elif current_stage == ConversationStage.SCHEDULING:
+        elif current_stage_normalized == "scheduling":
             target = "validation"
         else:
             target = "handoff"
@@ -230,7 +277,7 @@ class SmartRouterAdapter:
                 "operation": "fallback_decision",
                 "target_node": target,
                 "reason": reason,
-                "current_stage": current_stage.value
+                "current_stage": current_stage_normalized
             }
         )
         

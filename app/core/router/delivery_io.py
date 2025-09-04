@@ -16,6 +16,7 @@ import logging
 from typing import Dict, Any
 from ...api.evolution import send_message
 from ...workflows.contracts import MessageEnvelope
+from .outbox_helpers import log_outbox_sanity_check, normalize_outbox_format
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +88,10 @@ def delivery_node(state: dict, *, max_batch: int = 10) -> dict:
     Returns:
         dict: Updated state with drained outbox
     """
+    
+    # Pre-delivery sanity check and normalization
+    log_outbox_sanity_check(state, "pre-delivery")
+    normalize_outbox_format(state)
     
     # Initialize outbox and tracking
     q = deque(state.get("outbox", []))
