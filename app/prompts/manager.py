@@ -68,13 +68,12 @@ class PromptManager:
         # LOCAL TEMPLATES ONLY - Simple and reliable approach
         prompt_template = None
         
-        # Try new structured template system first
-        prompt_template = await self._fetch_from_fallback(name)
+        # Try new structured template system first with variant selection
+        prompt_template = await self._fetch_from_fallback(name, conversation_state)
         
-        # If structured template not found, try legacy Cecília template system
+        # If structured template not found, try deterministic fallback chain
         if not prompt_template:
-            app_logger.info(f"📁 Trying legacy template system for: {name}")
-            prompt_template = await self._get_cecilia_template(name)
+            prompt_template = await self._try_fallback_chain(name)
 
         # Last resort: base template
         if prompt_template is None:
@@ -90,14 +89,26 @@ class PromptManager:
                 )
 
                 if resolved_variables:
+                    # Pre-process template to handle missing variables gracefully
+                    safe_template = self._preprocess_template(prompt_template, resolved_variables)
+                    
                     # Use LangChain PromptTemplate for safe variable substitution
-                    template = PromptTemplate.from_template(prompt_template)
-                    formatted_prompt = template.format(**resolved_variables)
-                    app_logger.info(
-                        f"Applied {len(resolved_variables)} variables to template: {name}"
-                    )
-                    # CRITICAL: Apply safety filter before returning
-                    return ensure_safe_template(formatted_prompt, self._get_context_from_name(name))
+                    try:
+                        template = PromptTemplate.from_template(safe_template)
+                        # Only pass variables that exist in the template
+                        template_vars = template.input_variables
+                        filtered_vars = {k: v for k, v in resolved_variables.items() if k in template_vars}
+                        
+                        formatted_prompt = template.format(**filtered_vars)
+                        app_logger.info(
+                            f"Applied {len(filtered_vars)} variables to template: {name}"
+                        )
+                        # CRITICAL: Apply safety filter before returning
+                        return ensure_safe_template(formatted_prompt, self._get_context_from_name(name))
+                    except KeyError as ke:
+                        app_logger.warning(f"Missing variable in template {name}: {ke}")
+                        # Use template without problematic variables
+                        return ensure_safe_template(safe_template, self._get_context_from_name(name))
                 else:
                     app_logger.info(f"No variables to apply for template: {name}")
 
@@ -115,6 +126,50 @@ class PromptManager:
         final_response = ensure_safe_template(prompt_template, self._get_context_from_name(name))
         return final_response
 
+    def _preprocess_template(self, template: str, available_variables: Dict[str, Any]) -> str:
+        """
+        Pre-process template to handle missing variables gracefully
+        
+        Removes conditional blocks if variables are missing:
+        - [[?var: "text with {var}"]] -> removed if var not available
+        - [[var|default]] -> replaced with default if var not available
+        """
+        import re
+        
+        # Handle conditional blocks: [[?var: "content"]]
+        pattern_conditional = r'\[\[\?([^:]+):\s*"([^"]+)"\]\]'
+        def replace_conditional(match):
+            var_name = match.group(1).strip()
+            content = match.group(2)
+            if var_name in available_variables:
+                return content
+            return ""  # Remove block if variable not available
+        
+        template = re.sub(pattern_conditional, replace_conditional, template)
+        
+        # Handle default values: [[var|default]]
+        pattern_default = r'\[\[([^|]+)\|([^]]+)\]\]'
+        def replace_default(match):
+            var_name = match.group(1).strip()
+            default = match.group(2).strip()
+            if var_name in available_variables:
+                return "{" + var_name + "}"
+            return default
+        
+        template = re.sub(pattern_default, replace_default, template)
+        
+        # Remove any remaining unmatched variables in curly braces that aren't available
+        # This prevents KeyError during template formatting
+        pattern_vars = r'\{([^}]+)\}'
+        found_vars = re.findall(pattern_vars, template)
+        for var in found_vars:
+            if var not in available_variables:
+                app_logger.debug(f"Removing unavailable variable from template: {var}")
+                # Replace with neutral placeholder
+                template = template.replace("{" + var + "}", "")
+        
+        return template
+    
     def _get_context_from_name(self, template_name: str) -> str:
         """Extract context from template name for safety filtering"""
         if "greeting" in template_name.lower():
@@ -130,23 +185,87 @@ class PromptManager:
 
     # LangSmith fetch method removed - using local templates only
 
-    async def _fetch_from_fallback(self, name: str) -> Optional[str]:
-        """Fetch prompt from local fallback templates with unified 1:1 mapping"""
+    async def _fetch_from_fallback(self, name: str, conversation_state: Optional[Dict] = None) -> Optional[str]:
+        """Fetch prompt from local fallback templates with variant selection
+        
+        Path resolution rules:
+        - namespace:stage:kind:name:variant -> {namespace}/{stage}/{kind}_{name}_{variant}.txt
+        - namespace:stage:kind:name -> {namespace}/{stage}/{kind}_{name}_neutral.txt (default variant)
+        """
         try:
-            # Convert prompt name to file path with 1:1 mapping
-            # kumon:greeting:welcome:initial -> greeting/welcome/initial.txt
-            # kumon:system:conversation:general -> system/conversation/general.txt
-            parts = name.split(":")[1:]  # Remove 'kumon' prefix
+            parts = name.split(":")
+            
+            # Determine variant based on available variables
+            variant = None
+            if conversation_state:
+                # Check which variables are available to select best variant
+                from .template_variables import template_variable_resolver
+                variables = template_variable_resolver.get_template_variables(
+                    conversation_state or {}
+                )
+                
+                # Variant selection based on variable mask
+                if "parent_name" in variables or "first_name" in variables:
+                    variant = "with_name"
+                elif any(v in variables for v in ["gender_pronoun", "gender_article"]):
+                    variant = "with_pronoun"
+                else:
+                    variant = "neutral"
+                
+                # Log telemetry for variant selection
+                forbidden_vars = []
+                if hasattr(template_variable_resolver, 'mapper'):
+                    current_stage = conversation_state.get("current_stage")
+                    current_step = conversation_state.get("current_step")
+                    if current_stage and current_step:
+                        policy = template_variable_resolver._get_variable_policy(current_stage, current_step)
+                        forbidden_vars = list(policy.forbidden)
+                
+                app_logger.info(
+                    f"Template variant selection - name: {name}, variant: {variant}, "
+                    f"resolved_vars: {list(variables.keys())}, "
+                    f"policy_forbidden: {forbidden_vars}"
+                )
+            else:
+                variant = parts[4] if len(parts) > 4 else "neutral"
 
-            if len(parts) >= 3:
-                # Unified structure: category/subcategory/specific.txt
-                category, subcategory, specific = parts[0], parts[1], parts[2]
-                filepath = self.fallback_dir / category / subcategory / f"{specific}.txt"
-
+            # Build filepath with namespace
+            if len(parts) >= 4 and parts[0] == "kumon":
+                namespace = parts[0]
+                stage = parts[1]
+                kind = parts[2]
+                name_part = parts[3]
+                
+                # Handle ConversationStage enum values
+                if stage.startswith("ConversationStage."):
+                    stage = stage.replace("ConversationStage.", "").lower()
+                elif hasattr(stage, 'value'):
+                    stage = stage.value.lower()
+                elif not isinstance(stage, str):
+                    stage = str(stage).lower()
+                
+                # Try with selected variant first
+                filepath = self.fallback_dir / namespace / stage / f"{kind}_{name_part}_{variant}.txt"
                 if filepath.exists():
                     async with aiofiles.open(filepath, "r", encoding="utf-8") as f:
                         content = await f.read()
-                        app_logger.info(f"✅ Using unified template: {filepath}")
+                        app_logger.info(f"✅ Using template with variant: {filepath}")
+                        return content.strip()
+                
+                # Fallback to neutral variant
+                filepath = self.fallback_dir / namespace / stage / f"{kind}_{name_part}_neutral.txt"
+                if filepath.exists():
+                    async with aiofiles.open(filepath, "r", encoding="utf-8") as f:
+                        content = await f.read()
+                        app_logger.info(f"✅ Using neutral template: {filepath}")
+                        return content.strip()
+                
+                # Try without variant
+                filepath = self.fallback_dir / namespace / stage / f"{kind}_{name_part}.txt"
+                if filepath.exists():
+                    async with aiofiles.open(filepath, "r", encoding="utf-8") as f:
+                        content = await f.read()
+                        app_logger.info(f"✅ Using template without variant: {filepath}")
                         return content.strip()
 
             # Special mapping for legacy system templates and fallbacks
@@ -187,6 +306,44 @@ class PromptManager:
         except Exception as e:
             app_logger.error(f"Failed to load fallback template: {name} - {e}")
             return None
+    
+    async def _try_fallback_chain(self, name: str) -> Optional[str]:
+        """Try deterministic fallback chain for template resolution
+        
+        Fallback order:
+        1. kumon:greeting:response:general:{variant} (already tried)
+        2. kumon:greeting:response:general:neutral
+        3. kumon:fallback:level1:general
+        4. Legacy Cecilia system
+        """
+        # Parse original name to construct fallbacks
+        parts = name.split(":")
+        
+        fallback_candidates = []
+        
+        if len(parts) >= 4 and parts[0] == "kumon":
+            # For kumon:greeting:response:general -> try neutral variant
+            base_name = ":".join(parts[:4])
+            fallback_candidates.append(f"{base_name}:neutral")
+            
+            # Generic fallback for the stage
+            if parts[1] == "greeting":
+                fallback_candidates.append("kumon:fallback:level1:general")
+            elif parts[1] == "qualification":
+                fallback_candidates.append("kumon:fallback:level1:general")
+            else:
+                fallback_candidates.append("kumon:fallback:level1:general")
+        
+        # Try each fallback candidate
+        for candidate in fallback_candidates:
+            app_logger.info(f"🔄 Trying fallback: {candidate}")
+            template = await self._fetch_from_fallback(candidate)
+            if template:
+                return template
+        
+        # Final fallback: try legacy Cecilia system
+        app_logger.info(f"📁 Trying legacy template system for: {name}")
+        return await self._get_cecilia_template(name)
 
     def _calculate_template_score(self, name: str, template_config: dict) -> float:
         """Calculate score for template matching based on keywords and requirements"""

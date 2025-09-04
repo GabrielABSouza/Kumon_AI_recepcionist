@@ -186,14 +186,46 @@ class GenderDetector:
     def get_template_variables(
         self, 
         conversation_state: Dict,
-        student_name: Optional[str] = None
+        student_name: Optional[str] = None,
+        confidence_threshold: float = 0.5
     ) -> Dict[str, str]:
         """
         Get template variables for gender-aware responses
         
+        Args:
+            conversation_state: Current conversation context
+            student_name: Student name if available
+            confidence_threshold: Minimum confidence for gender detection (default 0.5)
+        
         Returns dictionary ready for template formatting
+        Only returns gender variables if confidence meets threshold
         """
+        # Check data sufficiency before attempting detection
+        has_sufficient_data = self._has_sufficient_data(conversation_state, student_name)
+        
+        if not has_sufficient_data:
+            # Return empty dict when insufficient data
+            # This allows the template system to use neutral fallbacks
+            return {}
+        
         context = self.detect_gender_context(conversation_state, student_name)
+        
+        # Only return gender variables if confidence meets threshold
+        if context.confidence < confidence_threshold:
+            # For low confidence, return neutral or empty
+            if context.detected_method == "neutral":
+                # For explicitly neutral context, return empty to avoid gender assumptions
+                return {}
+            # Otherwise return neutral forms
+            return {
+                "gender_pronoun": "ele(a)",
+                "gender_article": "a criança", 
+                "gender_possessive": "seu(a)",
+                "gender_child_term": "criança",
+                "gender_self_suffix": "o(a)",
+                "gender_confidence": context.confidence,
+                "gender_method": "low_confidence"
+            }
         
         return {
             "gender_pronoun": context.gender_pronoun,
@@ -234,6 +266,39 @@ class GenderDetector:
         else:
             # Fallback
             return ""
+    
+    def _has_sufficient_data(self, conversation_state: Dict, student_name: Optional[str] = None) -> bool:
+        """
+        Check if we have sufficient data for reliable gender detection
+        
+        Returns:
+            True if we have enough data, False otherwise
+        """
+        # Check if we have explicit gender preference
+        collected_data = conversation_state.get("collected_data", {})
+        if collected_data.get("preferred_pronoun"):
+            return True
+        
+        # Check if we have a meaningful student name (not placeholder)
+        if student_name:
+            # Skip placeholder values
+            placeholders = ["seu(a) filho(a)", "criança", "filho(a)", "[child_name]"]
+            if student_name.lower().strip() not in placeholders and len(student_name.strip()) > 2:
+                return True
+        
+        # Check if we have substantial conversation history with gender indicators
+        messages = conversation_state.get("messages", [])
+        user_messages = [msg for msg in messages if self._get_message_role(msg) == "user"]
+        
+        # Need at least 2 user messages with meaningful content
+        if len(user_messages) >= 2:
+            total_content = " ".join([self._get_message_content(msg) for msg in user_messages])
+            # Check for explicit gender mentions
+            if any(pattern in total_content.lower() for pattern in ["meu filho", "minha filha", "ele é", "ela é"]):
+                return True
+        
+        # No sufficient data
+        return False
 
 
 # Global instance
