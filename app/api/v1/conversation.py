@@ -5,7 +5,7 @@ Conversation API endpoints for managing conversation flow and progress
 from typing import Any, Dict
 
 from app.core.logger import app_logger
-from app.core.workflow import get_cecilia_workflow
+from app.core.compat_imports import get_cecilia_workflow
 from fastapi import APIRouter, HTTPException, Path, Query
 
 router = APIRouter()

@@ -13,6 +13,10 @@ from typing import Dict, Any, Optional, Literal, List, Mapping
 import json
 from ..core.state.models import ConversationStage
 
+# ========== OUTBOX CONSTANTS ==========
+
+OUTBOX_KEY = "outbox"  # Canonical key for outbox in state
+
 
 # ========== DELIVERY CONTRACTS ==========
 
@@ -442,12 +446,12 @@ def normalize_outbox_messages(obj) -> List[MessageEnvelope]:
 
 def ensure_outbox(state: Dict[str, Any]) -> None:
     """
-    Ensure state["outbox"] exists and is a list
+    Ensure state[OUTBOX_KEY] exists and is a list
     
     Args:
         state: Conversation state (mutated in-place)
     """
-    if "outbox" not in state:
-        state["outbox"] = []
-    elif not isinstance(state["outbox"], list):
-        state["outbox"] = []
+    if OUTBOX_KEY not in state:
+        state[OUTBOX_KEY] = []
+    elif not isinstance(state[OUTBOX_KEY], list):
+        state[OUTBOX_KEY] = []

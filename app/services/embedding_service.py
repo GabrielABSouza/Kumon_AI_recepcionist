@@ -1,6 +1,8 @@
 """
 Embedding service using Sentence Transformers for semantic search
 """
+from __future__ import annotations
+
 import os
 import asyncio
 import hashlib
@@ -22,20 +24,39 @@ class EmbeddingService:
     """Service for generating and managing embeddings using Sentence Transformers"""
     
     def __init__(self):
+        # Lazy initialization - defer heavy setup until needed
         self.model: Optional[SentenceTransformer] = None
+        self.executor: Optional[ThreadPoolExecutor] = None
+        self.cache_dir: Optional[Path] = None
+        self.device: Optional[str] = None
+        self._initialized = False
+        
+        # Cache management settings (lightweight)
+        self.max_cache_size_mb = getattr(settings, 'EMBEDDING_CACHE_SIZE_MB', 100)
+        self.max_cache_files = getattr(settings, 'EMBEDDING_CACHE_FILES', 1000) 
+        self.cache_cleanup_interval = getattr(settings, 'CACHE_CLEANUP_INTERVAL', 3600)
+        self.last_cleanup_time = 0
+    
+    def _ensure_initialized(self) -> None:
+        """Lazy initialization of heavy resources"""
+        if self._initialized:
+            return
+            
+        # Skip heavy initialization during unit tests
+        if os.getenv("UNIT_TESTING") == "1":
+            app_logger.info("UNIT_TESTING=1: Skipping embedding service heavy initialization")
+            self._initialized = True
+            return
+            
+        app_logger.info("Initializing embedding service...")
         self.executor = ThreadPoolExecutor(max_workers=2)
         self.cache_dir = Path(settings.EMBEDDING_CACHE_DIR)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.device = self._get_device()
         
-        # Cache management settings
-        self.max_cache_size_mb = getattr(settings, 'EMBEDDING_CACHE_SIZE_MB', 100)  # 100MB default
-        self.max_cache_files = getattr(settings, 'EMBEDDING_CACHE_FILES', 1000)  # 1000 files default
-        self.cache_cleanup_interval = getattr(settings, 'CACHE_CLEANUP_INTERVAL', 3600)  # 1 hour
-        self.last_cleanup_time = 0
-        
         app_logger.info(f"Embedding service initialized with device: {self.device}")
         app_logger.info(f"Cache limits: {self.max_cache_size_mb}MB, {self.max_cache_files} files")
+        self._initialized = True
     
     def _get_device(self) -> str:
         """Determine the best device to use for embeddings"""
@@ -48,6 +69,7 @@ class EmbeddingService:
     
     async def initialize_model(self) -> None:
         """Initialize the sentence transformer model asynchronously"""
+        self._ensure_initialized()
         if self.model is not None:
             return
         
@@ -107,6 +129,7 @@ class EmbeddingService:
     
     async def embed_text(self, text: str, use_cache: bool = True) -> np.ndarray:
         """Generate embedding for a single text"""
+        self._ensure_initialized()
         if not text or not text.strip():
             return np.zeros(settings.EMBEDDING_DIMENSION)
         
@@ -122,6 +145,7 @@ class EmbeddingService:
     
     async def embed_texts(self, texts: List[str], use_cache: bool = True) -> List[np.ndarray]:
         """Generate embeddings for multiple texts"""
+        self._ensure_initialized()
         if not texts:
             return []
         
@@ -368,5 +392,16 @@ class EmbeddingService:
             app_logger.error(f"Error clearing cache: {str(e)}")
 
 
-# Global instance
-embedding_service = EmbeddingService() 
+# ========== LAZY SINGLETON PATTERN ==========
+
+_embedding_service: Optional[EmbeddingService] = None
+
+def get_embedding_service() -> EmbeddingService:
+    """Get embedding service singleton with lazy initialization"""
+    global _embedding_service
+    if _embedding_service is None:
+        _embedding_service = EmbeddingService()
+    return _embedding_service
+
+# Legacy compatibility
+embedding_service = get_embedding_service() 

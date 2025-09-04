@@ -3,7 +3,7 @@
 Delivery IO-Only Node - Atomic Message Delivery
 
 Responsibilities:
-- Drain state["outbox"] 
+- Drain state[OUTBOX_KEY] 
 - Emit messages via existing channels (Evolution API)
 - Update last_bot_response atomically
 - Idempotent operations with deduplication
@@ -15,7 +15,7 @@ import hashlib
 import logging
 from typing import Dict, Any
 from ...api.evolution import send_message
-from ...workflows.contracts import MessageEnvelope, ensure_outbox, normalize_outbox_messages
+from ...workflows.contracts import MessageEnvelope, ensure_outbox, normalize_outbox_messages, OUTBOX_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +74,7 @@ def delivery_node(state: dict, *, max_batch: int = 10) -> dict:
     Delivery Node - IO-only operations with idempotency
     
     Responsibilities:
-    1. Drain state["outbox"] with batch limit
+    1. Drain state[OUTBOX_KEY] with batch limit
     2. Emit messages via channels 
     3. Update last_bot_response atomically
     4. Handle failures gracefully
@@ -90,13 +90,13 @@ def delivery_node(state: dict, *, max_batch: int = 10) -> dict:
     
     # Ensure outbox exists and add PRE-DELIVERY telemetry
     ensure_outbox(state)
-    delivery_outbox_count_before = len(state["outbox"])
+    delivery_outbox_count_before = len(state[OUTBOX_KEY])
     
     logger.info(f"PRE-DELIVERY – Outbox contains {delivery_outbox_count_before} message(s)")
     logger.info(f"delivery_outbox_count_before: {delivery_outbox_count_before}")
     
     if delivery_outbox_count_before > 0:
-        first_item = state["outbox"][0]
+        first_item = state[OUTBOX_KEY][0]
         logger.info(f"delivery_first_item_type: {type(first_item).__name__}")
         if isinstance(first_item, dict):
             logger.info(f"delivery_first_item_keys: {list(first_item.keys())}")
@@ -108,19 +108,19 @@ def delivery_node(state: dict, *, max_batch: int = 10) -> dict:
             channel="whatsapp",
             meta={"source": "delivery_emergency_fallback"}
         )
-        state["outbox"].append(envelope.to_dict())
+        state[OUTBOX_KEY].append(envelope.to_dict())
         delivery_outbox_count_before = 1
         logger.info(f"delivery_emergency_fallback_added: 1")
     
     # Convert outbox to MessageEnvelope objects using unified normalization
     try:
-        envelopes = normalize_outbox_messages(state["outbox"])
+        envelopes = normalize_outbox_messages(state[OUTBOX_KEY])
     except Exception as e:
         logger.error(f"Outbox normalization failed: {e}")
         envelopes = []
     
     # Clear outbox (will be repopulated with failed messages)
-    state["outbox"] = []
+    state[OUTBOX_KEY] = []
     
     # Initialize tracking
     emitted = []
@@ -134,7 +134,7 @@ def delivery_node(state: dict, *, max_batch: int = 10) -> dict:
             if processed >= max_batch:
                 # Re-queue unprocessed messages
                 remaining_envelopes = envelopes[processed:]
-                state["outbox"].extend([env.to_dict() for env in remaining_envelopes])
+                state[OUTBOX_KEY].extend([env.to_dict() for env in remaining_envelopes])
                 break
             
             # Idempotency check
@@ -163,7 +163,7 @@ def delivery_node(state: dict, *, max_batch: int = 10) -> dict:
         
         # Re-queue all unprocessed messages
         remaining_envelopes = envelopes[processed:]
-        state["outbox"].extend([env.to_dict() for env in remaining_envelopes])
+        state[OUTBOX_KEY].extend([env.to_dict() for env in remaining_envelopes])
         
         # Set degraded status
         state["_delivery_status"] = {
@@ -179,7 +179,7 @@ def delivery_node(state: dict, *, max_batch: int = 10) -> dict:
         return state
     
     # Re-queue failed messages
-    state["outbox"].extend([env.to_dict() for env in failed])
+    state[OUTBOX_KEY].extend([env.to_dict() for env in failed])
     
     # Update state atomically
     if emitted:
@@ -206,7 +206,7 @@ def delivery_node(state: dict, *, max_batch: int = 10) -> dict:
     
     # Final telemetry
     delivery_sent_count = len(emitted)
-    delivery_queued_count = len(state["outbox"])
+    delivery_queued_count = len(state[OUTBOX_KEY])
     
     logger.info(f"delivery_sent_count: {delivery_sent_count}")
     logger.info(f"delivery_queued_count: {delivery_queued_count}")

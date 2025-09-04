@@ -12,7 +12,7 @@ Template de migração conforme especificado:
 from typing import Dict, Any
 import re
 import logging
-from ..state.models import CeciliaState, ConversationStage
+from ..state.models import CeciliaState, ConversationStage, ConversationStep
 from ...workflows.contracts import MessageEnvelope
 from .stage_resolver import get_required_slots_for_stage
 
@@ -127,26 +127,38 @@ def qualification_node_migrated(state: Dict[str, Any]) -> Dict[str, Any]:
     missing_slots = [slot for slot in required_slots if not state.get(slot)]
     
     if not parent_name:
-        state["current_step"] = "parent_name_collection"
+        # CRÍTICO: Sempre escrever Enums, nunca strings
+        state["current_step"] = ConversationStep.PARENT_NAME_COLLECTION
         state["qualification_status"] = "awaiting_parent_name"
+        logger.debug(f"QualificationMigrated: step set to {ConversationStep.PARENT_NAME_COLLECTION}")
         
     elif not child_name:
-        state["current_step"] = "child_name_collection" 
+        state["current_step"] = ConversationStep.CHILD_NAME_COLLECTION
         state["qualification_status"] = "awaiting_child_name"
+        logger.debug(f"QualificationMigrated: step set to {ConversationStep.CHILD_NAME_COLLECTION}")
         
     elif not student_age:
-        state["current_step"] = "age_collection"
+        # Using closest available enum
+        state["current_step"] = ConversationStep.CHILD_AGE_INQUIRY
         state["qualification_status"] = "awaiting_age"
+        logger.debug(f"QualificationMigrated: step set to {ConversationStep.CHILD_AGE_INQUIRY}")
         
     elif not education_level:
-        state["current_step"] = "education_level_collection"
+        # Using closest available enum 
+        state["current_step"] = ConversationStep.CURRENT_SCHOOL_GRADE
         state["qualification_status"] = "awaiting_education_level"
+        logger.debug(f"QualificationMigrated: step set to {ConversationStep.CURRENT_SCHOOL_GRADE}")
         
     else:
         # All required data collected
-        state["current_step"] = "qualification_complete"
+        state["current_step"] = ConversationStep.CHILD_AGE_INQUIRY  # Use existing enum as completed marker
         state["qualification_status"] = "completed"
         state["qualification_ready_for_information"] = True
+        logger.debug(f"QualificationMigrated: qualification complete, step={ConversationStep.CHILD_AGE_INQUIRY}")
+    
+    # Validate enum type
+    if not isinstance(state["current_step"], ConversationStep):
+        logger.error(f"QualificationMigrated: INVALID TYPE - current_step should be ConversationStep, got {type(state['current_step'])}")
         
         # Set programs of interest based on age/level
         if not state.get("programs_of_interest"):

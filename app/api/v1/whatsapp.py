@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional
 
 from app.core.config import settings
 from app.core.logger import app_logger
-from app.core.workflow import get_cecilia_workflow
+from app.core.compat_imports import get_cecilia_workflow
 from app.models.message import MessageResponse, MessageType, WhatsAppMessage
 from app.models.webhook import WebhookResponse, WhatsAppWebhook
 from app.services.message_preprocessor import message_preprocessor
@@ -1405,7 +1405,7 @@ async def integration_health_check():
         # Check CeciliaWorkflow integration
         workflow_status = "configured"
         try:
-            from app.core.workflow import get_cecilia_workflow
+            from app.core.compat_imports import get_cecilia_workflow
 
             workflow_status = "active"
         except Exception as e:

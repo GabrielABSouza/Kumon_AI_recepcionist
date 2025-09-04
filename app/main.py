@@ -358,7 +358,7 @@ async def startup_event():
     # CRITICAL: Lazy workflow initialization to prevent startup crashes
     try:
         app_logger.info("🔄 Initializing Cecilia Workflow (lazy pattern)...")
-        from app.core.workflow import get_cecilia_workflow
+        from app.core.compat_imports import get_cecilia_workflow
         # Initialize workflow (lazy loading)
         workflow = get_cecilia_workflow()
         app_logger.info("✅ Cecilia workflow created successfully")

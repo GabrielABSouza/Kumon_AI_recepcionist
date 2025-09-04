@@ -7,6 +7,7 @@ This module provides centralized prompt management with:
 - Intelligent caching for performance
 - Template variable substitution
 """
+from __future__ import annotations
 
 import asyncio
 import hashlib
@@ -32,13 +33,26 @@ class PromptManager:
     """Manages prompts from local templates only"""
 
     def __init__(self):
+        # Lazy initialization - defer I/O until needed
         self.cache = {}
-        self.fallback_dir = Path("app/prompts/templates")
-
+        self.fallback_dir: Optional[Path] = None
+        self._initialized = False
+    
+    def _ensure_initialized(self) -> None:
+        """Lazy initialization of I/O resources"""
+        if self._initialized:
+            return
+            
+        # Skip heavy initialization during unit tests
+        if os.getenv("UNIT_TESTING") == "1":
+            app_logger.info("UNIT_TESTING=1: Skipping prompt manager heavy initialization")
+            self._initialized = True
+            return
+            
         app_logger.info("Prompt manager initialized with local templates only")
+        self.fallback_dir = Path("app/prompts/templates")
         self.fallback_dir.mkdir(parents=True, exist_ok=True)
-
-        # Cache will be loaded lazily on first use
+        self._initialized = True
 
     # Cache removed - using direct template loading only
 
@@ -65,6 +79,7 @@ class PromptManager:
         Returns:
             Formatted prompt string
         """
+        self._ensure_initialized()
         # LOCAL TEMPLATES ONLY - Simple and reliable approach
         prompt_template = None
         
@@ -492,5 +507,16 @@ IMPORTANTE:
         }
 
 
-# Global instance
-prompt_manager = PromptManager()
+# ========== LAZY SINGLETON PATTERN ==========
+
+_prompt_manager: Optional[PromptManager] = None
+
+def get_prompt_manager() -> PromptManager:
+    """Get prompt manager singleton with lazy initialization"""
+    global _prompt_manager
+    if _prompt_manager is None:
+        _prompt_manager = PromptManager()
+    return _prompt_manager
+
+# Legacy compatibility
+prompt_manager = get_prompt_manager()

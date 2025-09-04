@@ -11,7 +11,7 @@ Template de migração conforme especificado:
 
 from typing import Dict, Any
 import logging
-from ..state.models import CeciliaState
+from ..state.models import CeciliaState, ConversationStep
 from ...workflows.contracts import MessageEnvelope
 from .stage_resolver import get_required_slots_for_stage
 from ..router.response_planner import resolve_channel
@@ -46,17 +46,24 @@ def greeting_node_migrated(state: Dict[str, Any]) -> Dict[str, Any]:
     # Update business state based on slot completion
     if not parent_name:
         # First interaction - waiting for parent name
-        state["current_step"] = "initial_contact"
+        # CRÍTICO: Sempre escrever Enums, nunca strings
+        state["current_step"] = ConversationStep.INITIAL_RESPONSE
         state["greeting_status"] = "awaiting_parent_name"
+        logger.debug(f"GreetingMigrated: step set to {ConversationStep.INITIAL_RESPONSE}")
         
         # Log business event
         logger.info(f"[GREETING] Awaiting parent name collection")
         
     else:
         # Parent name collected - greeting complete
-        state["current_step"] = "name_collected"  
+        state["current_step"] = ConversationStep.PARENT_NAME_COLLECTION  
         state["greeting_status"] = "completed"
         state["parent_name_collected"] = True
+        logger.debug(f"GreetingMigrated: step set to {ConversationStep.PARENT_NAME_COLLECTION}")
+    
+    # Validate enum type
+    if not isinstance(state["current_step"], ConversationStep):
+        logger.error(f"GreetingMigrated: INVALID TYPE - current_step should be ConversationStep, got {type(state['current_step'])}")
         
         # Indicate readiness for next stage
         if not missing_slots:

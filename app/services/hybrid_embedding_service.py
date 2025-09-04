@@ -1,6 +1,9 @@
 """
 Hybrid embedding service - uses local models by default, GCP as fallback
 """
+from __future__ import annotations
+
+import os
 import asyncio
 import hashlib
 import json
@@ -23,17 +26,33 @@ class HybridEmbeddingService:
     """
     
     def __init__(self):
+        # Lazy initialization - defer heavy setup until needed
         self.primary_service = None
         self.fallback_service = None
         self.last_resort_service = None
+        self.cache_dir: Optional[Path] = None
+        self.use_gcp_embeddings = getattr(settings, 'USE_GCP_EMBEDDINGS', False)
+        self._initialized = False
+    
+    def _ensure_initialized(self) -> None:
+        """Lazy initialization of heavy resources"""
+        if self._initialized:
+            return
+            
+        # Skip heavy initialization during unit tests
+        if os.getenv("UNIT_TESTING") == "1":
+            app_logger.info("UNIT_TESTING=1: Skipping hybrid embedding service heavy initialization")
+            self._initialized = True
+            return
+            
+        app_logger.info(f"Hybrid Embedding service initialized - GCP enabled: {self.use_gcp_embeddings}")
         self.cache_dir = Path(settings.EMBEDDING_CACHE_DIR)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        self.use_gcp_embeddings = getattr(settings, 'USE_GCP_EMBEDDINGS', False)
-        
-        app_logger.info(f"Hybrid Embedding service initialized - GCP enabled: {self.use_gcp_embeddings}")
+        self._initialized = True
     
     async def initialize_model(self) -> None:
         """Initialize embedding services in order of preference"""
+        self._ensure_initialized()
         if self.primary_service is not None:
             return
         
@@ -117,6 +136,7 @@ class HybridEmbeddingService:
     
     async def embed_text(self, text: str) -> List[float]:
         """Generate embedding using the best available service"""
+        self._ensure_initialized()
         if not text or not text.strip():
             return [0.0] * 384
         
@@ -166,6 +186,7 @@ class HybridEmbeddingService:
     
     async def embed_texts(self, texts: List[str]) -> List[List[float]]:
         """Generate embeddings for multiple texts"""
+        self._ensure_initialized()
         if not texts:
             return []
         
@@ -341,5 +362,16 @@ class TFIDFWrapper:
             return embedding
 
 
-# Global instance
-hybrid_embedding_service = HybridEmbeddingService() 
+# ========== LAZY SINGLETON PATTERN ==========
+
+_hybrid_embedding_service: Optional[HybridEmbeddingService] = None
+
+def get_hybrid_embedding_service() -> HybridEmbeddingService:
+    """Get hybrid embedding service singleton with lazy initialization"""
+    global _hybrid_embedding_service
+    if _hybrid_embedding_service is None:
+        _hybrid_embedding_service = HybridEmbeddingService()
+    return _hybrid_embedding_service
+
+# Legacy compatibility
+hybrid_embedding_service = get_hybrid_embedding_service() 

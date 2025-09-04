@@ -14,6 +14,7 @@ from enum import Enum
 import asyncpg
 from ..core.config import settings
 from ..core.logger import app_logger
+from ..workflows.contracts import serialize_stage_step, deserialize_stage_step
 
 
 class WorkflowStage(Enum):
@@ -155,6 +156,9 @@ class WorkflowStateRepository:
             state.updated_at = datetime.now()
             state.last_activity = datetime.now()
             
+            # Serialize state_data for persistence (stage/step as strings)
+            serialized_state_data = serialize_stage_step(state.state_data)
+            
             async with self.connection_pool.acquire() as conn:
                 await conn.execute("""
                     INSERT INTO workflow_states (
@@ -167,7 +171,7 @@ class WorkflowStateRepository:
                 """, 
                     state.id, state.phone_number, state.thread_id,
                     state.current_stage, state.current_step,
-                    json.dumps(state.state_data),
+                    json.dumps(serialized_state_data),
                     json.dumps(state.conversation_history),
                     json.dumps(state.user_profile),
                     state.detected_intent,
@@ -208,13 +212,17 @@ class WorkflowStateRepository:
                 """, thread_id)
             
             if row:
+                # Deserialize state_data from persistence (strings -> Enums)
+                raw_state_data = json.loads(row["state_data"]) if row["state_data"] else {}
+                deserialized_state_data = deserialize_stage_step(raw_state_data)
+                
                 state = WorkflowState(
                     id=row["id"],
                     phone_number=row["phone_number"],
                     thread_id=row["thread_id"],
                     current_stage=row["current_stage"],
                     current_step=row["current_step"],
-                    state_data=json.loads(row["state_data"]) if row["state_data"] else {},
+                    state_data=deserialized_state_data,
                     conversation_history=json.loads(row["conversation_history"]) if row["conversation_history"] else [],
                     user_profile=json.loads(row["user_profile"]) if row["user_profile"] else {},
                     detected_intent=row["detected_intent"],
@@ -257,7 +265,12 @@ class WorkflowStateRepository:
             param_index = 1
             
             for key, value in updates.items():
-                if key in ["state_data", "conversation_history", "user_profile", "scheduling_data"]:
+                if key == "state_data":
+                    # Serialize state_data before persistence
+                    serialized_value = serialize_stage_step(value)
+                    set_clauses.append(f"{key} = ${param_index}")
+                    params.append(json.dumps(serialized_value))
+                elif key in ["conversation_history", "user_profile", "scheduling_data"]:
                     set_clauses.append(f"{key} = ${param_index}")
                     params.append(json.dumps(value))
                 else:

@@ -139,9 +139,14 @@ def stage_resolver_node(state: Dict[str, Any]) -> Dict[str, Any]:
         # Inferir stage apropriado
         inferred_stage = infer_stage_from_context(state)
         
-        # Atualizar state
-        state["current_stage"] = inferred_stage.value
+        # CRÍTICO: Sempre escrever Enums, nunca strings
+        state["current_stage"] = inferred_stage  # Enum instance
         state["required_slots"] = get_required_slots_for_stage(inferred_stage)
+        
+        # Debug logging to confirm enum types
+        logger.debug(f"StageResolver: stage type={type(state['current_stage'])}, value={state['current_stage']}")
+        if not isinstance(state["current_stage"], ConversationStage):
+            logger.error(f"StageResolver: INVALID TYPE - stage should be ConversationStage, got {type(state['current_stage'])}")
         
         # Garantir outbox exists
         state.setdefault("outbox", [])
@@ -153,9 +158,11 @@ def stage_resolver_node(state: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"StageResolver error: {e}")
         
-        # Fallback seguro
-        state["current_stage"] = ConversationStage.GREETING.value
+        # Fallback seguro - SEMPRE Enum
+        state["current_stage"] = ConversationStage.GREETING  # Enum instance
         state["required_slots"] = ["parent_name"]
         state.setdefault("outbox", [])
+        
+        logger.warning(f"StageResolver: fallback applied, stage type={type(state['current_stage'])}")
         
         return state

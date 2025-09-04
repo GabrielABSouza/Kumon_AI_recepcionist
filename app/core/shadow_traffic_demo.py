@@ -175,11 +175,14 @@ async def simulate_legacy_greeting_node(state: Dict[str, Any]) -> Dict[str, Any]
     
     parent_name = state.get("parent_name")
     
+    # Import here to avoid circular imports
+    from .state.models import ConversationStep
+    
     if not parent_name:
-        state["current_step"] = "initial_contact"
+        state["current_step"] = ConversationStep.INITIAL_RESPONSE
         state["greeting_status"] = "awaiting_parent_name"
     else:
-        state["current_step"] = "name_collected"
+        state["current_step"] = ConversationStep.PARENT_NAME_COLLECTION
         state["greeting_status"] = "completed"
     
     # Legacy nodes might add more fields
@@ -195,14 +198,17 @@ async def simulate_legacy_qualification_node(state: Dict[str, Any]) -> Dict[str,
     child_name = state.get("child_name") 
     student_age = state.get("student_age")
     
+    # Import here to avoid circular imports
+    from .state.models import ConversationStep
+    
     if not child_name:
-        state["current_step"] = "child_name_collection"
+        state["current_step"] = ConversationStep.CHILD_NAME_COLLECTION
         state["qualification_status"] = "awaiting_child_name"
     elif not student_age:
-        state["current_step"] = "age_collection"
+        state["current_step"] = ConversationStep.CHILD_AGE_INQUIRY
         state["qualification_status"] = "awaiting_age"
     else:
-        state["current_step"] = "qualification_complete"
+        state["current_step"] = ConversationStep.CURRENT_SCHOOL_GRADE  # Use as completion marker
         state["qualification_status"] = "completed"
     
     # Legacy qualification processing

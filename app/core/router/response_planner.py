@@ -7,7 +7,7 @@ from ...prompts.template_variables import template_variable_resolver
 from ...core.service_factory import get_langchain_rag_service
 from ...services.production_llm_service import ProductionLLMService
 from ..state.models import CeciliaState
-from ...workflows.contracts import RoutingDecision, MessageEnvelope, ensure_outbox, normalize_outbox_messages
+from ...workflows.contracts import RoutingDecision, MessageEnvelope, ensure_outbox, normalize_outbox_messages, OUTBOX_KEY
 from .smart_router_adapter import CoreRoutingDecision, routing_mode_from_decision, normalize_rd_obj
 
 logger = logging.getLogger(__name__)
@@ -481,13 +481,13 @@ def response_planner_node(state: dict) -> dict:
     Responsibilities:
     - Read routing_decision from SmartRouter
     - Convert to internal mode (template/llm_rag/handoff/fallback)
-    - Enqueue MessageEnvelope in state["outbox"] 
+    - Enqueue MessageEnvelope in state[OUTBOX_KEY] 
     - NO IO operations (defer to Delivery)
     """
     
     # Ensure outbox exists and add telemetry
     ensure_outbox(state)
-    outbox_before = len(state["outbox"])
+    outbox_before = len(state[OUTBOX_KEY])
     logger.info(f"planner_outbox_count_before: {outbox_before}")
     
     rd = state.get("routing_decision")
@@ -506,17 +506,17 @@ def response_planner_node(state: dict) -> dict:
             state = _plan_template(state, fallback_level=2)
         
         # Post-planning telemetry
-        outbox_after = len(state["outbox"])
+        outbox_after = len(state[OUTBOX_KEY])
         logger.info(f"planner_outbox_count_after: {outbox_after}")
         
         if outbox_after > 0:
-            first_item = state["outbox"][0]
+            first_item = state[OUTBOX_KEY][0]
             logger.info(f"planner_first_item_type: {type(first_item).__name__}")
             if isinstance(first_item, dict):
                 logger.info(f"planner_first_item_keys: {list(first_item.keys())}")
                 
         # Validate no template placeholders remain
-        for i, msg in enumerate(state["outbox"]):
+        for i, msg in enumerate(state[OUTBOX_KEY]):
             text = msg.get("text", "") if isinstance(msg, dict) else str(msg)
             if "{{" in text and "}}" in text:
                 logger.warning(f"planner_template_placeholder_detected: message {i} contains {{...}}")
@@ -531,9 +531,9 @@ def response_planner_node(state: dict) -> dict:
             channel="whatsapp",
             meta={"mode": "emergency_fallback", "error": str(e)}
         )
-        state["outbox"].append(envelope.to_dict())
+        state[OUTBOX_KEY].append(envelope.to_dict())
         
-        outbox_after = len(state["outbox"])
+        outbox_after = len(state[OUTBOX_KEY])
         logger.info(f"planner_outbox_count_after: {outbox_after} (emergency)")
         
         return state
@@ -570,7 +570,7 @@ def _plan_template(state: dict, fallback_level: int | None):
         }
     )
     
-    state["outbox"].append(envelope.to_dict())
+    state[OUTBOX_KEY].append(envelope.to_dict())
     return state
 
 
@@ -615,7 +615,7 @@ Responda brevemente sobre o método Kumon e como podemos ajudar.
         }
     )
     
-    state["outbox"].append(envelope.to_dict())
+    state[OUTBOX_KEY].append(envelope.to_dict())
     return state
 
 
@@ -640,5 +640,5 @@ def _plan_handoff(state: dict):
         }
     )
     
-    state["outbox"].append(envelope.to_dict())
+    state[OUTBOX_KEY].append(envelope.to_dict())
     return state

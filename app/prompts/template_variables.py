@@ -153,6 +153,46 @@ class TemplateVariableResolver:
             current_step = step_override or conversation_state.get("current_step", "WELCOME")
             collected_data = conversation_state.get("collected_data", {})
             
+            # ENUM VALIDATION: Check if stage/step are proper Enums
+            if not isinstance(current_stage, ConversationStage):
+                app_logger.error(f"TemplateVariableResolver: current_stage should be ConversationStage enum, got {type(current_stage)} = {current_stage}")
+                
+                # Record telemetry violation
+                from ...core.telemetry.enum_metrics import record_stage_not_enum
+                session_id = conversation_state.get("session_id", "unknown")
+                record_stage_not_enum(
+                    session_id=session_id,
+                    actual_value=current_stage,
+                    module_name="template_variables",
+                    stack_hint="TemplateVariableResolver.get_template_variables"
+                )
+                
+                # Try to convert string to enum as fallback
+                if isinstance(current_stage, str):
+                    try:
+                        current_stage = ConversationStage(current_stage.lower())
+                        app_logger.warning(f"TemplateVariableResolver: converted string stage '{current_stage}' to enum")
+                    except ValueError:
+                        current_stage = ConversationStage.GREETING
+                        app_logger.error(f"TemplateVariableResolver: invalid stage string, using GREETING fallback")
+                else:
+                    current_stage = ConversationStage.GREETING
+                    app_logger.error(f"TemplateVariableResolver: unexpected stage type, using GREETING fallback")
+            
+            if not isinstance(current_step, (ConversationStep, str)):
+                app_logger.error(f"TemplateVariableResolver: current_step should be ConversationStep enum or string, got {type(current_step)} = {current_step}")
+                
+                # Record telemetry violation
+                from ...core.telemetry.enum_metrics import record_step_not_enum
+                session_id = conversation_state.get("session_id", "unknown")
+                record_step_not_enum(
+                    session_id=session_id,
+                    actual_value=current_step,
+                    module_name="template_variables",
+                    stack_hint="TemplateVariableResolver.get_template_variables"
+                )
+                current_step = "WELCOME"
+            
             # Get policy for current stage:step
             policy = self._get_variable_policy(current_stage, current_step)
             

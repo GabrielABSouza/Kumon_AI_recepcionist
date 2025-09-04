@@ -716,7 +716,7 @@ async def reset_all_conversations() -> Dict[str, Any]:
     """Temporary endpoint to reset all conversation states"""
     try:
         # Import here to avoid circular import issues
-        from app.core.workflow import get_cecilia_workflow
+        from app.core.compat_imports import get_cecilia_workflow
         
         # CeciliaWorkflow uses PostgreSQL persistence - different approach needed
         logger.info("Reset all conversations requested - CeciliaWorkflow uses persistent storage")
