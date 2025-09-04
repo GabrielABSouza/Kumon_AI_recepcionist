@@ -84,9 +84,12 @@ class CeciliaWorkflow:
         
         # Check if V2 architecture should be used
         from .feature_flags import get_feature_flags
-        feature_flags = get_feature_flags()
+        ff = get_feature_flags()
         
-        if feature_flags.workflow_v2_enabled:
+        # Use V2 if explicitly enabled OR shadow mode is active
+        use_v2 = ff.is_enabled("WORKFLOW_V2_ENABLED") or ff.is_enabled("ROUTER_V2_SHADOW")
+        
+        if use_v2:
             logger.info("🚀 V2 Architecture Enabled: Using workflow_migration.py")
             from .workflow_migration import create_migrated_workflow
             return create_migrated_workflow()

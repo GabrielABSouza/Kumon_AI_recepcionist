@@ -143,3 +143,32 @@ def ensure_state_compatibility(state: dict) -> dict:
     state.setdefault("_prev_slots", None)
     
     return state
+
+
+# ========== CECILIA WORKFLOW SINGLETON ==========
+
+_cecilia_singleton = None
+
+def get_cecilia_workflow():
+    """
+    Get or create CeciliaWorkflow singleton instance (V2 migrated version)
+    
+    Returns:
+        StateGraph: Compiled migrated workflow ready for execution
+    """
+    global _cecilia_singleton
+    if _cecilia_singleton is None:
+        logger.info("Creating CeciliaWorkflow singleton (V2 migrated)")
+        workflow = create_migrated_workflow()
+        _cecilia_singleton = workflow.compile()
+        logger.info("CeciliaWorkflow V2 compiled and ready")
+    return _cecilia_singleton
+
+
+# Export for backward compatibility
+__all__ = [
+    "get_cecilia_workflow", 
+    "create_migrated_workflow",
+    "ensure_state_compatibility",
+    "should_continue"
+]

@@ -26,6 +26,17 @@ class FeatureFlag:
 class FeatureFlagManager:
     """Feature flag management system"""
     
+    # Legacy attribute aliases for backward compatibility
+    _ALIASES = {
+        "workflow_v2_enabled": "ROUTER_V2_ENABLED",
+        "v2_shadow": "ROUTER_V2_SHADOW", 
+        "template_variable_policy_v2": "TEMPLATE_VARIABLE_POLICY_V2",
+        "outbox_v2_enforced": "OUTBOX_V2_ENFORCED",
+        "strict_enum_stagestep": "STRICT_ENUM_STAGESTEP",
+        "enum_violation_telemetry": "ENUM_VIOLATION_TELEMETRY",
+        "enum_auto_correction": "ENUM_AUTO_CORRECTION",
+    }
+    
     def __init__(self):
         self.flags: Dict[str, FeatureFlag] = {
             # Enum Normalization Feature Flags
@@ -79,6 +90,13 @@ class FeatureFlagManager:
                 name="ROUTER_V2_SHADOW",
                 enabled=self._get_env_bool("ROUTER_V2_SHADOW", True),
                 description="Enable V2 shadow traffic for comparison",
+                rollout_percentage=100
+            ),
+            
+            "WORKFLOW_V2_ENABLED": FeatureFlag(
+                name="WORKFLOW_V2_ENABLED",
+                enabled=self._get_env_bool("WORKFLOW_V2_ENABLED", False),
+                description="Enable V2 workflow architecture for live traffic",
                 rollout_percentage=100
             ),
         }
@@ -157,6 +175,13 @@ class FeatureFlagManager:
         self.flags[flag_name].enabled = enabled
         logger.info(f"Feature flag {flag_name} set to {enabled}")
         return True
+    
+    def __getattr__(self, name: str):
+        """Provide backward compatibility for legacy attribute access"""
+        flag_name = self._ALIASES.get(name)
+        if flag_name:
+            return self.is_enabled(flag_name)
+        raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
     
     # Shadow traffic management methods
     @property
