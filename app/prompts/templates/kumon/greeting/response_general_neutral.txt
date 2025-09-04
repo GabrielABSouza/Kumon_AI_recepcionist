@@ -1,5 +1,5 @@
 Olá! Sou a Cecília, recepcionista do Kumon Vila A. Posso te ajudar com informações sobre nossos programas ou com o agendamento de uma aula experimental gratuita? 
 
-[[?first_name: "Que bom falar com você, {{first_name}}!"]]
+[[?first_name: "Que bom falar com você, {first_name}!"]]
 
 Como posso ajudar hoje?

@@ -29,10 +29,14 @@ def _msg_id(msg: Dict[str, Any]) -> str:
     return hashlib.sha256(base.encode("utf-8")).hexdigest()[:16]
 
 
-def emit_to_channel(msg: Dict[str, Any]) -> bool:
+async def emit_to_channel(msg: Dict[str, Any], state: Dict[str, Any]) -> bool:
     """
-    Emit message to appropriate channel
+    Emit message to appropriate channel with proper async/await
     
+    Args:
+        msg: Message dictionary to emit
+        state: State containing phone_number and other context
+        
     Returns:
         bool: True if successful, False otherwise
     """
@@ -45,14 +49,23 @@ def emit_to_channel(msg: Dict[str, Any]) -> bool:
             return False
             
         if channel == "whatsapp":
-            # Use existing Evolution API integration
-            # This is a simplified version - adapt to existing send_message signature
-            result = send_message(
-                phone_number="default",  # Will be resolved by existing logic
+            # Use existing Evolution API integration with proper await
+            phone_number = state.get("phone_number", "default")
+            instance_name = state.get("instance_name", "default")
+            
+            result = await send_message(
+                phone_number=phone_number,
                 message=text,
-                instance_name="default"
+                instance_name=instance_name
             )
-            return bool(result)
+            
+            # Check if result indicates success
+            success = bool(result and result.get("status") != "error")
+            if success:
+                logger.info(f"WhatsApp message sent successfully to {phone_number}: {text[:50]}...")
+            else:
+                logger.error(f"WhatsApp message failed: {result}")
+            return success
             
         elif channel in ["web", "app"]:
             # Placeholder for web/app delivery logic
@@ -69,7 +82,7 @@ def emit_to_channel(msg: Dict[str, Any]) -> bool:
         return False
 
 
-def delivery_node(state: dict, *, max_batch: int = 10) -> dict:
+async def delivery_node(state: dict, *, max_batch: int = 10) -> dict:
     """
     Delivery Node - IO-only operations with idempotency
     
@@ -101,16 +114,26 @@ def delivery_node(state: dict, *, max_batch: int = 10) -> dict:
         if isinstance(first_item, dict):
             logger.info(f"delivery_first_item_keys: {list(first_item.keys())}")
     else:
-        logger.warning("PRE-DELIVERY – EMPTY OUTBOX detected")
-        # Emergency fallback
-        envelope = MessageEnvelope(
-            text="Olá! Como posso ajudar?",
-            channel="whatsapp",
-            meta={"source": "delivery_emergency_fallback"}
-        )
-        state[OUTBOX_KEY].append(envelope.to_dict())
-        delivery_outbox_count_before = 1
-        logger.info(f"delivery_emergency_fallback_added: 1")
+        # Track emergency fallback count (1x per session limit)
+        emergency_count = state.get("_emergency_fallback_count", 0)
+        if emergency_count < 1:
+            logger.warning("PRE-DELIVERY – EMPTY OUTBOX detected, adding emergency fallback")
+            # Emergency fallback
+            envelope = MessageEnvelope(
+                text="Olá! Como posso ajudar?",
+                channel="whatsapp",
+                meta={"source": "delivery_emergency_fallback"}
+            )
+            state[OUTBOX_KEY].append(envelope.to_dict())
+            state["_emergency_fallback_count"] = emergency_count + 1
+            delivery_outbox_count_before = 1
+            logger.info(f"delivery_emergency_fallback_added: 1 (count: {emergency_count + 1})")
+        else:
+            logger.error("PRE-DELIVERY – EMPTY OUTBOX detected but emergency fallback limit reached")
+            # Force termination to prevent infinite loops
+            state["should_end"] = True  
+            state["stop_reason"] = "empty_outbox_fallback_limit_exceeded"
+            return state
     
     # Convert outbox to MessageEnvelope objects using unified normalization
     try:
@@ -144,9 +167,9 @@ def delivery_node(state: dict, *, max_batch: int = 10) -> dict:
                 processed += 1
                 continue
             
-            # Attempt emission
+            # Attempt emission with proper await
             msg_dict = envelope.to_dict()
-            success = emit_to_channel(msg_dict)
+            success = await emit_to_channel(msg_dict, state)
             
             if success:
                 seen.add(envelope.idempotency_key)
@@ -214,11 +237,27 @@ def delivery_node(state: dict, *, max_batch: int = 10) -> dict:
     
     logger.info(f"Delivery completed: {delivery_sent_count} messages sent, {delivery_queued_count} queued")
     
-    # Anti-loop fail-safe: If no messages were sent and outbox is empty, mark for termination
+    # Enhanced anti-loop fail-safe with emergency session tracking
+    emergency_fallbacks = state.get("_emergency_fallback_count", 0)
+    max_emergency_fallbacks = 1  # 1x per session as per specification
+    
+    # Stop condition 1: No messages delivered and outbox empty
     if delivery_sent_count == 0 and delivery_queued_count == 0:
         logger.warning("No messages delivered and outbox empty - marking conversation for termination to prevent loops")
         state["should_end"] = True
         state["stop_reason"] = "no_delivery_content"
+    
+    # Stop condition 2: Emergency fallback limit exceeded  
+    elif emergency_fallbacks >= max_emergency_fallbacks and delivery_sent_count == 0:
+        logger.warning(f"Emergency fallback limit exceeded ({emergency_fallbacks}/{max_emergency_fallbacks}) - terminating session")
+        state["should_end"] = True
+        state["stop_reason"] = "emergency_fallback_limit_exceeded"
+    
+    # Stop condition 3: Conversation marked as completed or handoff
+    elif state.get("current_stage") in ["completed", "handoff"]:
+        logger.info(f"Conversation stage '{state.get('current_stage')}' reached - natural termination")
+        state["should_end"] = True
+        state["stop_reason"] = f"stage_{state.get('current_stage')}_reached"
     
     return state
 

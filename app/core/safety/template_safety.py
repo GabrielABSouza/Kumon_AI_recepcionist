@@ -85,19 +85,8 @@ class TemplateSafetyFilter:
         if not template_content:
             return False
         
-        # GREETING templates are generally safe - only check for dangerous variables
-        if context == "greeting":
-            # Only check for template variables that should never be shown
-            dangerous_patterns = [
-                r'\{\{[\w_]+\}\}',  # Double braces
-                r'\{[A-Z_]{3,}\}',  # All caps variables (likely config)
-            ]
-            for pattern_str in dangerous_patterns:
-                pattern = re.compile(pattern_str, re.IGNORECASE)
-                if pattern.search(template_content):
-                    logger.warning(f"🚨 Dangerous variable in greeting template: {pattern_str}")
-                    return True
-            return False
+        # Check for configuration directives in ALL contexts (including greeting)
+        # Configuration directives are NEVER safe regardless of context
             
         # Check if content is explicitly safe first
         for safe_pattern in self.compiled_safe_patterns:
@@ -163,3 +152,51 @@ def ensure_safe_template(content: str, context: str = "general", source_file: st
     CRITICAL: This should be called before any template is sent to users
     """
     return template_safety_filter.sanitize_template(content, context, source_file)
+
+
+def check_and_sanitize(text: str, context: str = "general") -> dict:
+    """
+    Safety "fail-soft": check template safety and return sanitized result
+    
+    Returns:
+        {
+            "safe": bool,
+            "text": sanitized_text_or_fallback,
+            "reason": optional_reason,
+            "meta": {"safety_blocked": true/false, "pattern": "...", "context": "..."}
+        }
+    """
+    if not text:
+        return {
+            "safe": True,
+            "text": template_safety_filter.get_safe_fallback(context),
+            "reason": "empty_text",
+            "meta": {"safety_blocked": True, "pattern": "empty", "context": context}
+        }
+    
+    # Check if the text is a configuration template
+    is_unsafe = template_safety_filter.is_configuration_template(text, context)
+    
+    if is_unsafe:
+        # Return safe fallback instead of blocking
+        safe_text = template_safety_filter.get_safe_fallback(context)
+        return {
+            "safe": True,  # Always safe because we provide fallback
+            "text": safe_text,
+            "reason": "configuration_template_detected",
+            "meta": {
+                "safety_blocked": True, 
+                "pattern": "template_variables", 
+                "context": context,
+                "original_length": len(text),
+                "fallback_used": True
+            }
+        }
+    
+    # Text is safe as-is
+    return {
+        "safe": True,
+        "text": text,
+        "reason": None,
+        "meta": {"safety_blocked": False, "pattern": None, "context": context}
+    }

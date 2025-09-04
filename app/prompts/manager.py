@@ -95,70 +95,76 @@ class PromptManager:
             app_logger.error(f"🚨 All template sources failed for {name}, using BASE CECÍLIA")
             prompt_template = await self._get_base_cecilia_template()
 
-        # Apply variables with intelligent stage-aware resolution
+        # NEW PIPELINE ORDER: preprocess → resolve vars → strip {{...}} → safety check → render final
+        
+        # Step 1: Pre-process template first to handle conditional blocks and defaults
+        preprocessed_template = self._preprocess_template(prompt_template, {})
+        
+        # Step 2: Get intelligent variables based on conversation state and stage
+        resolved_variables = {}
         if variables or conversation_state:
             try:
-                # Get intelligent variables based on conversation state and stage
                 resolved_variables = template_variable_resolver.get_template_variables(
                     conversation_state or {}, user_variables=variables
                 )
-
-                if resolved_variables:
-                    # Pre-process template to handle missing variables gracefully
-                    safe_template = self._preprocess_template(prompt_template, resolved_variables)
-                    
-                    # Use LangChain PromptTemplate for safe variable substitution
-                    try:
-                        template = PromptTemplate.from_template(safe_template)
-                        # Only pass variables that exist in the template
-                        template_vars = template.input_variables
-                        filtered_vars = {k: v for k, v in resolved_variables.items() if k in template_vars}
-                        
-                        formatted_prompt = template.format(**filtered_vars)
-                        app_logger.info(
-                            f"Applied {len(filtered_vars)} variables to template: {name}"
-                        )
-                        # CRITICAL: Apply safety filter before returning
-                        return ensure_safe_template(formatted_prompt, self._get_context_from_name(name))
-                    except KeyError as ke:
-                        app_logger.warning(f"Missing variable in template {name}: {ke}")
-                        # Use template without problematic variables
-                        return ensure_safe_template(safe_template, self._get_context_from_name(name))
-                else:
-                    app_logger.info(f"No variables to apply for template: {name}")
-
+                app_logger.info(f"Resolved {len(resolved_variables)} template variables for: {name}")
             except Exception as e:
-                app_logger.error(f"Failed to format prompt template: {e}")
-                # Fallback to simple string formatting if available
-                if variables:
-                    try:
-                        formatted_response = prompt_template.format(**variables)
-                        return ensure_safe_template(formatted_response, self._get_context_from_name(name))
-                    except Exception as e2:
-                        app_logger.error(f"Fallback formatting also failed: {e2}")
-
-        # CRITICAL: Always apply safety filter before returning any template
-        final_response = ensure_safe_template(prompt_template, self._get_context_from_name(name))
-        return final_response
+                app_logger.error(f"Failed to resolve template variables: {e}")
+                resolved_variables = variables or {}
+        
+        # Step 3: Apply variables if available
+        formatted_template = preprocessed_template
+        if resolved_variables:
+            try:
+                # First resolve remaining conditional blocks and defaults with actual variables
+                template_with_conditionals = self._resolve_conditional_blocks(preprocessed_template, resolved_variables)
+                # Then apply variables with graceful fallback
+                formatted_template = self._apply_variables_safely(template_with_conditionals, resolved_variables, name)
+            except Exception as e:
+                app_logger.error(f"Failed to apply variables to template {name}: {e}")
+                # Continue with preprocessed template
+        
+        # Step 4: Strip any remaining {{...}} mustache tokens that weren't resolved
+        clean_template = self._strip_remaining_mustache_tokens(formatted_template)
+        
+        # Step 5: CRITICAL - Apply safety check using new fail-soft system
+        from ..core.safety.template_safety import check_and_sanitize
+        safety_result = check_and_sanitize(clean_template, self._get_context_from_name(name))
+        
+        # Step 6: Return final rendered template (always safe due to fail-soft)
+        return safety_result["text"]
 
     def _preprocess_template(self, template: str, available_variables: Dict[str, Any]) -> str:
         """
-        Pre-process template to handle missing variables gracefully
+        Pre-process template to handle conditional blocks and defaults
         
-        Removes conditional blocks if variables are missing:
+        Since this is called first in the pipeline (before variable resolution),
+        we only handle structural template elements, not variable substitution:
         - [[?var: "text with {var}"]] -> removed if var not available
         - [[var|default]] -> replaced with default if var not available
+        - Preserve {var} tokens for later variable resolution
+        - Convert {{var}} mustache tokens to {var} for LangChain compatibility
         """
         import re
+        
+        # Convert {{variable}} mustache tokens to {variable} for LangChain compatibility
+        # This preserves variables for the later resolution step
+        mustache_pattern = r'\{\{([^}]+)\}\}'
+        template = re.sub(mustache_pattern, r'{\1}', template)
+        app_logger.debug("Converted mustache {{var}} tokens to {var} format")
         
         # Handle conditional blocks: [[?var: "content"]]
         pattern_conditional = r'\[\[\?([^:]+):\s*"([^"]+)"\]\]'
         def replace_conditional(match):
             var_name = match.group(1).strip()
             content = match.group(2)
-            if var_name in available_variables:
+            # Since we don't have variables yet, preserve for now
+            # This will be handled by variable resolution step
+            if available_variables and var_name in available_variables:
                 return content
-            return ""  # Remove block if variable not available
+            elif not available_variables:  # First pass, preserve structure
+                return f"[[?{var_name}: \"{content}\"]]"
+            return ""  # Remove block if variable confirmed not available
         
         template = re.sub(pattern_conditional, replace_conditional, template)
         
@@ -167,23 +173,112 @@ class PromptManager:
         def replace_default(match):
             var_name = match.group(1).strip()
             default = match.group(2).strip()
-            if var_name in available_variables:
+            # Since we don't have variables yet, preserve for later resolution
+            if available_variables and var_name in available_variables:
                 return "{" + var_name + "}"
+            elif not available_variables:  # First pass, preserve structure  
+                return f"[[{var_name}|{default}]]"
             return default
         
         template = re.sub(pattern_default, replace_default, template)
         
-        # Remove any remaining unmatched variables in curly braces that aren't available
-        # This prevents KeyError during template formatting
-        pattern_vars = r'\{([^}]+)\}'
-        found_vars = re.findall(pattern_vars, template)
-        for var in found_vars:
-            if var not in available_variables:
-                app_logger.debug(f"Removing unavailable variable from template: {var}")
-                # Replace with neutral placeholder
-                template = template.replace("{" + var + "}", "")
+        return template
+    
+    def _resolve_conditional_blocks(self, template: str, variables: Dict[str, Any]) -> str:
+        """
+        Resolve conditional blocks and defaults with actual variable values
+        
+        Handles:
+        - [[?var: "content"]] -> content if var exists, empty if not
+        - [[var|default]] -> {var} if var exists, default if not
+        """
+        import re
+        
+        # Handle conditional blocks: [[?var: "content"]]
+        pattern_conditional = r'\[\[\?([^:]+):\s*"([^"]+)"\]\]'
+        def replace_conditional(match):
+            var_name = match.group(1).strip()
+            content = match.group(2)
+            if var_name in variables:
+                app_logger.debug(f"Including conditional block for variable: {var_name}")
+                return content
+            else:
+                app_logger.debug(f"Excluding conditional block for missing variable: {var_name}")
+                return ""
+        
+        template = re.sub(pattern_conditional, replace_conditional, template)
+        
+        # Handle default values: [[var|default]]
+        pattern_default = r'\[\[([^|]+)\|([^]]+)\]\]'
+        def replace_default(match):
+            var_name = match.group(1).strip()
+            default = match.group(2).strip()
+            if var_name in variables:
+                app_logger.debug(f"Using variable {var_name} instead of default")
+                return "{" + var_name + "}"
+            else:
+                app_logger.debug(f"Using default value for missing variable {var_name}: {default}")
+                return default
+        
+        template = re.sub(pattern_default, replace_default, template)
         
         return template
+    
+    def _apply_variables_safely(self, template: str, variables: Dict[str, Any], template_name: str) -> str:
+        """
+        Apply variables to template with graceful error handling
+        
+        Uses LangChain PromptTemplate for safe variable substitution with fallback
+        """
+        try:
+            # Use LangChain PromptTemplate for safe variable substitution
+            langchain_template = PromptTemplate.from_template(template)
+            # Only pass variables that exist in the template
+            template_vars = langchain_template.input_variables
+            filtered_vars = {k: v for k, v in variables.items() if k in template_vars}
+            
+            formatted_result = langchain_template.format(**filtered_vars)
+            app_logger.info(f"Applied {len(filtered_vars)} variables to template: {template_name}")
+            return formatted_result
+            
+        except KeyError as ke:
+            app_logger.warning(f"Missing variable in template {template_name}: {ke}")
+            # Return template with missing variables left as placeholders
+            return template
+        except Exception as e:
+            app_logger.error(f"LangChain formatting failed for {template_name}: {e}")
+            # Fallback to simple string formatting
+            try:
+                return template.format(**variables)
+            except Exception as e2:
+                app_logger.error(f"Fallback formatting also failed for {template_name}: {e2}")
+                return template
+    
+    def _strip_remaining_mustache_tokens(self, template: str) -> str:
+        """
+        Strip any remaining {{...}} mustache tokens that weren't resolved
+        
+        This prevents configuration templates from reaching users by removing
+        any unresolved template variables before safety checks
+        """
+        import re
+        
+        # Pattern to match {{variable}} or {{variable.nested}}
+        mustache_pattern = r'\{\{[^}]+\}\}'
+        
+        # Find all matches for logging
+        matches = re.findall(mustache_pattern, template)
+        if matches:
+            app_logger.info(f"Stripping {len(matches)} remaining mustache tokens: {matches}")
+        
+        # Remove all mustache tokens
+        clean_template = re.sub(mustache_pattern, '', template)
+        
+        # Clean up any double spaces or extra whitespace left behind
+        clean_template = re.sub(r'\s+', ' ', clean_template)
+        clean_template = clean_template.strip()
+        
+        return clean_template
     
     def _get_context_from_name(self, template_name: str) -> str:
         """Extract context from template name for safety filtering"""
