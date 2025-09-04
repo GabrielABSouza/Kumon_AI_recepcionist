@@ -20,24 +20,49 @@ from ..core.state.models import ConversationStage
 class MessageEnvelope:
     """Standard message envelope for outbox pattern"""
     text: str
-    channel: Literal["web","app","whatsapp"]   # canais reais  
-    meta: Mapping[str, Any]
+    channel: Literal["web","app","whatsapp"] = "whatsapp"
+    meta: Dict[str, Any] = field(default_factory=dict)
+    idempotency_key: str = ""
+    
+    def __post_init__(self):
+        """Generate idempotency key if not provided"""
+        if not self.idempotency_key and self.text:
+            # Generate idempotency key from content hash
+            import hashlib
+            base = f'{self.text}|{self.channel}|{str(self.meta)}'
+            self.idempotency_key = hashlib.sha256(base.encode("utf-8")).hexdigest()[:16]
+        
+        # Validate text is not empty and doesn't contain template placeholders
+        if not self.text or not self.text.strip():
+            raise ValueError("MessageEnvelope text cannot be empty")
+        
+        if "{{" in self.text and "}}" in self.text:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"MessageEnvelope contains unresolved template: {self.text[:50]}...")
+            # Don't raise - normalize instead
+            self.text = self.text.replace("{{", "").replace("}}", "")
     
     def to_dict(self) -> Dict[str, Any]:
         """Serialize to dict for outbox storage"""
         return {
             "text": self.text,
             "channel": self.channel,
-            "meta": dict(self.meta)
+            "meta": dict(self.meta),
+            "idempotency_key": self.idempotency_key
         }
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "MessageEnvelope":
-        """Deserialize from dict"""
+        """Deserialize from dict with validation"""
+        if not data.get("text"):
+            raise ValueError("Invalid MessageEnvelope: text is required")
+            
         return cls(
             text=data["text"],
-            channel=data["channel"], 
-            meta=data.get("meta", {})
+            channel=data.get("channel", "whatsapp"), 
+            meta=data.get("meta", {}),
+            idempotency_key=data.get("idempotency_key", "")
         )
     
     def to_json(self) -> str:
@@ -250,6 +275,82 @@ def get_fallback_stage_for_missing_data(target_stage: ConversationStage) -> Conv
     return requirements.get("fallback_stage", ConversationStage.GREETING)
 
 
+# ========== STAGE/STEP SERIALIZATION ==========
+
+def serialize_stage_step(state_dict: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Serialize stage/step Enums to strings for persistence
+    
+    Args:
+        state_dict: State dictionary (not mutated)
+        
+    Returns:
+        New dictionary with stage/step as strings (Enum.value)
+    """
+    from ..core.state.models import ConversationStage, ConversationStep
+    
+    # Create copy to avoid mutation
+    serialized = state_dict.copy()
+    
+    # Serialize current_stage
+    if "current_stage" in serialized:
+        stage = serialized["current_stage"]
+        if isinstance(stage, ConversationStage):
+            serialized["current_stage"] = stage.value
+        elif hasattr(stage, 'value'):  # Any Enum
+            serialized["current_stage"] = stage.value
+    
+    # Serialize current_step
+    if "current_step" in serialized:
+        step = serialized["current_step"]
+        if isinstance(step, ConversationStep):
+            serialized["current_step"] = step.value
+        elif hasattr(step, 'value'):  # Any Enum
+            serialized["current_step"] = step.value
+    
+    return serialized
+
+
+def deserialize_stage_step(state_dict: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Deserialize stage/step strings to Enums for runtime usage
+    
+    Args:
+        state_dict: State dictionary from persistence (not mutated)
+        
+    Returns:
+        New dictionary with stage/step as Enum instances
+    """
+    from ..core.state.models import ConversationStage, ConversationStep
+    
+    # Create copy to avoid mutation
+    deserialized = state_dict.copy()
+    
+    # Deserialize current_stage
+    if "current_stage" in deserialized:
+        stage = deserialized["current_stage"]
+        if isinstance(stage, str):
+            try:
+                deserialized["current_stage"] = ConversationStage(stage)
+            except ValueError:
+                # Fallback for invalid stage values
+                deserialized["current_stage"] = ConversationStage.GREETING
+        # If already Enum, keep as-is
+    
+    # Deserialize current_step
+    if "current_step" in deserialized:
+        step = deserialized["current_step"]
+        if isinstance(step, str):
+            try:
+                deserialized["current_step"] = ConversationStep(step)
+            except ValueError:
+                # Fallback for invalid step values
+                deserialized["current_step"] = ConversationStep.WELCOME
+        # If already Enum, keep as-is
+    
+    return deserialized
+
+
 # ========== TYPE NORMALIZERS ==========
 
 def normalize_routing_decision(data: Dict[str, Any] | RoutingDecision) -> RoutingDecision:
@@ -289,3 +390,64 @@ def safe_get_payload(intent_result: IntentResult | Dict[str, Any]) -> Dict[str, 
         return intent_result.get("delivery_payload", {})
     else:
         return getattr(intent_result, "delivery_payload", {}) or {}
+
+
+# ========== OUTBOX UTILITY FUNCTIONS ==========
+
+def normalize_outbox_messages(obj) -> List[MessageEnvelope]:
+    """
+    Normalize mixed message formats to MessageEnvelope list
+    
+    Args:
+        obj: MessageEnvelope, dict, or list of mixed types
+        
+    Returns:
+        List[MessageEnvelope]: Validated message envelopes
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    if not obj:
+        return []
+    
+    # Single message
+    if isinstance(obj, MessageEnvelope):
+        return [obj]
+    elif isinstance(obj, dict):
+        try:
+            return [MessageEnvelope.from_dict(obj)]
+        except ValueError as e:
+            logger.warning(f"Invalid message dict ignored: {e}")
+            return []
+    
+    # List of messages
+    elif isinstance(obj, list):
+        envelopes = []
+        for item in obj:
+            try:
+                if isinstance(item, MessageEnvelope):
+                    envelopes.append(item)
+                elif isinstance(item, dict):
+                    envelopes.append(MessageEnvelope.from_dict(item))
+                else:
+                    logger.warning(f"Unknown message type ignored: {type(item)}")
+            except ValueError as e:
+                logger.warning(f"Invalid message ignored: {e}")
+        return envelopes
+    
+    else:
+        logger.warning(f"Unknown outbox object type: {type(obj)}")
+        return []
+
+
+def ensure_outbox(state: Dict[str, Any]) -> None:
+    """
+    Ensure state["outbox"] exists and is a list
+    
+    Args:
+        state: Conversation state (mutated in-place)
+    """
+    if "outbox" not in state:
+        state["outbox"] = []
+    elif not isinstance(state["outbox"], list):
+        state["outbox"] = []

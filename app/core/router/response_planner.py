@@ -7,7 +7,7 @@ from ...prompts.template_variables import template_variable_resolver
 from ...core.service_factory import get_langchain_rag_service
 from ...services.production_llm_service import ProductionLLMService
 from ..state.models import CeciliaState
-from ...workflows.contracts import RoutingDecision, MessageEnvelope
+from ...workflows.contracts import RoutingDecision, MessageEnvelope, ensure_outbox, normalize_outbox_messages
 from .smart_router_adapter import CoreRoutingDecision, routing_mode_from_decision, normalize_rd_obj
 
 logger = logging.getLogger(__name__)
@@ -136,6 +136,32 @@ class ResponsePlanner:
         """Gera resposta usando PromptManager (templates)"""
         # Determine template name based on stage + intent
         stage = state.get("current_stage", "unknown")
+        
+        # ENUM VALIDATION: Check if stage is proper Enum
+        from ..state.models import ConversationStage
+        if not isinstance(stage, ConversationStage):
+            logger.error(f"ResponsePlanner: current_stage should be ConversationStage enum, got {type(stage)} = {stage}")
+            
+            # Record telemetry violation
+            from ..telemetry.enum_metrics import record_stage_not_enum
+            session_id = state.get("session_id", "unknown")
+            record_stage_not_enum(
+                session_id=session_id,
+                actual_value=stage,
+                module_name="response_planner",
+                stack_hint="ResponsePlanner._generate_template"
+            )
+            
+            # Try to convert string to enum as fallback
+            if isinstance(stage, str) and stage != "unknown":
+                try:
+                    stage = ConversationStage(stage.lower())
+                    logger.warning(f"ResponsePlanner: converted string stage '{stage}' to enum")
+                except ValueError:
+                    logger.error(f"ResponsePlanner: invalid stage string '{stage}', using greeting fallback")
+                    stage = "greeting"  # Keep as string for template lookup
+            else:
+                stage = "greeting"  # Safe fallback for template lookup
         
         # Get intent from routing_info if available, otherwise derive from target_node
         routing_info = state.get("routing_info", {})
@@ -459,21 +485,58 @@ def response_planner_node(state: dict) -> dict:
     - NO IO operations (defer to Delivery)
     """
     
+    # Ensure outbox exists and add telemetry
+    ensure_outbox(state)
+    outbox_before = len(state["outbox"])
+    logger.info(f"planner_outbox_count_before: {outbox_before}")
+    
     rd = state.get("routing_decision")
     mode = routing_mode_from_decision(normalize_rd_obj(rd)) if rd else "fallback_l2"
     
-    state.setdefault("outbox", [])
+    try:
+        if mode == "template":
+            state = _plan_template(state, fallback_level=None)
+        elif mode == "llm_rag":
+            state = _plan_llm_rag(state)
+        elif mode == "handoff":
+            state = _plan_handoff(state)
+        elif mode == "fallback_l1":
+            state = _plan_template(state, fallback_level=1)
+        else:  # fallback_l2
+            state = _plan_template(state, fallback_level=2)
+        
+        # Post-planning telemetry
+        outbox_after = len(state["outbox"])
+        logger.info(f"planner_outbox_count_after: {outbox_after}")
+        
+        if outbox_after > 0:
+            first_item = state["outbox"][0]
+            logger.info(f"planner_first_item_type: {type(first_item).__name__}")
+            if isinstance(first_item, dict):
+                logger.info(f"planner_first_item_keys: {list(first_item.keys())}")
+                
+        # Validate no template placeholders remain
+        for i, msg in enumerate(state["outbox"]):
+            text = msg.get("text", "") if isinstance(msg, dict) else str(msg)
+            if "{{" in text and "}}" in text:
+                logger.warning(f"planner_template_placeholder_detected: message {i} contains {{...}}")
     
-    if mode == "template":
-        return _plan_template(state, fallback_level=None)
-    elif mode == "llm_rag":
-        return _plan_llm_rag(state)
-    elif mode == "handoff":
-        return _plan_handoff(state)
-    elif mode == "fallback_l1":
-        return _plan_template(state, fallback_level=1)
-    else:  # fallback_l2
-        return _plan_template(state, fallback_level=2)
+        return state
+        
+    except Exception as e:
+        logger.error(f"ResponsePlanner node failed: {e}", exc_info=True)
+        # Emergency fallback
+        envelope = MessageEnvelope(
+            text="Desculpe, houve um erro interno. Como posso ajudar?",
+            channel="whatsapp",
+            meta={"mode": "emergency_fallback", "error": str(e)}
+        )
+        state["outbox"].append(envelope.to_dict())
+        
+        outbox_after = len(state["outbox"])
+        logger.info(f"planner_outbox_count_after: {outbox_after} (emergency)")
+        
+        return state
 
 
 def _plan_template(state: dict, fallback_level: int | None):
@@ -495,14 +558,19 @@ def _plan_template(state: dict, fallback_level: int | None):
     # Render template
     text = render_template(template_name, state)
     
-    # Create MessageEnvelope and enqueue
-    env = MessageEnvelope(
+    # Create MessageEnvelope and enqueue using unified format
+    envelope = MessageEnvelope(
         text=text,
         channel=resolve_channel(state),
-        meta={"template_id": template_name, "fallback_level": fallback_level, "mode": "template"}
+        meta={
+            "template_id": template_name, 
+            "fallback_level": fallback_level, 
+            "mode": "template",
+            "source": "response_planner"
+        }
     )
     
-    state["outbox"].append(asdict(env))
+    state["outbox"].append(envelope.to_dict())
     return state
 
 
@@ -536,14 +604,18 @@ Responda brevemente sobre o método Kumon e como podemos ajudar.
         logger.warning(f"LLM generation failed: {e}")
         answer = "Obrigada pela pergunta! Para melhor esclarecimento, entre em contato: (51) 99692-1999"
     
-    # Create MessageEnvelope and enqueue
-    env = MessageEnvelope(
+    # Create MessageEnvelope and enqueue using unified format
+    envelope = MessageEnvelope(
         text=answer,
         channel=resolve_channel(state),
-        meta={"mode": "llm_rag", "llm_used": True}
+        meta={
+            "mode": "llm_rag", 
+            "llm_used": True,
+            "source": "response_planner"
+        }
     )
     
-    state["outbox"].append(asdict(env))
+    state["outbox"].append(envelope.to_dict())
     return state
 
 
@@ -557,12 +629,16 @@ def _plan_handoff(state: dict):
         "🕐 Segunda a Sexta, 8h às 18h"
     )
     
-    # Create MessageEnvelope and enqueue
-    env = MessageEnvelope(
+    # Create MessageEnvelope and enqueue using unified format
+    envelope = MessageEnvelope(
         text=handoff_text,
         channel=resolve_channel(state),
-        meta={"mode": "handoff", "escalated": True}
+        meta={
+            "mode": "handoff", 
+            "escalated": True,
+            "source": "response_planner"
+        }
     )
     
-    state["outbox"].append(asdict(env))
+    state["outbox"].append(envelope.to_dict())
     return state

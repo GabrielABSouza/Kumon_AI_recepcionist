@@ -15,8 +15,7 @@ import hashlib
 import logging
 from typing import Dict, Any
 from ...api.evolution import send_message
-from ...workflows.contracts import MessageEnvelope
-from .outbox_helpers import log_outbox_sanity_check, normalize_outbox_format
+from ...workflows.contracts import MessageEnvelope, ensure_outbox, normalize_outbox_messages
 
 logger = logging.getLogger(__name__)
 
@@ -89,48 +88,82 @@ def delivery_node(state: dict, *, max_batch: int = 10) -> dict:
         dict: Updated state with drained outbox
     """
     
-    # Pre-delivery sanity check and normalization
-    log_outbox_sanity_check(state, "pre-delivery")
-    normalize_outbox_format(state)
+    # Ensure outbox exists and add PRE-DELIVERY telemetry
+    ensure_outbox(state)
+    delivery_outbox_count_before = len(state["outbox"])
     
-    # Initialize outbox and tracking
-    q = deque(state.get("outbox", []))
+    logger.info(f"PRE-DELIVERY – Outbox contains {delivery_outbox_count_before} message(s)")
+    logger.info(f"delivery_outbox_count_before: {delivery_outbox_count_before}")
+    
+    if delivery_outbox_count_before > 0:
+        first_item = state["outbox"][0]
+        logger.info(f"delivery_first_item_type: {type(first_item).__name__}")
+        if isinstance(first_item, dict):
+            logger.info(f"delivery_first_item_keys: {list(first_item.keys())}")
+    else:
+        logger.warning("PRE-DELIVERY – EMPTY OUTBOX detected")
+        # Emergency fallback
+        envelope = MessageEnvelope(
+            text="Olá! Como posso ajudar?",
+            channel="whatsapp",
+            meta={"source": "delivery_emergency_fallback"}
+        )
+        state["outbox"].append(envelope.to_dict())
+        delivery_outbox_count_before = 1
+        logger.info(f"delivery_emergency_fallback_added: 1")
+    
+    # Convert outbox to MessageEnvelope objects using unified normalization
+    try:
+        envelopes = normalize_outbox_messages(state["outbox"])
+    except Exception as e:
+        logger.error(f"Outbox normalization failed: {e}")
+        envelopes = []
+    
+    # Clear outbox (will be repopulated with failed messages)
     state["outbox"] = []
     
+    # Initialize tracking
     emitted = []
+    failed = []
     seen = set(state.get("_emitted_ids", []))
+    idempotency_dedup_hits = 0
     
     try:
         processed = 0
-        while q and processed < max_batch:
-            msg = q.popleft()
+        for envelope in envelopes:
+            if processed >= max_batch:
+                # Re-queue unprocessed messages
+                remaining_envelopes = envelopes[processed:]
+                state["outbox"].extend([env.to_dict() for env in remaining_envelopes])
+                break
             
-            # Deduplication check
-            mid = _msg_id(msg)
-            if mid in seen:
-                logger.debug(f"Message already emitted, skipping: {mid}")
+            # Idempotency check
+            if envelope.idempotency_key in seen:
+                logger.debug(f"Message already emitted, skipping: {envelope.idempotency_key}")
+                idempotency_dedup_hits += 1
                 processed += 1
                 continue
             
             # Attempt emission
-            success = emit_to_channel(msg)
+            msg_dict = envelope.to_dict()
+            success = emit_to_channel(msg_dict)
             
             if success:
-                seen.add(mid)
-                emitted.append(msg)
-                logger.info(f"Message delivered successfully: {mid}")
+                seen.add(envelope.idempotency_key)
+                emitted.append(envelope)
+                logger.info(f"Message delivered successfully: {envelope.idempotency_key}")
             else:
-                # Re-queue failed message for retry
-                state["outbox"].append(msg)
-                logger.warning(f"Message delivery failed, re-queued: {mid}")
+                failed.append(envelope)
+                logger.warning(f"Message delivery failed: {envelope.idempotency_key}")
             
             processed += 1
             
     except Exception as e:
         logger.error(f"Delivery batch processing failed: {e}")
         
-        # Re-queue all remaining messages
-        state["outbox"] = list(q) + state["outbox"]
+        # Re-queue all unprocessed messages
+        remaining_envelopes = envelopes[processed:]
+        state["outbox"].extend([env.to_dict() for env in remaining_envelopes])
         
         # Set degraded status
         state["_delivery_status"] = {
@@ -139,27 +172,50 @@ def delivery_node(state: dict, *, max_batch: int = 10) -> dict:
             "error_message": str(e)
         }
         
+        logger.info(f"delivery_sent_count: 0")
+        logger.info(f"delivery_failed_count: {len(remaining_envelopes)}")
+        logger.info(f"idempotency_dedup_hits: {idempotency_dedup_hits}")
+        
         return state
+    
+    # Re-queue failed messages
+    state["outbox"].extend([env.to_dict() for env in failed])
     
     # Update state atomically
     if emitted:
         # Set last_bot_response to most recent message
-        state["last_bot_response"] = emitted[-1]["text"]
+        state["last_bot_response"] = emitted[-1].text
         
         # Store successful emission stats
         state["_delivery_status"] = {
             "status": "ok",
             "messages_emitted": len(emitted),
-            "batch_size": processed
+            "messages_failed": len(failed),
+            "batch_size": processed,
+            "deduplication_hits": idempotency_dedup_hits
+        }
+    else:
+        state["_delivery_status"] = {
+            "status": "no_messages",
+            "messages_failed": len(failed),
+            "deduplication_hits": idempotency_dedup_hits
         }
     
     # Persist emitted message IDs for deduplication
     state["_emitted_ids"] = list(seen)
     
-    logger.info(f"Delivery completed: {len(emitted)} messages sent, {len(state['outbox'])} queued")
+    # Final telemetry
+    delivery_sent_count = len(emitted)
+    delivery_queued_count = len(state["outbox"])
+    
+    logger.info(f"delivery_sent_count: {delivery_sent_count}")
+    logger.info(f"delivery_queued_count: {delivery_queued_count}")
+    logger.info(f"idempotency_dedup_hits: {idempotency_dedup_hits}")
+    
+    logger.info(f"Delivery completed: {delivery_sent_count} messages sent, {delivery_queued_count} queued")
     
     # Anti-loop fail-safe: If no messages were sent and outbox is empty, mark for termination
-    if len(emitted) == 0 and len(state["outbox"]) == 0:
+    if delivery_sent_count == 0 and delivery_queued_count == 0:
         logger.warning("No messages delivered and outbox empty - marking conversation for termination to prevent loops")
         state["should_end"] = True
         state["stop_reason"] = "no_delivery_content"

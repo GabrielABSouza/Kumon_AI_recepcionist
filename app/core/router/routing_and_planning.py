@@ -56,15 +56,26 @@ def routing_and_planning_node(state: Dict[str, Any]) -> Dict[str, Any]:
         logger.info(f"[SANITY] routing_decision.target_node: {routing_decision.get('target_node')}")
         logger.info(f"[SANITY] routing_decision.threshold_action: {routing_decision.get('threshold_action')}")
         
-        # Sanity check before sending to delivery
-        log_outbox_sanity_check(state, "post-planning")
+        # POST-PLANNING telemetry
+        outbox_count = len(state.get("outbox", []))
+        logger.info(f"POST-PLANNING – Outbox contains {outbox_count} message(s)")
         
-        # Validate outbox contains messages
-        outbox = state.get("outbox", [])
-        if len(outbox) == 0:
+        # Bridge telemetry for graph handoff tracking
+        logger.info(f"graph_bridge_outbox_count: {outbox_count}")
+        
+        if outbox_count == 0:
             logger.error("[SANITY] CRITICAL: Outbox is empty after planning - this will cause loops!")
+            # Emergency fallback using unified helpers
+            from ...workflows.contracts import MessageEnvelope
+            envelope = MessageEnvelope(
+                text="Olá! Como posso ajudar?",
+                channel="whatsapp",
+                meta={"source": "routing_planning_emergency"}
+            )
+            state["outbox"] = [envelope.to_dict()]
+            logger.info(f"graph_bridge_outbox_count: 1 (emergency)")
         else:
-            first_msg = outbox[0]
+            first_msg = state["outbox"][0]
             logger.info(f"[SANITY] First message type: {type(first_msg)}, keys: {list(first_msg.keys()) if isinstance(first_msg, dict) else 'N/A'}")
         
         return state

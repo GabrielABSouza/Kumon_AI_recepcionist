@@ -11,21 +11,9 @@ Provides consistent interface between routing_and_planning and delivery_io:
 
 import logging
 from typing import Dict, Any, List
-from dataclasses import dataclass, asdict
+from ...workflows.contracts import MessageEnvelope, ensure_outbox
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class MessageEnvelope:
-    """Standardized message format for outbox"""
-    text: str
-    channel: str = "whatsapp"  
-    meta: Dict[str, Any] = None
-    
-    def __post_init__(self):
-        if self.meta is None:
-            self.meta = {}
 
 
 def enqueue_message(state: Dict[str, Any], text: str, channel: str = "whatsapp", meta: Dict[str, Any] = None, source: str = "unknown") -> bool:
@@ -47,34 +35,38 @@ def enqueue_message(state: Dict[str, Any], text: str, channel: str = "whatsapp",
         logger.warning("Attempted to enqueue empty message, skipping")
         return False
     
-    # Ensure outbox exists
-    if "outbox" not in state:
-        state["outbox"] = []
+    # Ensure outbox exists using unified helper
+    ensure_outbox(state)
     
     # Create message envelope with source tracking
     envelope_meta = meta or {}
     envelope_meta["source"] = source
     
-    envelope = MessageEnvelope(
-        text=text.strip(),
-        channel=channel,
-        meta=envelope_meta
-    )
-    
-    # Convert to dict for consistent storage format
-    envelope_dict = asdict(envelope)
-    
-    # Deduplication check (optional - can be disabled for performance)
-    existing_texts = [msg.get("text", "") for msg in state["outbox"]]
-    if text.strip() in existing_texts:
-        logger.debug(f"Message already in outbox, skipping: {text[:50]}...")
+    try:
+        envelope = MessageEnvelope(
+            text=text.strip(),
+            channel=channel,
+            meta=envelope_meta
+        )
+        
+        # Convert to dict for consistent storage format
+        envelope_dict = envelope.to_dict()
+        
+        # Deduplication check (optional - can be disabled for performance)
+        existing_texts = [msg.get("text", "") for msg in state["outbox"]]
+        if text.strip() in existing_texts:
+            logger.debug(f"Message already in outbox, skipping: {text[:50]}...")
+            return False
+        
+        # Enqueue message
+        state["outbox"].append(envelope_dict)
+        
+        logger.debug(f"Message enqueued to outbox: {text[:50]}... (channel: {channel}, source: {source})")
+        return True
+        
+    except ValueError as e:
+        logger.warning(f"Invalid message envelope, skipping: {e}")
         return False
-    
-    # Enqueue message
-    state["outbox"].append(envelope_dict)
-    
-    logger.debug(f"Message enqueued to outbox: {text[:50]}... (channel: {channel}, source: {source})")
-    return True
 
 
 def enqueue_fallback_message(state: Dict[str, Any], reason: str = "unknown_error") -> bool:
@@ -167,23 +159,39 @@ def normalize_outbox_format(state: Dict[str, Any]) -> int:
             # If it's already a dict, validate required fields
             if isinstance(msg, dict):
                 if "text" in msg and msg["text"]:
-                    # Ensure standard fields exist
+                    # Ensure standard fields exist with idempotency_key
                     normalized_msg = {
                         "text": str(msg["text"]).strip(),
                         "channel": msg.get("channel", "whatsapp"),
-                        "meta": msg.get("meta", {})
+                        "meta": msg.get("meta", {}),
+                        "idempotency_key": msg.get("idempotency_key", "")
                     }
+                    # Generate idempotency_key if missing
+                    if not normalized_msg["idempotency_key"]:
+                        import hashlib
+                        base = f'{normalized_msg["text"]}|{normalized_msg["channel"]}|{str(normalized_msg["meta"])}'
+                        normalized_msg["idempotency_key"] = hashlib.sha256(base.encode("utf-8")).hexdigest()[:16]
+                    
                     normalized_outbox.append(normalized_msg)
                 else:
                     logger.warning("Removing invalid message from outbox: missing text")
             
             # If it's a MessageEnvelope object, convert to dict
             elif hasattr(msg, 'text'):
-                normalized_msg = asdict(msg)
-                if normalized_msg["text"]:
-                    normalized_outbox.append(normalized_msg)
-                else:
-                    logger.warning("Removing empty MessageEnvelope from outbox")
+                try:
+                    if hasattr(msg, 'to_dict'):
+                        normalized_msg = msg.to_dict()
+                    else:
+                        # Fallback for older MessageEnvelope objects
+                        from dataclasses import asdict
+                        normalized_msg = asdict(msg)
+                    
+                    if normalized_msg["text"]:
+                        normalized_outbox.append(normalized_msg)
+                    else:
+                        logger.warning("Removing empty MessageEnvelope from outbox")
+                except Exception as e:
+                    logger.warning(f"Error converting MessageEnvelope to dict: {e}")
             
             else:
                 logger.warning(f"Removing unknown message type from outbox: {type(msg)}")
