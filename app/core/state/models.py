@@ -149,6 +149,7 @@ class CeciliaState(TypedDict):
     conversation_id: str
     session_id: str
     channel: str
+    instance: str  # WhatsApp instance name (e.g., "kumon_assistant")
     
     # CONTROLE DE FLUXO (gerenciado pelo sistema)
     current_stage: ConversationStage
@@ -171,7 +172,7 @@ class CeciliaState(TypedDict):
 
 
 # ========== STATE UTILITIES ==========
-def create_initial_cecilia_state(phone_number: str, user_message: str = "", channel: str = "whatsapp") -> CeciliaState:
+def create_initial_cecilia_state(phone_number: str, user_message: str = "", channel: str = "whatsapp", instance: str = "") -> CeciliaState:
     """
     Create initial CeciliaState following state_solving.md
     
@@ -186,6 +187,7 @@ def create_initial_cecilia_state(phone_number: str, user_message: str = "", chan
         conversation_id=conversation_id,
         session_id=conversation_id,  # Usar conversation_id como session_id
         channel=channel,
+        instance=instance,  # WhatsApp instance from webhook
         
         # CONTROLE DE FLUXO (inicial neutro - StageResolver define o contexto)
         current_stage=ConversationStage.UNSET,

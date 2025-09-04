@@ -29,6 +29,28 @@ def _msg_id(msg: Dict[str, Any]) -> str:
     return hashlib.sha256(base.encode("utf-8")).hexdigest()[:16]
 
 
+def _resolve_whatsapp_instance(msg: Dict[str, Any], state: Dict[str, Any]) -> str:
+    """
+    Resolve WhatsApp instance using structured observability
+    
+    Delega para structured_logging.resolve_whatsapp_instance() que implementa:
+    - Hierarchy canônica completa
+    - Validação de padrões inválidos (thread_*, default)
+    - Logs estruturados INSTANCE_TRACE e INSTANCE_GUARD
+    
+    Args:
+        msg: Message dictionary with potential instance in meta
+        state: Conversation state with potential channel config
+        
+    Returns:
+        str: Resolved instance name or raises ValueError if none found
+    """
+    from ..observability.structured_logging import resolve_whatsapp_instance
+    
+    envelope_meta = msg.get("meta", {})
+    return resolve_whatsapp_instance(envelope_meta, state)
+
+
 async def emit_to_channel(msg: Dict[str, Any], state: Dict[str, Any]) -> bool:
     """
     Emit message to appropriate channel with proper async/await
@@ -50,8 +72,26 @@ async def emit_to_channel(msg: Dict[str, Any], state: Dict[str, Any]) -> bool:
             
         if channel == "whatsapp":
             # Use existing Evolution API integration with proper await
-            phone_number = state.get("phone_number", "default")
-            instance_name = state.get("instance_name", "default")
+            phone_number = state.get("phone_number")
+            if not phone_number:
+                logger.error("Missing phone_number in state for WhatsApp delivery")
+                return False
+            
+            # Resolve instance using proper hierarchy with observability and guards
+            try:
+                instance_name = _resolve_whatsapp_instance(msg, state)
+                
+                # Critical guard: Instance pattern validation
+                from ..observability.handoff_guards import guard_instance_pattern
+                guard_instance_pattern(instance_name, state)
+                
+            except (ValueError, Exception) as e:
+                logger.error(f"WhatsApp delivery failed: {e}")
+                return False
+            
+            # Structured logging - DELIVERY_TRACE send action
+            from ..observability.structured_logging import log_delivery_trace_send, log_delivery_trace_result
+            log_delivery_trace_send(instance_name, phone_number, state)
             
             result = await send_message(
                 phone_number=phone_number,
@@ -59,8 +99,13 @@ async def emit_to_channel(msg: Dict[str, Any], state: Dict[str, Any]) -> bool:
                 instance_name=instance_name
             )
             
-            # Check if result indicates success
+            # Check if result indicates success and log structured result
             success = bool(result and result.get("status") != "error")
+            http_code = result.get("http_status") if result else None
+            status = "success" if success else "failed"
+            
+            log_delivery_trace_result(status, http_code, instance_name, state)
+            
             if success:
                 logger.info(f"WhatsApp message sent successfully to {phone_number}: {text[:50]}...")
             else:
@@ -101,8 +146,18 @@ async def delivery_node(state: dict, *, max_batch: int = 10) -> dict:
         dict: Updated state with drained outbox
     """
     
-    # Ensure outbox exists and add PRE-DELIVERY telemetry
+    # Ensure outbox exists and add structured PRE-DELIVERY telemetry
     ensure_outbox(state)
+    
+    # Structured logging - OUTBOX_TRACE delivery phase  
+    from ..observability.structured_logging import log_outbox_trace
+    from ..observability.handoff_guards import guard_state_reference_integrity
+    
+    log_outbox_trace("delivery", state)
+    
+    # Critical guard: State reference integrity
+    guard_state_reference_integrity(state, "pre_delivery")
+    
     delivery_outbox_count_before = len(state[OUTBOX_KEY])
     
     logger.info(f"PRE-DELIVERY – Outbox contains {delivery_outbox_count_before} message(s)")
@@ -227,7 +282,7 @@ async def delivery_node(state: dict, *, max_batch: int = 10) -> dict:
     # Persist emitted message IDs for deduplication
     state["_emitted_ids"] = list(seen)
     
-    # Final telemetry
+    # Final telemetry with guard-rails integration
     delivery_sent_count = len(emitted)
     delivery_queued_count = len(state[OUTBOX_KEY])
     
@@ -236,6 +291,19 @@ async def delivery_node(state: dict, *, max_batch: int = 10) -> dict:
     logger.info(f"idempotency_dedup_hits: {idempotency_dedup_hits}")
     
     logger.info(f"Delivery completed: {delivery_sent_count} messages sent, {delivery_queued_count} queued")
+    
+    # Guard-rails integration - track delivery metrics
+    from ..observability.metrics_guard_rails import log_outbox_handoff
+    
+    log_outbox_handoff(
+        planner_count_before=0,  # Will be provided by planner
+        planner_count_after=delivery_outbox_count_before,
+        delivery_count_before=delivery_outbox_count_before,
+        delivery_sent=delivery_sent_count,
+        delivery_failed=len(failed),
+        phone_number=state.get("phone_number", "unknown"),
+        instance=state.get("instance", "unknown")
+    )
     
     # Enhanced anti-loop fail-safe with emergency session tracking
     emergency_fallbacks = state.get("_emergency_fallback_count", 0)

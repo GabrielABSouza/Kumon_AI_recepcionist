@@ -11,7 +11,7 @@ Provides consistent interface between routing_and_planning and delivery_io:
 
 import logging
 from typing import Dict, Any, List
-from ...workflows.contracts import MessageEnvelope, ensure_outbox
+from ...workflows.contracts import MessageEnvelope, ensure_outbox, OUTBOX_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -53,13 +53,13 @@ def enqueue_message(state: Dict[str, Any], text: str, channel: str = "whatsapp",
         envelope_dict = envelope.to_dict()
         
         # Deduplication check (optional - can be disabled for performance)
-        existing_texts = [msg.get("text", "") for msg in state["outbox"]]
+        existing_texts = [msg.get("text", "") for msg in state[OUTBOX_KEY]]
         if text.strip() in existing_texts:
             logger.debug(f"Message already in outbox, skipping: {text[:50]}...")
             return False
         
         # Enqueue message
-        state["outbox"].append(envelope_dict)
+        state[OUTBOX_KEY].append(envelope_dict)
         
         logger.debug(f"Message enqueued to outbox: {text[:50]}... (channel: {channel}, source: {source})")
         return True
@@ -109,7 +109,7 @@ def log_outbox_sanity_check(state: Dict[str, Any], operation: str = "pre-deliver
         operation: Which operation is calling this (pre-delivery, post-planning, etc.)
     """
     
-    outbox = state.get("outbox", [])
+    outbox = state.get(OUTBOX_KEY, [])
     
     logger.info(f"[SANITY] {operation.upper()} - Outbox contains {len(outbox)} message(s)")
     
@@ -147,14 +147,14 @@ def normalize_outbox_format(state: Dict[str, Any]) -> int:
         int: Number of messages normalized/removed
     """
     
-    if "outbox" not in state:
-        state["outbox"] = []
+    if OUTBOX_KEY not in state:
+        state[OUTBOX_KEY] = []
         return 0
     
-    original_count = len(state["outbox"])
+    original_count = len(state[OUTBOX_KEY])
     normalized_outbox = []
     
-    for msg in state["outbox"]:
+    for msg in state[OUTBOX_KEY]:
         try:
             # If it's already a dict, validate required fields
             if isinstance(msg, dict):
@@ -199,7 +199,7 @@ def normalize_outbox_format(state: Dict[str, Any]) -> int:
         except Exception as e:
             logger.warning(f"Error normalizing outbox message, removing: {e}")
     
-    state["outbox"] = normalized_outbox
+    state[OUTBOX_KEY] = normalized_outbox
     removed_count = original_count - len(normalized_outbox)
     
     if removed_count > 0:

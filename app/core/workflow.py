@@ -491,6 +491,7 @@ class CeciliaWorkflow:
         self, 
         phone_number: str, 
         user_message: str,
+        instance: Optional[str] = None,
         thread_id: Optional[str] = None,
         use_orchestrator: bool = True
     ) -> Dict[str, Any]:
@@ -509,16 +510,17 @@ class CeciliaWorkflow:
         
         # Option 1: Use orchestrator coordination (recommended)
         if use_orchestrator:
-            return await self._process_message_orchestrated(phone_number, user_message, thread_id)
+            return await self._process_message_orchestrated(phone_number, user_message, instance, thread_id)
         
         # Option 2: Direct LangGraph execution (legacy)
         else:
-            return await self._process_message_internal(phone_number, user_message, thread_id)
+            return await self._process_message_internal(phone_number, user_message, instance, thread_id)
     
     async def _process_message_orchestrated(
         self, 
         phone_number: str, 
         user_message: str,
+        instance: Optional[str] = None,
         thread_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
@@ -617,6 +619,7 @@ class CeciliaWorkflow:
         self, 
         phone_number: str, 
         user_message: str,
+        instance: Optional[str] = None,
         thread_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
@@ -671,7 +674,7 @@ class CeciliaWorkflow:
                 # Create new CeciliaState if no existing state found
                 if not existing_state:
                     logger.info(f"🆕 Creating new CeciliaState for {phone_number}")
-                    existing_state = create_initial_cecilia_state(phone_number, user_message)
+                    existing_state = create_initial_cecilia_state(phone_number, user_message, instance=instance or "")
                     session_id = existing_state["conversation_id"]
                     logger.info(f"✅ Created new CeciliaState session: {session_id}")
                     
@@ -690,7 +693,7 @@ class CeciliaWorkflow:
                 logger.error(f"🚨 CeciliaState management failed for {phone_number}: {state_error}")
                 logger.error(f"Error details: {type(state_error).__name__}: {str(state_error)}")
                 # Create minimal fallback state
-                existing_state = create_initial_cecilia_state(phone_number, user_message)
+                existing_state = create_initial_cecilia_state(phone_number, user_message, instance=instance or "")
                 session_id = existing_state["conversation_id"]
                 
                 # Apply StageResolver to fallback state too

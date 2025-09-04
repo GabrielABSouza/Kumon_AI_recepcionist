@@ -462,7 +462,7 @@ def plan_response(state: dict, routing_decision: dict = None) -> dict:
     }
     
     # Convert outbox messages to delivery_payload format for backward compatibility
-    outbox = updated_state.get("outbox", [])
+    outbox = updated_state.get(OUTBOX_KEY, [])
     for msg in outbox:
         if isinstance(msg, dict) and "text" in msg:
             intent_result["delivery_payload"]["messages"].append({
@@ -485,8 +485,13 @@ def response_planner_node(state: dict) -> dict:
     - NO IO operations (defer to Delivery)
     """
     
-    # Ensure outbox exists and add telemetry
+    # Ensure outbox exists and add structured telemetry
     ensure_outbox(state)
+    
+    # Structured logging - OUTBOX_TRACE planner phase
+    from ..observability.structured_logging import log_outbox_trace
+    log_outbox_trace("planner", state)
+    
     outbox_before = len(state[OUTBOX_KEY])
     logger.info(f"planner_outbox_count_before: {outbox_before}")
     
@@ -505,8 +510,9 @@ def response_planner_node(state: dict) -> dict:
         else:  # fallback_l2
             state = _plan_template(state, fallback_level=2)
         
-        # Post-planning telemetry
+        # Post-planning structured telemetry
         outbox_after = len(state[OUTBOX_KEY])
+        log_outbox_trace("planner", state)  # Second trace for after-planning state
         logger.info(f"planner_outbox_count_after: {outbox_after}")
         
         if outbox_after > 0:
@@ -529,7 +535,11 @@ def response_planner_node(state: dict) -> dict:
         envelope = MessageEnvelope(
             text="Desculpe, houve um erro interno. Como posso ajudar?",
             channel="whatsapp",
-            meta={"mode": "emergency_fallback", "error": str(e)}
+            meta={
+                "mode": "emergency_fallback", 
+                "error": str(e),
+                "instance": state.get("instance", "") if isinstance(state, dict) else ""
+            }
         )
         state[OUTBOX_KEY].append(envelope.to_dict())
         
@@ -566,7 +576,8 @@ def _plan_template(state: dict, fallback_level: int | None):
             "template_id": template_name, 
             "fallback_level": fallback_level, 
             "mode": "template",
-            "source": "response_planner"
+            "source": "response_planner",
+            "instance": state.get("instance", "")  # Include instance from state
         }
     )
     
@@ -611,7 +622,8 @@ Responda brevemente sobre o método Kumon e como podemos ajudar.
         meta={
             "mode": "llm_rag", 
             "llm_used": True,
-            "source": "response_planner"
+            "source": "response_planner",
+            "instance": state.get("instance", "")  # Include instance from state
         }
     )
     
@@ -636,7 +648,8 @@ def _plan_handoff(state: dict):
         meta={
             "mode": "handoff", 
             "escalated": True,
-            "source": "response_planner"
+            "source": "response_planner",
+            "instance": state.get("instance", "")  # Include instance from state
         }
     )
     

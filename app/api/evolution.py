@@ -611,15 +611,22 @@ async def send_message(phone_number: str, message: str, instance_name: str = Non
     Args:
         phone_number: Target phone number
         message: Message text to send
-        instance_name: WhatsApp instance name (defaults to settings default)
+        instance_name: WhatsApp instance name (REQUIRED - no fallback to \"default\")
     
     Returns:
         Dict with status and result information
     """
     try:
-        # Use default instance if not specified
+        # CRITICAL: Never use "default" - require explicit instance
         if not instance_name:
-            instance_name = getattr(settings, 'DEFAULT_WHATSAPP_INSTANCE', 'default')
+            error_msg = "WhatsApp instance is required - no fallback to 'default' allowed"
+            app_logger.error(f"send_message failed for {phone_number}: {error_msg}")
+            return {
+                "status": "error",
+                "error": error_msg,
+                "phone": phone_number,
+                "instance": None
+            }
         
         # Send message via Evolution API client
         result = await evolution_api_client.send_text_message(
@@ -829,6 +836,7 @@ async def process_message_background(message: WhatsAppMessage, headers: Optional
             workflow_result = await get_cecilia_workflow().process_message(
                 phone_number=final_message.phone,
                 user_message=final_message.message,
+                instance=final_message.instance,  # Pass instance information!
             )
 
             # DeliveryService handles ALL message sending - Evolution API only processes workflow

@@ -90,11 +90,23 @@ class TemplateSafetySystemV2:
             
         # Step 3: Ensure no mustache variables in final output
         clean_text = self._strip_mustache_variables(text)
-        if clean_text != text:
+        tokens_stripped = clean_text != text
+        if tokens_stripped:
             self.mustache_stripped_count += 1
             result["text"] = clean_text
             result["meta"]["mustache_stripped"] = True
             app_logger.info(f"Mustache variables stripped from template output")
+        
+        # Guard-rails integration - track template safety metrics
+        from ..observability.metrics_guard_rails import track_template_safety
+        
+        track_template_safety(
+            config_blocked=result["meta"].get("original_blocked", False),
+            fallback_used=result["fallback_used"],
+            tokens_stripped=tokens_stripped,
+            template_key=str(template_key) if template_key else None,
+            context={"safety_method": result["meta"].get("safety_method", "none")}
+        )
         
         return result
     
@@ -181,9 +193,12 @@ class TemplateSafetySystemV2:
         return {"safe": True, "text": text, "reason": "", "fallback_used": False, "meta": {"safety_method": "pattern_matching"}}
     
     def _strip_mustache_variables(self, text: str) -> str:
-        """Strip any remaining mustache variables from final output"""
-        # Remove {{...}} patterns
+        """Strip any remaining mustache variables and ALL_CAPS tokens from final output"""
+        # Remove {{...}} patterns (mustache)
         clean_text = re.sub(r'\{\{[^}]+\}\}', '', text)
+        
+        # Remove {ALL_CAPS} tokens as specified by user requirements
+        clean_text = re.sub(r'\{[A-Z_]+\}', '', clean_text)
         
         # Clean up any resulting extra whitespace
         clean_text = re.sub(r'\n\s*\n\s*\n', '\n\n', clean_text)

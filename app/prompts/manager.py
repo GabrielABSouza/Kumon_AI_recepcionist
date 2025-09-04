@@ -25,7 +25,7 @@ from langchain.prompts import PromptTemplate
 
 from ..core.config import settings
 from ..core.logger import app_logger
-from ..core.safety.template_safety import ensure_safe_template
+from ..core.safety.template_safety_v2 import check_and_sanitize as check_and_sanitize_v2
 from .template_variables import template_variable_resolver
 
 
@@ -127,9 +127,8 @@ class PromptManager:
         # Step 4: Strip any remaining {{...}} mustache tokens that weren't resolved
         clean_template = self._strip_remaining_mustache_tokens(formatted_template)
         
-        # Step 5: CRITICAL - Apply safety check using new fail-soft system
-        from ..core.safety.template_safety import check_and_sanitize
-        safety_result = check_and_sanitize(clean_template, self._get_context_from_name(name))
+        # Step 5: CRITICAL - Apply safety check using V2 fail-soft system with front-matter priority
+        safety_result = check_and_sanitize_v2(clean_template, template_key=name, context=self._get_context_from_name(name))
         
         # Step 6: Return final rendered template (always safe due to fail-soft)
         return safety_result["text"]

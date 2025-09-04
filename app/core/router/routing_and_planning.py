@@ -15,6 +15,7 @@ Responsibilities:
 import logging
 from typing import Dict, Any
 from .outbox_helpers import enqueue_message, enqueue_fallback_message, log_outbox_sanity_check
+from ...workflows.contracts import OUTBOX_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,7 @@ def routing_and_planning_node(state: Dict[str, Any]) -> Dict[str, Any]:
         logger.info(f"[SANITY] routing_decision.threshold_action: {routing_decision.get('threshold_action')}")
         
         # POST-PLANNING telemetry
-        outbox_count = len(state.get("outbox", []))
+        outbox_count = len(state.get(OUTBOX_KEY, []))
         logger.info(f"POST-PLANNING – Outbox contains {outbox_count} message(s)")
         
         # Bridge telemetry for graph handoff tracking
@@ -72,10 +73,10 @@ def routing_and_planning_node(state: Dict[str, Any]) -> Dict[str, Any]:
                 channel="whatsapp",
                 meta={"source": "routing_planning_emergency"}
             )
-            state["outbox"] = [envelope.to_dict()]
+            state[OUTBOX_KEY] = [envelope.to_dict()]
             logger.info(f"graph_bridge_outbox_count: 1 (emergency)")
         else:
-            first_msg = state["outbox"][0]
+            first_msg = state[OUTBOX_KEY][0]
             logger.info(f"[SANITY] First message type: {type(first_msg)}, keys: {list(first_msg.keys()) if isinstance(first_msg, dict) else 'N/A'}")
         
         return state

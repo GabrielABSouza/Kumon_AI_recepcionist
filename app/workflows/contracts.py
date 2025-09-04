@@ -444,14 +444,24 @@ def normalize_outbox_messages(obj) -> List[MessageEnvelope]:
         return []
 
 
-def ensure_outbox(state: Dict[str, Any]) -> None:
+def ensure_outbox(state: Dict[str, Any]) -> list:
     """
-    Ensure state[OUTBOX_KEY] exists and is a list
+    Ensure state[OUTBOX_KEY] exists and is a list - returns same reference
+    
+    CRITICAL: Always returns the same list object for reference consistency
+    across Planner → Delivery hand-off. Never creates new instances.
     
     Args:
         state: Conversation state (mutated in-place)
+        
+    Returns:
+        list: The same list reference that exists in state[OUTBOX_KEY]
     """
     if OUTBOX_KEY not in state:
         state[OUTBOX_KEY] = []
     elif not isinstance(state[OUTBOX_KEY], list):
+        # Force replace with empty list if wrong type
         state[OUTBOX_KEY] = []
+    
+    # Always return the exact same list reference from state
+    return state[OUTBOX_KEY]
