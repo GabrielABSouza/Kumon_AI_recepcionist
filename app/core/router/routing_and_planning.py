@@ -52,8 +52,20 @@ def routing_and_planning_node(state: Dict[str, Any]) -> Dict[str, Any]:
         
         logger.info(f"[ACTION] ResponsePlanner enqueued {messages_enqueued} message(s) to outbox")
         
+        # Detailed sanity logging
+        logger.info(f"[SANITY] routing_decision.target_node: {routing_decision.get('target_node')}")
+        logger.info(f"[SANITY] routing_decision.threshold_action: {routing_decision.get('threshold_action')}")
+        
         # Sanity check before sending to delivery
         log_outbox_sanity_check(state, "post-planning")
+        
+        # Validate outbox contains messages
+        outbox = state.get("outbox", [])
+        if len(outbox) == 0:
+            logger.error("[SANITY] CRITICAL: Outbox is empty after planning - this will cause loops!")
+        else:
+            first_msg = outbox[0]
+            logger.info(f"[SANITY] First message type: {type(first_msg)}, keys: {list(first_msg.keys()) if isinstance(first_msg, dict) else 'N/A'}")
         
         return state
         
@@ -117,14 +129,16 @@ def _generate_response_plan(state: Dict[str, Any], routing_decision: Dict[str, A
         dict: intent_result with delivery_payload
     """
     
-    from ...services.response_planner import response_planner
+    from ..router.response_planner import plan_response
     
     try:
-        # Generate response plan
-        intent_result = response_planner.plan_response(
+        # Generate response plan using canonical API
+        intent_result = plan_response(
             state=state,
             routing_decision=routing_decision
         )
+        
+        logger.info(f"[PLANNER] strategy={intent_result.get('routing_mode', 'unknown')} → intent_result persisted")
         
         return intent_result
         
@@ -167,9 +181,9 @@ def _enqueue_messages(state: Dict[str, Any], intent_result: Dict[str, Any]) -> i
                 channel=msg.get("channel", "whatsapp"),
                 meta={
                     "type": msg.get("type", "text"),
-                    "source": "response_planner",
                     "routing_decision": state.get("routing_decision", {}).get("target_node", "unknown")
-                }
+                },
+                source="response_planner"
             )
             
             if success:

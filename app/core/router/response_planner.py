@@ -406,6 +406,48 @@ def render_template(template_name: str, state: Dict[str, Any]) -> str:
         return f"Obrigada pelo contato! Para atendimento, ligue (51) 99692-1999."
 
 
+def plan_response(state: dict, routing_decision: dict = None) -> dict:
+    """
+    Main API for ResponsePlanner - generates response and enqueues to outbox
+    
+    Args:
+        state: Conversation state
+        routing_decision: Optional routing decision (uses state["routing_decision"] if not provided)
+        
+    Returns:
+        dict: Intent result with delivery_payload
+    """
+    
+    # Use provided routing_decision or get from state
+    if routing_decision:
+        state["routing_decision"] = routing_decision
+    
+    # Call the node implementation
+    updated_state = response_planner_node(state)
+    
+    # Extract intent result for routing_and_planning compatibility
+    intent_result = {
+        "delivery_payload": {
+            "messages": []
+        },
+        "planned_response": updated_state.get("planned_response", ""),
+        "response_metadata": updated_state.get("response_metadata", {}),
+        "routing_mode": updated_state.get("response_metadata", {}).get("mode", "unknown")
+    }
+    
+    # Convert outbox messages to delivery_payload format for backward compatibility
+    outbox = updated_state.get("outbox", [])
+    for msg in outbox:
+        if isinstance(msg, dict) and "text" in msg:
+            intent_result["delivery_payload"]["messages"].append({
+                "text": msg["text"],
+                "type": msg.get("meta", {}).get("type", "text"),
+                "channel": msg.get("channel", "whatsapp")
+            })
+    
+    return intent_result
+
+
 def response_planner_node(state: dict) -> dict:
     """
     ResponsePlanner Node - Action façade que enfileira MessageEnvelope

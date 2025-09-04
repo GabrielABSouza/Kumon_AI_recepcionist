@@ -28,7 +28,7 @@ class MessageEnvelope:
             self.meta = {}
 
 
-def enqueue_message(state: Dict[str, Any], text: str, channel: str = "whatsapp", meta: Dict[str, Any] = None) -> bool:
+def enqueue_message(state: Dict[str, Any], text: str, channel: str = "whatsapp", meta: Dict[str, Any] = None, source: str = "unknown") -> bool:
     """
     Unified message enqueueing with validation and deduplication
     
@@ -37,6 +37,7 @@ def enqueue_message(state: Dict[str, Any], text: str, channel: str = "whatsapp",
         text: Message text content
         channel: Delivery channel (whatsapp, web, app)
         meta: Additional metadata
+        source: Source component (for debugging)
         
     Returns:
         bool: True if message was enqueued, False if skipped/invalid
@@ -50,11 +51,14 @@ def enqueue_message(state: Dict[str, Any], text: str, channel: str = "whatsapp",
     if "outbox" not in state:
         state["outbox"] = []
     
-    # Create message envelope
+    # Create message envelope with source tracking
+    envelope_meta = meta or {}
+    envelope_meta["source"] = source
+    
     envelope = MessageEnvelope(
         text=text.strip(),
         channel=channel,
-        meta=meta or {}
+        meta=envelope_meta
     )
     
     # Convert to dict for consistent storage format
@@ -69,7 +73,7 @@ def enqueue_message(state: Dict[str, Any], text: str, channel: str = "whatsapp",
     # Enqueue message
     state["outbox"].append(envelope_dict)
     
-    logger.debug(f"Message enqueued to outbox: {text[:50]}... (channel: {channel})")
+    logger.debug(f"Message enqueued to outbox: {text[:50]}... (channel: {channel}, source: {source})")
     return True
 
 
