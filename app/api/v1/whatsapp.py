@@ -88,15 +88,14 @@ async def handle_webhook(webhook_data: WhatsAppWebhook):
 @router.post("/webhook/evolution")
 async def handle_evolution_webhook(request: Request):
     """
-    Handle incoming Evolution API webhook with complete Pipeline Orchestrator integration
-    PHASE 2 WAVE 2.1: Complete end-to-end pipeline with <3s response time target
-
-    Pipeline Flow: Evolution API → Pipeline Orchestrator → Evolution API Response
-    - Message Preprocessor (input sanitization, rate limiting, business hours)
-    - Business Rules Engine (pricing, qualification, handoff triggers)
-    - LangGraph Orchestrator (conversation workflow)
-    - Message Postprocessor (response formatting, calendar integration)
-    - Evolution API Delivery (message delivery with tracking)
+    UPDATED: TurnController-based Evolution webhook handler
+    
+    Arquitetura mínima: TurnController → Planner → Delivery
+    - TurnController: agrega mensagens + debounce + 1 chamada por turno
+    - Pipeline existente: mantém compatibilidade com preprocessor + orchestrator
+    - Evita múltiplas respostas para rajadas de mensagens
+    
+    Flow: Evolution → TurnController → [Planner → Delivery] (se dono do lock)
     """
     try:
         webhook_data = await request.json()
@@ -104,18 +103,6 @@ async def handle_evolution_webhook(request: Request):
 
         # Security-safe webhook logging
         app_logger.info(f"🔍 Evolution API webhook received from {headers.get('host', 'unknown')}")
-        app_logger.debug(
-            f"Request contains {len(headers)} headers, {len([k for k in headers.keys() if any(kw in k.lower() for kw in ['auth', 'api', 'key'])])} auth-related"
-        )
-
-        app_logger.info(
-            "Evolution API webhook received - Phase 2 Pipeline Integration",
-            extra={
-                "has_data": bool(webhook_data),
-                "headers_count": len(headers),
-                "pipeline_version": "2.1",
-            },
-        )
 
         # Parse Evolution API webhook message
         from app.clients.evolution_api import evolution_api_client
@@ -126,15 +113,75 @@ async def handle_evolution_webhook(request: Request):
             app_logger.debug("No message found in webhook data")
             return {"status": "ignored", "reason": "no_message"}
 
-        # CLEAN ARCHITECTURE: MessagePreprocessor FIRST, then Orchestrator
-        app_logger.info("🔧 Processing through clean MessagePreprocessor")
-
-        # Process through MessagePreprocessor with comprehensive error handling
-        preprocessing_start = datetime.now()
-        try:
-            preprocessor_result = await message_preprocessor.process_message(
-                parsed_message, headers
+        # **NEW**: TurnController integration - aggregate messages + debounce
+        from app.core.turn_controller import append_user_message, flush_turn_if_quiet, turn_lock, _now_ms
+        from app.services.redis_client import get_redis_client
+        
+        phone_number = parsed_message.phone
+        message_id = parsed_message.message_id
+        message_text = parsed_message.message
+        current_ts = _now_ms()
+        
+        # Get Redis connection for TurnController
+        redis_cache = get_redis_client()
+        
+        # Step 1: Always append user message to buffer
+        append_user_message(redis_cache, phone_number, message_id, message_text, current_ts)
+        
+        # Step 2: Try to acquire turn lock and process if ready
+        with turn_lock(redis_cache, phone_number) as i_hold_the_lock:
+            # Everyone checks if turn is ready, but only lock holder processes
+            turn_batch = flush_turn_if_quiet(redis_cache, phone_number, current_ts)
+            
+            if not turn_batch:
+                # Still in debounce window - wait for more messages
+                app_logger.info(
+                    f"TURN_CONTROLLER|waiting_debounce|phone={phone_number[-4:]}|"
+                    f"lock_held={i_hold_the_lock}"
+                )
+                return {"status": "batching", "message": "Message added to turn batch"}
+            
+            # Turn is ready to process
+            if not i_hold_the_lock:
+                # Someone else is processing this turn
+                app_logger.info(
+                    f"TURN_CONTROLLER|concurrent_processing|phone={phone_number[-4:]}|"
+                    f"turn={turn_batch['turn_id']}"
+                )
+                return {"status": "concurrent", "message": "Turn being processed by another instance"}
+            
+            # I have the lock - process the turn through existing pipeline
+            app_logger.info(
+                f"TURN_CONTROLLER|processing_turn|phone={phone_number[-4:]}|"
+                f"turn={turn_batch['turn_id']}|msg_count={turn_batch['message_count']}|"
+                f"text_len={len(turn_batch['text'])}"
             )
+            
+            # Use aggregated text instead of single message
+            aggregated_message = parsed_message._replace(
+                message=turn_batch['text'],
+                message_id=turn_batch['turn_id'],  # Use turn_id as message_id
+            )
+            
+            # Add turn context to prevent pipeline bypass
+            turn_context = {
+                "turn_id": turn_batch["turn_id"],
+                "turn_message_count": turn_batch["message_count"],
+                "turn_span_ms": turn_batch["span_ms"],
+                "turn_controlled": True
+            }
+            
+            # Continue with existing pipeline logic but use aggregated message
+            
+            # CLEAN ARCHITECTURE: MessagePreprocessor FIRST, then Orchestrator
+            app_logger.info("🔧 Processing through clean MessagePreprocessor")
+
+            # Process through MessagePreprocessor with comprehensive error handling
+            preprocessing_start = datetime.now()
+            try:
+                preprocessor_result = await message_preprocessor.process_message(
+                    aggregated_message, headers  # Use aggregated message instead of single
+                )
 
             preprocessing_time = (datetime.now() - preprocessing_start).total_seconds() * 1000
 
@@ -145,14 +192,16 @@ async def handle_evolution_webhook(request: Request):
                     "processing_time_ms": preprocessing_time,
                     "rate_limited": preprocessor_result.rate_limited,
                     "error_code": preprocessor_result.error_code,
-                    "phone": parsed_message.phone,
+                    "phone": aggregated_message.phone,
+                    "turn_controlled": True,
+                    "turn_id": turn_context.get("turn_id"),
                 },
             )
 
             # Handle preprocessing failures
             if not preprocessor_result.success:
                 app_logger.warning(
-                    f"MessagePreprocessor failed for {parsed_message.phone}: {preprocessor_result.error_code}"
+                    f"MessagePreprocessor failed for {aggregated_message.phone}: {preprocessor_result.error_code}"
                 )
 
                 # Return appropriate error response based on preprocessor result
@@ -186,12 +235,18 @@ async def handle_evolution_webhook(request: Request):
             # Initialize pipeline orchestrator if needed
             await pipeline_orchestrator.initialize()
 
-            # Execute pipeline with PREPROCESSED message
+            # Execute pipeline with PREPROCESSED message + turn context
+            # Add turn context to message for downstream processing
+            preprocessed_with_context = preprocessor_result.message._replace(
+                message_id=turn_context["turn_id"]  # Use turn_id as message identifier
+            )
+            
             pipeline_result = await pipeline_orchestrator.execute_pipeline(
-                message=preprocessor_result.message,  # Use preprocessed message
+                message=preprocessed_with_context,  # Use preprocessed message with turn context
                 headers=headers,
                 instance_name=settings.EVOLUTION_INSTANCE_NAME or "kumonvilaa",
                 skip_preprocessing=True,  # Skip preprocessing since already done
+                turn_context=turn_context,  # Pass turn context for minimal architecture
             )
 
         except Exception as e:
@@ -202,10 +257,12 @@ async def handle_evolution_webhook(request: Request):
             app_logger.critical(
                 f"🚨 SECURITY ALERT: Message processing exception bypassed authentication checks",
                 extra={
-                    "phone": parsed_message.phone,
+                    "phone": aggregated_message.phone,
                     "error": str(e),
                     "headers_available": len(headers),
-                    "security_incident": True
+                    "security_incident": True,
+                    "turn_controlled": True,
+                    "turn_id": turn_context.get("turn_id")
                 }
             )
             

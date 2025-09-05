@@ -1,6 +1,7 @@
 from typing import Dict, Any, Optional, Union
 import time
 import logging
+import hashlib
 from dataclasses import asdict
 from ...prompts.manager import prompt_manager
 from ...prompts.template_variables import template_variable_resolver
@@ -10,8 +11,27 @@ from ..state.models import CeciliaState
 from ...workflows.contracts import RoutingDecision, MessageEnvelope, ensure_outbox, normalize_outbox_messages, OUTBOX_KEY
 from .smart_router_adapter import CoreRoutingDecision, routing_mode_from_decision, normalize_rd_obj
 from ..contracts.outbox import OutboxItem, enqueue_to_outbox
+from ..outbox_store import persist_outbox
 
 logger = logging.getLogger(__name__)
+
+
+def ensure_idempotency_key(item: OutboxItem, phone_number: str, turn_id: str) -> None:
+    """
+    Garante que OutboxItem tem idempotency_key para deduplicação
+    
+    Args:
+        item: OutboxItem para processar
+        phone_number: Número do telefone
+        turn_id: ID do turno do TurnController
+    """
+    if item.idempotency_key:
+        return
+    
+    # Gera chave determinística baseada no turno
+    raw = f"{phone_number}:{turn_id}:delivery"
+    item.idempotency_key = hashlib.sha256(raw.encode()).hexdigest()[:16]
+
 
 class ResponsePlanner:
     """
@@ -473,6 +493,164 @@ def plan_response(state: dict, routing_decision: dict = None) -> dict:
             })
     
     return intent_result
+
+
+def plan_single_response(state: dict, aggregated_text: str) -> dict:
+    """
+    NEW FUNCTION: Plan exactly 1 OutboxItem and persist to DB
+    
+    Arquitetura mínima: TurnController → Planner → Delivery
+    - Gera exatamente 1 resposta (coalesça qualquer multiplicidade)
+    - Persiste no DB via outbox_store (fonte de verdade durável)
+    - Mantém snapshot em memória para compatibilidade
+    
+    Args:
+        state: Conversation state with turn_id, phone_number
+        aggregated_text: User message aggregated by TurnController
+        
+    Returns:
+        dict: Updated state with outbox + persisted response
+    """
+    
+    # Extract required data for turn-based processing
+    turn_id = state.get("turn_id")
+    phone_number = state.get("phone_number", "unknown")  
+    conversation_id = state.get("conversation_id", f"conv_{phone_number}")
+    
+    if not turn_id:
+        logger.error(f"PLANNER|missing_turn_id|phone={phone_number[-4:]}")
+        turn_id = f"emergency_{int(time.time())}"
+        state["turn_id"] = turn_id
+    
+    logger.info(
+        f"PLANNER|planning_single_response|phone={phone_number[-4:]}|"
+        f"turn={turn_id}|text_len={len(aggregated_text)}"
+    )
+    
+    # Clear any existing outbox for this turn (1 resposta por turno)
+    ensure_outbox(state)
+    state[OUTBOX_KEY].clear()
+    
+    # Update state with aggregated user message
+    state["last_user_message"] = aggregated_text
+    
+    # Generate response using existing planner logic
+    rd = state.get("routing_decision")
+    mode = routing_mode_from_decision(normalize_rd_obj(rd)) if rd else "template"
+    
+    try:
+        # Use existing planning functions but ensure single response
+        if mode == "template":
+            state = _plan_template(state, fallback_level=None)
+        elif mode == "llm_rag":
+            state = _plan_llm_rag(state)
+        elif mode == "handoff":
+            state = _plan_handoff(state)
+        elif mode == "fallback_l1":
+            state = _plan_template(state, fallback_level=1)
+        else:  # fallback_l2
+            state = _plan_template(state, fallback_level=2)
+        
+        # Ensure exactly 1 item in outbox
+        outbox_items = state.get(OUTBOX_KEY, [])
+        if len(outbox_items) == 0:
+            logger.warning(f"PLANNER|empty_outbox|generating_fallback|turn={turn_id}")
+            # Add emergency fallback
+            fallback_item = OutboxItem(
+                text="Olá! Como posso ajudar?",
+                channel="whatsapp", 
+                meta={"source": "emergency_fallback"}
+            )
+            outbox_items = [fallback_item]
+            state[OUTBOX_KEY] = [fallback_item.to_dict()]
+        elif len(outbox_items) > 1:
+            logger.info(f"PLANNER|coalescing_multiple|count={len(outbox_items)}|turn={turn_id}")
+            # Coalesce multiple items into single response
+            texts = []
+            for item in outbox_items:
+                if isinstance(item, dict):
+                    texts.append(item.get("text", ""))
+                else:
+                    texts.append(str(item))
+            
+            coalesced_text = "\n\n".join(filter(None, texts))
+            coalesced_item = OutboxItem(
+                text=coalesced_text,
+                channel="whatsapp",
+                meta={"source": "planner_coalesced", "original_count": len(outbox_items)}
+            )
+            outbox_items = [coalesced_item]
+            state[OUTBOX_KEY] = [coalesced_item.to_dict()]
+        
+        # Process the single OutboxItem
+        single_item = outbox_items[0]
+        if isinstance(single_item, dict):
+            # Convert dict back to OutboxItem for processing
+            outbox_item = OutboxItem(
+                text=single_item.get("text", ""),
+                channel=single_item.get("channel", "whatsapp"),
+                meta=single_item.get("meta", {}),
+                idempotency_key=single_item.get("idempotency_key")
+            )
+        else:
+            outbox_item = single_item
+        
+        # Ensure idempotency key
+        ensure_idempotency_key(outbox_item, phone_number, turn_id)
+        
+        # Update state with processed item
+        state[OUTBOX_KEY] = [outbox_item.to_dict()]
+        
+        # **ESSENCIAL**: Persistir no DB (fonte de verdade durável)
+        db_connection = state.get("db")
+        if db_connection:
+            success = persist_outbox(
+                db=db_connection,
+                conversation_id=conversation_id,
+                turn_id=turn_id,
+                items=[outbox_item.to_dict()]
+            )
+            
+            if success:
+                logger.info(
+                    f"PLANNER|persisted_to_db|turn={turn_id}|"
+                    f"idem={outbox_item.idempotency_key}|text_len={len(outbox_item.text)}"
+                )
+            else:
+                logger.error(f"PLANNER|persist_failed|turn={turn_id}")
+        else:
+            logger.warning(f"PLANNER|no_db_connection|turn={turn_id}|persistence_skipped")
+        
+        # Create snapshot for memory-based delivery (compatibilidade)
+        state["_planner_snapshot_outbox"] = list(state[OUTBOX_KEY])
+        
+        return state
+        
+    except Exception as e:
+        logger.error(f"PLANNER|planning_failed|turn={turn_id}|error={e}")
+        
+        # Emergency fallback with idempotency  
+        fallback_item = OutboxItem(
+            text="Desculpe, houve um erro interno. Como posso ajudar?",
+            channel="whatsapp",
+            meta={"source": "emergency_error_fallback", "error": str(e)}
+        )
+        ensure_idempotency_key(fallback_item, phone_number, turn_id)
+        
+        state[OUTBOX_KEY] = [fallback_item.to_dict()]
+        state["_planner_snapshot_outbox"] = list(state[OUTBOX_KEY])
+        
+        # Try to persist emergency fallback too
+        db_connection = state.get("db")
+        if db_connection:
+            persist_outbox(
+                db=db_connection,
+                conversation_id=conversation_id, 
+                turn_id=turn_id,
+                items=[fallback_item.to_dict()]
+            )
+        
+        return state
 
 
 def response_planner_node(state: dict) -> dict:

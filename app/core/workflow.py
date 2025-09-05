@@ -364,6 +364,15 @@ class CeciliaWorkflow:
             """Route from DELIVERY node based on routing decision and conversation state"""
             from .state.models import ConversationStage, ConversationStep
             
+            # **ARQUITETURA MÍNIMA**: Check turn_status first - if delivered, END the turn
+            turn_status = state.get("turn_status")
+            if turn_status == "delivered":
+                logger.info(f"📍 DELIVERY routing to END: turn completed (turn_status={turn_status})")
+                return "END"
+            elif turn_status in ("already_delivered", "no_content", "send_failed", "exception"):
+                logger.info(f"📍 DELIVERY routing to END: turn terminated (turn_status={turn_status})")
+                return "END"
+            
             # Check if conversation is completed
             current_stage = state.get("current_stage")
             current_step = state.get("current_step")

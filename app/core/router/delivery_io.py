@@ -18,8 +18,176 @@ from ...api.evolution import send_message
 from ...workflows.contracts import MessageEnvelope, ensure_outbox, normalize_outbox_messages, OUTBOX_KEY
 from ..contracts.outbox import OutboxItem, rehydrate_outbox_if_needed
 from .instance_resolver import resolve_instance
+from ..outbox_store import load_outbox, mark_sent, mark_failed
+from ..dedup_store import seen_idem, mark_idem, ensure_fallback_key
 
 logger = logging.getLogger(__name__)
+
+
+async def delivery_node_turn_based(state: dict) -> dict:
+    """
+    NEW FUNCTION: Turn-based delivery with DB rehydration + idempotency
+    
+    Arquitetura mínima: TurnController → Planner → Delivery
+    - Rehydrata do DB se state.outbox vazio (fonte de verdade durável)
+    - Envia exatamente 1 item por turno (idempotente)
+    - Fallback também idempotente por turn_id
+    - Marca como enviado no DB + Redis dedup
+    
+    Args:
+        state: Conversation state with turn_id, phone_number, conversation_id
+        
+    Returns:
+        dict: Updated state with delivery status
+    """
+    
+    # Extract turn-based data
+    turn_id = state.get("turn_id")
+    phone_number = state.get("phone_number", "unknown")
+    conversation_id = state.get("conversation_id", f"conv_{phone_number}")
+    
+    if not turn_id:
+        logger.error(f"DELIVERY|missing_turn_id|phone={phone_number[-4:]}")
+        state["turn_status"] = "error"
+        return state
+    
+    logger.info(
+        f"DELIVERY|turn_based_start|phone={phone_number[-4:]}|turn={turn_id}"
+    )
+    
+    # Step 1: Try to get items from memory first (fast path)
+    items = state.get(OUTBOX_KEY, [])
+    
+    # Step 2: Rehydrate from snapshot if memory is empty
+    if not items:
+        snapshot = state.get("_planner_snapshot_outbox", [])
+        items = snapshot or []
+        if items:
+            logger.info(f"DELIVERY|rehydrate=snapshot|count={len(items)}|turn={turn_id}")
+    
+    # Step 3: **ESSENCIAL** Rehydrate from DB if still empty (durável)
+    if not items:
+        db_connection = state.get("db")
+        if db_connection:
+            items = load_outbox(db_connection, conversation_id, turn_id)
+            if items:
+                logger.info(f"DELIVERY|rehydrate=db|count={len(items)}|turn={turn_id}")
+            else:
+                logger.debug(f"DELIVERY|no_db_items|turn={turn_id}")
+        else:
+            logger.warning(f"DELIVERY|no_db_connection|turn={turn_id}")
+    
+    # Step 4: Generate fallback if still empty - BUT idempotente por turn_id
+    if not items:
+        logger.warning(f"DELIVERY|empty_outbox_fallback|turn={turn_id}")
+        
+        fallback_key = ensure_fallback_key(phone_number, turn_id)
+        fallback_item = {
+            "text": "Olá! Como posso ajudar?",
+            "channel": "whatsapp",
+            "meta": {"source": "delivery_fallback"},
+            "idempotency_key": fallback_key
+        }
+        items = [fallback_item]
+    
+    # Step 5: Process exactly 1 item (primeiro da lista)
+    if not items:
+        logger.error(f"DELIVERY|no_items_available|turn={turn_id}")
+        state["turn_status"] = "no_content"
+        return state
+    
+    item = items[0]  # 1 resposta por turno
+    item_text = item.get("text", "")
+    item_channel = item.get("channel", "whatsapp") 
+    idem_key = item.get("idempotency_key", "")
+    
+    if not item_text:
+        logger.warning(f"DELIVERY|empty_text|turn={turn_id}|generating_fallback")
+        item_text = "Obrigada pelo contato!"
+        idem_key = ensure_fallback_key(phone_number, turn_id)
+    
+    if not idem_key:
+        logger.warning(f"DELIVERY|missing_idem_key|turn={turn_id}|generating")
+        idem_key = ensure_fallback_key(phone_number, turn_id) 
+    
+    # Step 6: Check idempotency (dedup)
+    cache = state.get("cache")  # Redis connection
+    if cache and seen_idem(cache, conversation_id, idem_key):
+        logger.info(
+            f"DELIVERY|dedup_hit|turn={turn_id}|idem={idem_key}|skipping"
+        )
+        state["turn_status"] = "already_delivered"
+        state["delivery_dedup_hit"] = True
+        return state
+    
+    # Step 7: Send message (1 vez por turn_id)
+    try:
+        if item_channel == "whatsapp":
+            instance_name = resolve_instance(state)
+            
+            provider_result = await send_message(
+                phone_number=phone_number,
+                message=item_text,
+                instance_name=instance_name
+            )
+            
+            success = provider_result and provider_result.get("status") != "error"
+            provider_id = provider_result.get("message_id") if success else None
+            
+            if success:
+                logger.info(
+                    f"DELIVERY|sent|turn={turn_id}|idem={idem_key}|"
+                    f"provider_id={provider_id}|text_len={len(item_text)}"
+                )
+                
+                # Step 8: Mark as sent in DB + Redis dedup
+                db_connection = state.get("db")
+                if db_connection:
+                    mark_sent(db_connection, conversation_id, turn_id, 0, provider_id)
+                
+                if cache:
+                    mark_idem(cache, conversation_id, idem_key)
+                
+                # Update state
+                state["last_delivery_id"] = provider_id
+                state["last_bot_response"] = item_text
+                state["turn_status"] = "delivered"
+                
+                return state
+                
+            else:
+                logger.error(
+                    f"DELIVERY|send_failed|turn={turn_id}|idem={idem_key}|"
+                    f"result={provider_result}"
+                )
+                
+                # Mark as failed in DB for retry
+                db_connection = state.get("db") 
+                if db_connection:
+                    error_reason = str(provider_result) if provider_result else "send_failed"
+                    mark_failed(db_connection, conversation_id, turn_id, 0, error_reason)
+                
+                state["turn_status"] = "send_failed"
+                return state
+        
+        else:
+            # Other channels (web, app) - placeholder
+            logger.info(f"DELIVERY|channel={item_channel}|turn={turn_id}|text_len={len(item_text)}")
+            state["turn_status"] = "delivered"
+            state["last_bot_response"] = item_text
+            return state
+            
+    except Exception as e:
+        logger.error(f"DELIVERY|exception|turn={turn_id}|error={e}")
+        
+        # Mark as failed 
+        db_connection = state.get("db")
+        if db_connection:
+            mark_failed(db_connection, conversation_id, turn_id, 0, str(e))
+        
+        state["turn_status"] = "exception"
+        state["delivery_error"] = str(e)
+        return state
 
 
 def _msg_id(msg: Dict[str, Any]) -> str:
