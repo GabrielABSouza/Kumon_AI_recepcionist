@@ -11,9 +11,12 @@ from typing import Dict, Any, Optional, Set
 
 logger = logging.getLogger(__name__)
 
+# Default instance - NEVER generate thread_* patterns
+DEFAULT_INSTANCE = "kumon_assistant"
+
 # Valid instances - expand via configuration
 VALID_INSTANCES: Set[str] = {
-    "kumon_assistant",
+    DEFAULT_INSTANCE,
     "kumonvilaa",  # Legacy compatibility
     "kumon-assistant",  # Alternative format
 }
@@ -26,125 +29,162 @@ INVALID_PATTERNS = [
 ]
 
 
-def is_valid_instance(instance: str) -> bool:
+def is_valid_instance(value: str) -> bool:
     """
-    Check if an instance name is valid
+    Check if an instance name is valid and type-safe
     
     Args:
-        instance: Instance name to validate
+        value: Instance name to validate
         
     Returns:
         bool: True if valid, False if invalid
     """
-    if not instance:
+    if not isinstance(value, str):
+        return False
+        
+    if not value or value.strip() == "":
+        return False
+    
+    # NEVER allow thread_* patterns
+    if value.startswith("thread_"):
+        return False
+        
+    # NEVER allow fallback patterns
+    if value in ("default", "", "None"):
         return False
     
     # Check against invalid patterns
     for pattern in INVALID_PATTERNS:
-        if re.match(pattern, instance):
+        if re.match(pattern, value):
             return False
     
     # Check if it's in the valid set
-    return instance in VALID_INSTANCES
+    return value in VALID_INSTANCES
 
 
-def resolve_instance(state: Dict[str, Any], envelope: Optional[Dict[str, Any]] = None) -> str:
+def _set_instance(obj: Any, value: str) -> bool:
     """
-    Resolve WhatsApp instance using canonical hierarchy
+    Type-safe instance setting helper
+    
+    Args:
+        obj: Object to set instance on (dict, dataclass, etc)
+        value: Instance value to set
+        
+    Returns:
+        bool: True if successfully set, False otherwise
+    """
+    if not obj:
+        return False
+        
+    # Handle dataclass with instance attribute
+    if hasattr(obj, "instance"):
+        setattr(obj, "instance", value)
+        return True
+    
+    # Handle dict-like objects
+    if isinstance(obj, dict):
+        obj["instance"] = value
+        return True
+    
+    # Handle dataclass with meta dict
+    if hasattr(obj, "meta") and isinstance(obj.meta, dict):
+        obj.meta["instance"] = value
+        return True
+        
+    return False
+
+
+def inject_instance_to_state(state: Dict[str, Any], envelope_instance: Optional[str]) -> None:
+    """
+    Type-safe instance injection that NEVER generates thread_* patterns
+    
+    Args:
+        state: State dictionary to inject instance into
+        envelope_instance: Optional instance from envelope
+    """
+    # Determine candidate - NEVER generate thread_* as fallback
+    candidate = envelope_instance if is_valid_instance(envelope_instance or "") else DEFAULT_INSTANCE
+    
+    # Ensure state shapes are normalized before injection
+    # This prevents 'str' object does not support item assignment errors
+    from ..workflow import _normalize_state_shapes
+    _normalize_state_shapes(state)
+    
+    # Try to set instance at multiple levels
+    injection_success = False
+    
+    # Try delivery context
+    delivery = state.get("delivery")
+    if _set_instance(delivery, candidate):
+        injection_success = True
+    
+    # Try envelope context
+    envelope = state.get("envelope")
+    if _set_instance(envelope, candidate):
+        injection_success = True
+    
+    # Try channel context  
+    channel = state.get("channel")
+    if _set_instance(channel, candidate):
+        injection_success = True
+    
+    # Fallback: store in state directly
+    if not injection_success:
+        state["resolved_instance"] = candidate
+    
+    logger.info(
+        "INSTANCE_INJECTED|instance=%s|conv=%s",
+        candidate, state.get("conversation_id", "unknown")
+    )
+
+
+def resolve_instance(state: Dict[str, Any]) -> str:
+    """
+    Type-safe instance resolution that NEVER returns thread_* patterns
     
     Priority order:
-    1. state["delivery"]["instance"] - Delivery-specific override
-    2. envelope.meta["instance"] - Message-specific instance
-    3. state["channel"]["instance"] - Channel configuration
-    4. state["instance"] - Global state instance
-    5. Fallback to "kumon_assistant"
+    1. delivery.instance - Delivery-specific override
+    2. envelope.meta.instance - Message-specific instance
+    3. channel.instance - Channel configuration
+    4. resolved_instance - Fallback storage
+    5. DEFAULT_INSTANCE - Final fallback
     
     Args:
         state: Conversation state
-        envelope: Optional message envelope with meta
         
     Returns:
-        str: Valid instance name
+        str: Valid instance name (never thread_*)
+    """
+    sources = [
+        # Priority 1: delivery.instance
+        getattr(state.get("delivery"), "instance", None) if hasattr(state.get("delivery", {}), "instance") else state.get("delivery", {}).get("instance"),
         
-    Raises:
-        ValueError: If no valid instance can be resolved
-    """
-    candidates = []
+        # Priority 2: envelope.meta.instance
+        (getattr(state.get("envelope"), "meta", {}) if hasattr(state.get("envelope", {}), "meta") else state.get("envelope", {}).get("meta", {})).get("instance") if state.get("envelope") else None,
+        
+        # Priority 3: channel.instance
+        getattr(state.get("channel"), "instance", None) if hasattr(state.get("channel", {}), "instance") else state.get("channel", {}).get("instance"),
+        
+        # Priority 4: resolved_instance fallback
+        state.get("resolved_instance"),
+    ]
     
-    # Priority 1: Delivery-specific instance
-    delivery_config = state.get("delivery", {})
-    if isinstance(delivery_config, dict) and delivery_config.get("instance"):
-        candidates.append(("delivery", delivery_config["instance"]))
+    # Find first valid instance
+    for source_value in sources:
+        if is_valid_instance(source_value or ""):
+            return source_value
     
-    # Priority 2: Envelope meta instance
-    if envelope and isinstance(envelope, dict):
-        meta = envelope.get("meta", {})
-        if meta.get("instance"):
-            candidates.append(("envelope_meta", meta["instance"]))
-    
-    # Priority 3: Channel configuration instance
-    channel_config = state.get("channel", {})
-    if isinstance(channel_config, dict) and channel_config.get("instance"):
-        candidates.append(("channel", channel_config["instance"]))
-    
-    # Priority 4: Global state instance
-    if state.get("instance"):
-        candidates.append(("state", state["instance"]))
-    
-    # Try each candidate in order
-    for source, instance in candidates:
-        if is_valid_instance(instance):
-            logger.info(
-                "INSTANCE_RESOLVED|source=%s|instance=%s|conv=%s",
-                source, instance, state.get("conversation_id", "unknown")
-            )
-            return instance
-        else:
-            logger.warning(
-                "INSTANCE_INVALID|source=%s|instance=%s|pattern=%s|conv=%s",
-                source, instance, "invalid", state.get("conversation_id", "unknown")
-            )
-    
-    # Fallback to default valid instance
-    fallback = "kumon_assistant"
-    logger.info(
-        "INSTANCE_FALLBACK|instance=%s|conv=%s",
-        fallback, state.get("conversation_id", "unknown")
-    )
-    return fallback
+    # Final fallback - NEVER thread_*
+    return DEFAULT_INSTANCE
 
 
-def inject_instance_to_state(state: Dict[str, Any], instance: str) -> None:
+# Legacy function kept for compatibility but redirects to new type-safe version
+def inject_instance_to_state_legacy(state: Dict[str, Any], instance: str) -> None:
     """
-    Inject a valid instance into state at multiple levels
-    
-    This ensures the instance is available throughout the pipeline.
+    Legacy injection method - redirects to type-safe version
     
     Args:
         state: Conversation state to modify
         instance: Instance name to inject
     """
-    if not is_valid_instance(instance):
-        logger.error(
-            "INSTANCE_INJECTION_FAILED|instance=%s|reason=invalid",
-            instance
-        )
-        instance = "kumon_assistant"  # Force valid fallback
-    
-    # Inject at multiple levels for redundancy
-    state["instance"] = instance
-    
-    # Ensure delivery config exists
-    if "delivery" not in state:
-        state["delivery"] = {}
-    state["delivery"]["instance"] = instance
-    
-    # Ensure channel config exists
-    if "channel" not in state:
-        state["channel"] = {}
-    state["channel"]["instance"] = instance
-    
-    logger.info(
-        "INSTANCE_INJECTED|instance=%s|conv=%s",
-        instance, state.get("conversation_id", "unknown")
-    )
+    inject_instance_to_state(state, instance)

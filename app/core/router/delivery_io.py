@@ -17,7 +17,7 @@ from typing import Dict, Any
 from ...api.evolution import send_message
 from ...workflows.contracts import MessageEnvelope, ensure_outbox, normalize_outbox_messages, OUTBOX_KEY
 from ..contracts.outbox import OutboxItem, rehydrate_outbox_if_needed
-from .instance_resolver import resolve_instance, inject_instance_to_state
+from .instance_resolver import resolve_instance
 
 logger = logging.getLogger(__name__)
 
@@ -33,11 +33,12 @@ def _msg_id(msg: Dict[str, Any]) -> str:
 
 def _resolve_whatsapp_instance(msg: Dict[str, Any], state: Dict[str, Any]) -> str:
     """
-    Resolve WhatsApp instance using new canonical resolver
+    Resolve WhatsApp instance using type-safe canonical resolver
     
     Uses instance_resolver.resolve_instance() which:
     - Validates against VALID_INSTANCES set
     - Rejects invalid patterns (thread_*, default)
+    - Never returns thread_* patterns
     - Falls back to kumon_assistant
     
     Args:
@@ -45,10 +46,10 @@ def _resolve_whatsapp_instance(msg: Dict[str, Any], state: Dict[str, Any]) -> st
         state: Conversation state with potential channel config
         
     Returns:
-        str: Valid instance name (never raises)
+        str: Valid instance name (never thread_* patterns)
     """
-    # Use new canonical resolver
-    return resolve_instance(state, msg)
+    # Use new type-safe canonical resolver - only needs state parameter now
+    return resolve_instance(state)
 
 
 async def emit_to_channel(msg: Dict[str, Any], state: Dict[str, Any]) -> bool:

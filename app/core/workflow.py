@@ -9,6 +9,7 @@ Segue rigorosamente a documentação do langgraph_orquestration.md
 
 from typing import Optional, Dict, Any
 from datetime import datetime, timezone
+from dataclasses import dataclass, field
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 from ..services.postgres_checkpointer import postgres_checkpointer
@@ -41,6 +42,68 @@ from .nodes.emergency_progression import emergency_progression_node
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class DeliveryCtx:
+    """Type-safe delivery context"""
+    instance: Optional[str] = None
+
+
+@dataclass
+class ChannelCtx:
+    """Type-safe channel context"""
+    name: Optional[str] = None
+    instance: Optional[str] = None
+
+
+@dataclass
+class EnvelopeCtx:
+    """Type-safe envelope context"""
+    meta: Dict[str, Any] = field(default_factory=dict)
+
+
+def _normalize_state_shapes(state: Dict[str, Any]) -> None:
+    """
+    Normalize state shapes to ensure objects are proper types, not strings.
+    
+    This prevents 'str' object does not support item assignment errors
+    by ensuring channel, delivery, and envelope are always objects.
+    
+    Args:
+        state: State dictionary to normalize
+    """
+    # Normalize channel
+    channel = state.get("channel")
+    if isinstance(channel, str):
+        state["channel"] = ChannelCtx(name=channel)
+    elif channel is None:
+        state["channel"] = ChannelCtx()
+    elif not isinstance(channel, (dict, ChannelCtx)):
+        state["channel"] = ChannelCtx()
+    
+    # Normalize delivery
+    delivery = state.get("delivery")
+    if isinstance(delivery, str):
+        state["delivery"] = DeliveryCtx(instance=None)
+    elif delivery is None:
+        state["delivery"] = DeliveryCtx()
+    elif not isinstance(delivery, (dict, DeliveryCtx)):
+        state["delivery"] = DeliveryCtx()
+    
+    # Normalize envelope
+    envelope = state.get("envelope")
+    if envelope is None or isinstance(envelope, str):
+        state["envelope"] = EnvelopeCtx()
+    elif not hasattr(envelope, "meta") or not isinstance(getattr(envelope, "meta", None), dict):
+        # If it's a dict without proper meta, preserve existing but ensure meta exists
+        if isinstance(envelope, dict):
+            meta = envelope.get("meta", {})
+            if not isinstance(meta, dict):
+                meta = {}
+            state["envelope"] = EnvelopeCtx(meta=meta)
+        else:
+            state["envelope"] = EnvelopeCtx()
 
 
 class CeciliaWorkflow:
@@ -678,7 +741,10 @@ class CeciliaWorkflow:
                     existing_state = create_initial_cecilia_state(phone_number, user_message, instance=valid_instance)
                     session_id = existing_state["conversation_id"]
                     
-                    # Inject instance at multiple levels for redundancy
+                    # STEP 1: Normalize state shapes to prevent type errors
+                    _normalize_state_shapes(existing_state)
+                    
+                    # STEP 2: Inject instance using type-safe method
                     from .router.instance_resolver import inject_instance_to_state
                     inject_instance_to_state(existing_state, valid_instance)
                     
@@ -703,7 +769,10 @@ class CeciliaWorkflow:
                 existing_state = create_initial_cecilia_state(phone_number, user_message, instance=valid_instance)
                 session_id = existing_state["conversation_id"]
                 
-                # Inject instance at multiple levels for redundancy
+                # STEP 1: Normalize state shapes to prevent type errors
+                _normalize_state_shapes(existing_state)
+                
+                # STEP 2: Inject instance using type-safe method
                 from .router.instance_resolver import inject_instance_to_state
                 inject_instance_to_state(existing_state, valid_instance)
                 
