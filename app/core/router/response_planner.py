@@ -706,6 +706,9 @@ def response_planner_node(state: dict) -> dict:
             if "{{" in text and "}}" in text:
                 logger.warning(f"planner_template_placeholder_detected: message {i} contains {{...}}")
     
+        # PERSISTENT OUTBOX: Save messages to PostgreSQL
+        _persist_outbox_messages(state)
+        
         return state
         
     except Exception as e:
@@ -724,6 +727,9 @@ def response_planner_node(state: dict) -> dict:
         
         outbox_after = len(state[OUTBOX_KEY])
         logger.info(f"planner_outbox_count_after: {outbox_after} (emergency)")
+        
+        # PERSISTENT OUTBOX: Save emergency messages to PostgreSQL
+        _persist_outbox_messages(state)
         
         return state
 
@@ -849,3 +855,58 @@ def _plan_handoff(state: dict):
     state["_planner_snapshot_outbox"] = list(state.get(OUTBOX_KEY, []))
     
     return state
+
+def _persist_outbox_messages(state: dict) -> None:
+    """
+    Persist outbox messages to PostgreSQL for reliable delivery
+    
+    Saves all messages in the outbox to persistent storage so Delivery 
+    can read them even if state instances are lost between nodes.
+    
+    Args:
+        state: LangGraph state containing outbox messages
+    """
+    from ..outbox_repository import save_outbox, generate_idempotency_key
+    
+    # Get conversation ID from state
+    conversation_id = state.get("session_id") or state.get("conversation_id")
+    if not conversation_id:
+        logger.warning("PERSISTENT_OUTBOX|no_conversation_id|skipping_persistence")
+        return
+    
+    # Get outbox messages
+    outbox_messages = state.get(OUTBOX_KEY, [])
+    if not outbox_messages:
+        logger.debug(f"PERSISTENT_OUTBOX|no_messages|conv={conversation_id}")
+        return
+    
+    # Persist each message
+    persisted_count = 0
+    for i, message in enumerate(outbox_messages):
+        try:
+            # Ensure message is dict format
+            if hasattr(message, 'to_dict'):
+                message_dict = message.to_dict()
+            elif isinstance(message, dict):
+                message_dict = message
+            else:
+                logger.warning(f"PERSISTENT_OUTBOX|invalid_message_type|conv={conversation_id}|idx={i}|type={type(message)}")
+                continue
+            
+            # Generate idempotency key based on message content
+            message_text = message_dict.get("text", "")
+            idempotency_key = generate_idempotency_key(conversation_id, message_text)
+            
+            # Persist to database
+            success = save_outbox(conversation_id, idempotency_key, message_dict)
+            if success:
+                persisted_count += 1
+                logger.debug(f"PERSISTENT_OUTBOX|saved|conv={conversation_id}|idx={i}|idem={idempotency_key}")
+            else:
+                logger.error(f"PERSISTENT_OUTBOX|save_failed|conv={conversation_id}|idx={i}|idem={idempotency_key}")
+                
+        except Exception as e:
+            logger.error(f"PERSISTENT_OUTBOX|persist_error|conv={conversation_id}|idx={i}|error={e}")
+            continue
+    
+    logger.info(f"PERSISTENT_OUTBOX|persisted|conv={conversation_id}|count={persisted_count}/{len(outbox_messages)}")

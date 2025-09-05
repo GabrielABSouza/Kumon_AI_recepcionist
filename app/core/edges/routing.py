@@ -56,7 +56,7 @@ def should_route_to_validation(state: CeciliaState) -> bool:
         return True
 
 
-def universal_edge_router(state: CeciliaState) -> str:
+def universal_edge_router(state: CeciliaState, from_node: str = None, valid_targets: list = None) -> str:
     """
     PURE Universal Edge Router - READ-ONLY routing based on existing state
     
@@ -64,19 +64,50 @@ def universal_edge_router(state: CeciliaState) -> str:
     - SmartRouter and ResponsePlanner decisions are made in separate NODES
     - This edge function is PURE: only reads state, no mutations
     
+    ANTI-RECURSION: Checks stop conditions first to prevent infinite loops
+    
     This function:
-    1. Reads existing routing_decision from state (set by SMART_ROUTER node)
-    2. Routes to target_node based on decision
-    3. NO STATE MUTATIONS (violates V2 architecture)
+    1. Checks stop conditions (turn_status, should_end) → END if stopping
+    2. Reads existing routing_decision from state (set by SMART_ROUTER node)
+    3. Routes to target_node based on decision
+    4. NO STATE MUTATIONS (violates V2 architecture)
     
     Args:
         state: Current conversation state (CeciliaState)
+        from_node: Source node name (for logging)
+        valid_targets: List of valid target nodes (for validation)
         
     Returns:
-        str: Next node to route to based on routing_decision
+        str: Next node to route to based on routing_decision or END
     """
     phone_number = state.get("phone_number", "unknown")
-    logger.info(f"🎯 Pure Universal Edge Router: routing for {phone_number[-4:]}")
+    logger.info(f"🎯 Universal Edge Router: routing from {from_node} for {phone_number[-4:]}")
+    
+    # ANTI-RECURSION: Check stop conditions first
+    turn_status = state.get("turn_status")
+    should_end = state.get("should_end", False)
+    
+    # If turn is completed/delivered, always route to END
+    if turn_status in ("delivered", "already_delivered", "no_content", "send_failed", "exception"):
+        logger.info(f"🛑 STOP CONDITION: turn_status={turn_status} → END")
+        return "END"
+    
+    # If should_end flag is set, route to END
+    if should_end:
+        logger.info(f"🛑 STOP CONDITION: should_end=True → END")
+        return "END"
+    
+    # Check conversation completion status
+    from ..state.models import ConversationStage, ConversationStep
+    current_stage = state.get("current_stage")
+    current_step = state.get("current_step")
+    
+    if (current_stage == ConversationStage.COMPLETED or 
+        current_step == ConversationStep.CONVERSATION_ENDED or
+        (hasattr(current_stage, 'value') and current_stage.value == 'completed') or
+        (hasattr(current_step, 'value') and current_step.value == 'conversation_ended')):
+        logger.info(f"🛑 STOP CONDITION: conversation completed (stage={current_stage}, step={current_step}) → END")
+        return "END"
     
     # READ-ONLY: Get routing decision (should be set by SMART_ROUTER node)
     routing_decision = state.get("routing_decision", {})
@@ -92,7 +123,12 @@ def universal_edge_router(state: CeciliaState) -> str:
     if target_node.lower() == "delivery":
         target_node = "DELIVERY"
     
-    logger.info(f"🎯 Pure Universal Edge Router: → {target_node} (read from routing_decision)")
+    # Validate against allowed targets if provided
+    if valid_targets and target_node not in valid_targets + ["END"]:
+        logger.warning(f"⚠️ Target {target_node} not in valid_targets {valid_targets}, using DELIVERY")
+        target_node = "DELIVERY"
+    
+    logger.info(f"🎯 Universal Edge Router: {from_node} → {target_node}")
     return target_node
 
 

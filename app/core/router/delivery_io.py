@@ -335,6 +335,12 @@ async def delivery_node(state: dict, *, max_batch: int = 10) -> dict:
     logger.info(f"PRE-DELIVERY – Outbox contains {delivery_outbox_count_before} message(s)")
     logger.info(f"delivery_outbox_count_before: {delivery_outbox_count_before}")
     
+    # PERSISTENT OUTBOX: If outbox is empty, try to rehydrate from PostgreSQL
+    if delivery_outbox_count_before == 0:
+        logger.info("DELIVERY|attempting_outbox_rehydrate")
+        delivery_outbox_count_before = _rehydrate_outbox_from_db(state)
+        logger.info(f"DELIVERY|post_rehydrate_count: {delivery_outbox_count_before}")
+    
     if delivery_outbox_count_before > 0:
         first_item = state[OUTBOX_KEY][0]
         logger.info(f"delivery_first_item_type: {type(first_item).__name__}")
@@ -402,9 +408,15 @@ async def delivery_node(state: dict, *, max_batch: int = 10) -> dict:
                 seen.add(envelope.idempotency_key)
                 emitted.append(envelope)
                 logger.info(f"Message delivered successfully: {envelope.idempotency_key}")
+                
+                # PERSISTENT OUTBOX: Mark as sent in database
+                _mark_outbox_sent(state, envelope, success_response_id=None)
             else:
                 failed.append(envelope)
                 logger.warning(f"Message delivery failed: {envelope.idempotency_key}")
+                
+                # PERSISTENT OUTBOX: Mark as failed in database  
+                _mark_outbox_failed(state, envelope, error_reason="delivery_failed")
             
             processed += 1
             
@@ -504,3 +516,122 @@ async def delivery_node(state: dict, *, max_batch: int = 10) -> dict:
 
 # REMOVED: smart_router_node moved to dedicated routing_and_planning.py
 # This file is now IO-ONLY as per V2 architecture
+
+
+def _rehydrate_outbox_from_db(state: dict) -> int:
+    """
+    Rehydrate outbox from PostgreSQL when memory state is lost
+    
+    Args:
+        state: LangGraph state to populate with messages
+        
+    Returns:
+        int: Number of messages loaded from database
+    """
+    from ..outbox_repository import get_pending_outbox
+    
+    # Get conversation ID
+    conversation_id = state.get("session_id") or state.get("conversation_id")
+    if not conversation_id:
+        logger.warning("DELIVERY_REHYDRATE|no_conversation_id|skipping_rehydrate")
+        return 0
+    
+    try:
+        # Load pending messages from database
+        pending_messages = get_pending_outbox(conversation_id)
+        
+        if not pending_messages:
+            logger.debug(f"DELIVERY_REHYDRATE|no_pending|conv={conversation_id}")
+            return 0
+        
+        # Convert database messages to outbox format
+        rehydrated_count = 0
+        for msg_data in pending_messages:
+            try:
+                payload = msg_data['payload']
+                
+                # Ensure message has required fields
+                if 'text' not in payload:
+                    logger.warning(f"DELIVERY_REHYDRATE|missing_text|conv={conversation_id}|id={msg_data['id']}")
+                    continue
+                
+                # Add database metadata for tracking
+                payload['_db_id'] = msg_data['id']
+                payload['_rehydrated'] = True
+                
+                # Add to outbox
+                state[OUTBOX_KEY].append(payload)
+                rehydrated_count += 1
+                
+                logger.debug(f"DELIVERY_REHYDRATE|loaded|conv={conversation_id}|id={msg_data['id']}")
+                
+            except Exception as e:
+                logger.error(f"DELIVERY_REHYDRATE|message_error|conv={conversation_id}|id={msg_data.get('id')}|error={e}")
+                continue
+        
+        logger.info(f"DELIVERY_REHYDRATE|success|conv={conversation_id}|count={rehydrated_count}")
+        return rehydrated_count
+        
+    except Exception as e:
+        logger.error(f"DELIVERY_REHYDRATE|failed|conv={conversation_id}|error={e}")
+        return 0
+
+
+def _mark_outbox_sent(state: dict, envelope, success_response_id: str = None) -> None:
+    """
+    Mark outbox message as sent in PostgreSQL database
+    
+    Args:
+        state: LangGraph state
+        envelope: MessageEnvelope that was sent
+        success_response_id: Response ID from Evolution API
+    """
+    from ..outbox_repository import mark_sent
+    
+    # Get database ID from envelope if it was rehydrated
+    envelope_dict = envelope.to_dict() if hasattr(envelope, 'to_dict') else envelope
+    db_id = envelope_dict.get('_db_id')
+    
+    if not db_id:
+        logger.debug(f"DELIVERY_MARK_SENT|no_db_id|idem={envelope.idempotency_key}|skipping")
+        return
+    
+    try:
+        success = mark_sent(db_id, success_response_id)
+        if success:
+            logger.info(f"DELIVERY_MARK_SENT|success|db_id={db_id}|idem={envelope.idempotency_key}")
+        else:
+            logger.warning(f"DELIVERY_MARK_SENT|failed|db_id={db_id}|idem={envelope.idempotency_key}")
+            
+    except Exception as e:
+        logger.error(f"DELIVERY_MARK_SENT|error|db_id={db_id}|idem={envelope.idempotency_key}|error={e}")
+
+
+def _mark_outbox_failed(state: dict, envelope, error_reason: str) -> None:
+    """
+    Mark outbox message as failed in PostgreSQL database
+    
+    Args:
+        state: LangGraph state
+        envelope: MessageEnvelope that failed
+        error_reason: Reason for failure
+    """
+    from ..outbox_repository import mark_failed
+    
+    # Get database ID from envelope if it was rehydrated
+    envelope_dict = envelope.to_dict() if hasattr(envelope, 'to_dict') else envelope
+    db_id = envelope_dict.get('_db_id')
+    
+    if not db_id:
+        logger.debug(f"DELIVERY_MARK_FAILED|no_db_id|idem={envelope.idempotency_key}|skipping")
+        return
+    
+    try:
+        success = mark_failed(db_id, error_reason)
+        if success:
+            logger.warning(f"DELIVERY_MARK_FAILED|success|db_id={db_id}|idem={envelope.idempotency_key}|reason={error_reason}")
+        else:
+            logger.error(f"DELIVERY_MARK_FAILED|failed|db_id={db_id}|idem={envelope.idempotency_key}")
+            
+    except Exception as e:
+        logger.error(f"DELIVERY_MARK_FAILED|error|db_id={db_id}|idem={envelope.idempotency_key}|error={e}")
