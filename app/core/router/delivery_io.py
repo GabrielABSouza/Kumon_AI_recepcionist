@@ -335,11 +335,11 @@ async def delivery_node(state: dict, *, max_batch: int = 10) -> dict:
     logger.info(f"PRE-DELIVERY – Outbox contains {delivery_outbox_count_before} message(s)")
     logger.info(f"delivery_outbox_count_before: {delivery_outbox_count_before}")
     
-    # PERSISTENT OUTBOX: If outbox is empty, try to rehydrate from PostgreSQL
+    # REDIS OUTBOX: If outbox is empty, try Redis → state → fallback hierarchy
     if delivery_outbox_count_before == 0:
-        logger.info("DELIVERY|attempting_outbox_rehydrate")
-        delivery_outbox_count_before = _rehydrate_outbox_from_db(state)
-        logger.info(f"DELIVERY|post_rehydrate_count: {delivery_outbox_count_before}")
+        logger.info("DELIVERY|attempting_outbox_rehydrate_from_redis")
+        delivery_outbox_count_before = _rehydrate_outbox_from_redis(state)
+        logger.info(f"DELIVERY|post_redis_rehydrate_count: {delivery_outbox_count_before}")
     
     if delivery_outbox_count_before > 0:
         first_item = state[OUTBOX_KEY][0]
@@ -518,17 +518,22 @@ async def delivery_node(state: dict, *, max_batch: int = 10) -> dict:
 # This file is now IO-ONLY as per V2 architecture
 
 
-def _rehydrate_outbox_from_db(state: dict) -> int:
+def _rehydrate_outbox_from_redis(state: dict) -> int:
     """
-    Rehydrate outbox from PostgreSQL when memory state is lost
+    Rehydrate outbox with Redis → state → fallback hierarchy
+    
+    Resolve o problema crítico de outbox perdido. Hierarquia:
+    1. Redis (fonte da verdade do Planner)
+    2. State (backup in-memory)
+    3. Fallback controlado (só quando necessário)
     
     Args:
         state: LangGraph state to populate with messages
         
     Returns:
-        int: Number of messages loaded from database
+        int: Number of messages loaded
     """
-    from ..outbox_repository import get_pending_outbox
+    from ..outbox_repo_redis import outbox_pop_all
     
     # Get conversation ID
     conversation_id = state.get("session_id") or state.get("conversation_id")
@@ -536,45 +541,50 @@ def _rehydrate_outbox_from_db(state: dict) -> int:
         logger.warning("DELIVERY_REHYDRATE|no_conversation_id|skipping_rehydrate")
         return 0
     
+    # ❶ First try: Redis (primary source from Planner)
     try:
-        # Load pending messages from database
-        pending_messages = get_pending_outbox(conversation_id)
+        redis_messages = outbox_pop_all(conversation_id)
         
-        if not pending_messages:
-            logger.debug(f"DELIVERY_REHYDRATE|no_pending|conv={conversation_id}")
-            return 0
-        
-        # Convert database messages to outbox format
-        rehydrated_count = 0
-        for msg_data in pending_messages:
-            try:
-                payload = msg_data['payload']
-                
-                # Ensure message has required fields
-                if 'text' not in payload:
-                    logger.warning(f"DELIVERY_REHYDRATE|missing_text|conv={conversation_id}|id={msg_data['id']}")
-                    continue
-                
-                # Add database metadata for tracking
-                payload['_db_id'] = msg_data['id']
-                payload['_rehydrated'] = True
-                
-                # Add to outbox
-                state[OUTBOX_KEY].append(payload)
-                rehydrated_count += 1
-                
-                logger.debug(f"DELIVERY_REHYDRATE|loaded|conv={conversation_id}|id={msg_data['id']}")
-                
-            except Exception as e:
-                logger.error(f"DELIVERY_REHYDRATE|message_error|conv={conversation_id}|id={msg_data.get('id')}|error={e}")
-                continue
-        
-        logger.info(f"DELIVERY_REHYDRATE|success|conv={conversation_id}|count={rehydrated_count}")
-        return rehydrated_count
-        
+        if redis_messages:
+            # Success! Load from Redis
+            for msg in redis_messages:
+                # Add metadata to track source
+                msg['_source'] = 'redis_rehydrate'
+                state[OUTBOX_KEY].append(msg)
+            
+            logger.info(f"DELIVERY_REHYDRATE|redis_success|conv={conversation_id}|count={len(redis_messages)}")
+            return len(redis_messages)
+        else:
+            logger.debug(f"DELIVERY_REHYDRATE|redis_empty|conv={conversation_id}")
+            
     except Exception as e:
-        logger.error(f"DELIVERY_REHYDRATE|failed|conv={conversation_id}|error={e}")
-        return 0
+        logger.error(f"DELIVERY_REHYDRATE|redis_failed|conv={conversation_id}|error={e}")
+    
+    # ❷ Second try: State backup (compatibility with old flow)
+    state_messages = state.get("_planner_snapshot_outbox", [])
+    if state_messages:
+        # Success! Load from state backup
+        for msg in state_messages:
+            # Add metadata to track source
+            if isinstance(msg, dict):
+                msg['_source'] = 'state_backup'
+                state[OUTBOX_KEY].append(msg)
+            else:
+                # Handle non-dict messages
+                state[OUTBOX_KEY].append({
+                    'text': str(msg),
+                    'channel': 'whatsapp',
+                    '_source': 'state_backup_normalized'
+                })
+        
+        logger.info(f"DELIVERY_REHYDRATE|state_success|conv={conversation_id}|count={len(state_messages)}")
+        return len(state_messages)
+    else:
+        logger.debug(f"DELIVERY_REHYDRATE|state_empty|conv={conversation_id}")
+    
+    # ❸ Neither Redis nor state have messages - truly empty
+    logger.warning(f"DELIVERY_REHYDRATE|both_empty|conv={conversation_id}|will_trigger_fallback")
+    return 0
 
 
 def _mark_outbox_sent(state: dict, envelope, success_response_id: str = None) -> None:

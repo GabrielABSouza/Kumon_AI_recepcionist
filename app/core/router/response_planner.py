@@ -706,8 +706,8 @@ def response_planner_node(state: dict) -> dict:
             if "{{" in text and "}}" in text:
                 logger.warning(f"planner_template_placeholder_detected: message {i} contains {{...}}")
     
-        # PERSISTENT OUTBOX: Save messages to PostgreSQL
-        _persist_outbox_messages(state)
+        # PERSISTENT OUTBOX: Save messages to Redis (atomic handoff to Delivery)
+        _persist_outbox_redis(state)
         
         return state
         
@@ -728,8 +728,8 @@ def response_planner_node(state: dict) -> dict:
         outbox_after = len(state[OUTBOX_KEY])
         logger.info(f"planner_outbox_count_after: {outbox_after} (emergency)")
         
-        # PERSISTENT OUTBOX: Save emergency messages to PostgreSQL
-        _persist_outbox_messages(state)
+        # PERSISTENT OUTBOX: Save emergency messages to Redis (atomic handoff to Delivery)
+        _persist_outbox_redis(state)
         
         return state
 
@@ -856,57 +856,60 @@ def _plan_handoff(state: dict):
     
     return state
 
-def _persist_outbox_messages(state: dict) -> None:
+def _persist_outbox_redis(state: dict) -> None:
     """
-    Persist outbox messages to PostgreSQL for reliable delivery
+    Persist outbox messages to Redis for atomic handoff to Delivery
     
-    Saves all messages in the outbox to persistent storage so Delivery 
-    can read them even if state instances are lost between nodes.
+    Belt and suspenders: persiste no Redis (fonte da verdade) E mantém
+    no state (backup). Resolve o problema crítico de outbox perdido.
     
     Args:
         state: LangGraph state containing outbox messages
     """
-    from ..outbox_repository import save_outbox, generate_idempotency_key
+    from ..outbox_repo_redis import outbox_push
     
     # Get conversation ID from state
     conversation_id = state.get("session_id") or state.get("conversation_id")
     if not conversation_id:
-        logger.warning("PERSISTENT_OUTBOX|no_conversation_id|skipping_persistence")
+        logger.warning("REDIS_OUTBOX|no_conversation_id|skipping_persistence")
         return
     
     # Get outbox messages
     outbox_messages = state.get(OUTBOX_KEY, [])
     if not outbox_messages:
-        logger.debug(f"PERSISTENT_OUTBOX|no_messages|conv={conversation_id}")
+        logger.debug(f"REDIS_OUTBOX|no_messages|conv={conversation_id}")
         return
     
-    # Persist each message
-    persisted_count = 0
+    # Normalize messages to dict format
+    normalized_messages = []
     for i, message in enumerate(outbox_messages):
         try:
             # Ensure message is dict format
             if hasattr(message, 'to_dict'):
                 message_dict = message.to_dict()
             elif isinstance(message, dict):
-                message_dict = message
+                message_dict = message.copy()
             else:
-                logger.warning(f"PERSISTENT_OUTBOX|invalid_message_type|conv={conversation_id}|idx={i}|type={type(message)}")
+                logger.warning(f"REDIS_OUTBOX|invalid_message_type|conv={conversation_id}|idx={i}|type={type(message)}")
                 continue
-            
-            # Generate idempotency key based on message content
-            message_text = message_dict.get("text", "")
-            idempotency_key = generate_idempotency_key(conversation_id, message_text)
-            
-            # Persist to database
-            success = save_outbox(conversation_id, idempotency_key, message_dict)
-            if success:
-                persisted_count += 1
-                logger.debug(f"PERSISTENT_OUTBOX|saved|conv={conversation_id}|idx={i}|idem={idempotency_key}")
-            else:
-                logger.error(f"PERSISTENT_OUTBOX|save_failed|conv={conversation_id}|idx={i}|idem={idempotency_key}")
                 
+            normalized_messages.append(message_dict)
+            
         except Exception as e:
-            logger.error(f"PERSISTENT_OUTBOX|persist_error|conv={conversation_id}|idx={i}|error={e}")
+            logger.error(f"REDIS_OUTBOX|normalize_error|conv={conversation_id}|idx={i}|error={e}")
             continue
     
-    logger.info(f"PERSISTENT_OUTBOX|persisted|conv={conversation_id}|count={persisted_count}/{len(outbox_messages)}")
+    if not normalized_messages:
+        logger.warning(f"REDIS_OUTBOX|no_valid_messages|conv={conversation_id}")
+        return
+    
+    # ❶ Persist to Redis (fonte da verdade para handoff)
+    persisted_count = outbox_push(conversation_id, normalized_messages)
+    
+    # �② Update state with normalized messages (backup + compatibility)
+    state[OUTBOX_KEY] = normalized_messages
+    
+    logger.info(
+        f"REDIS_OUTBOX|planner_persisted|conv={conversation_id}|"
+        f"redis_count={persisted_count}|state_count={len(normalized_messages)}"
+    )

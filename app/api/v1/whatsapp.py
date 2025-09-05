@@ -112,9 +112,16 @@ async def handle_evolution_webhook(request: Request):
         if not parsed_message:
             app_logger.debug("No message found in webhook data")
             return {"status": "ignored", "reason": "no_message"}
+        
+        # **CIRÚRGICO**: Deduplication check - avoid reprocessing recent messages
+        from app.core.outbox_repo_redis import is_recent_duplicate
+        if is_recent_duplicate(parsed_message.message_id):
+            app_logger.info(f"💨 Skipping recent duplicate message: {parsed_message.message_id}")
+            return {"status": "ignored", "reason": "recent_duplicate"}
 
         # **NEW**: TurnController integration - aggregate messages + debounce
-        from app.core.turn_controller import append_user_message, flush_turn_if_quiet, turn_lock, _now_ms
+        from app.core.turn_controller import append_user_message, flush_turn_if_quiet, _now_ms
+        from app.core.turn_lock import turn_lock
         from app.services.redis_client import get_redis_client
         
         phone_number = parsed_message.phone
@@ -129,7 +136,8 @@ async def handle_evolution_webhook(request: Request):
         append_user_message(redis_cache, phone_number, message_id, message_text, current_ts)
         
         # Step 2: Try to acquire turn lock and process if ready
-        with turn_lock(redis_cache, phone_number) as i_hold_the_lock:
+        conversation_id = f"conv_{phone_number}_{current_ts // 60000}"  # 1-minute buckets
+        with turn_lock(conversation_id) as i_hold_the_lock:
             # Everyone checks if turn is ready, but only lock holder processes
             turn_batch = flush_turn_if_quiet(redis_cache, phone_number, current_ts)
             
