@@ -183,192 +183,192 @@ async def handle_evolution_webhook(request: Request):
                     aggregated_message, headers  # Use aggregated message instead of single
                 )
 
-            preprocessing_time = (datetime.now() - preprocessing_start).total_seconds() * 1000
+                preprocessing_time = (datetime.now() - preprocessing_start).total_seconds() * 1000
 
-            app_logger.info(
-                "MessagePreprocessor completed",
-                extra={
-                    "success": preprocessor_result.success,
-                    "processing_time_ms": preprocessing_time,
-                    "rate_limited": preprocessor_result.rate_limited,
-                    "error_code": preprocessor_result.error_code,
-                    "phone": aggregated_message.phone,
-                    "turn_controlled": True,
-                    "turn_id": turn_context.get("turn_id"),
-                },
-            )
-
-            # Handle preprocessing failures
-            if not preprocessor_result.success:
-                app_logger.warning(
-                    f"MessagePreprocessor failed for {aggregated_message.phone}: {preprocessor_result.error_code}"
+                app_logger.info(
+                    "MessagePreprocessor completed",
+                    extra={
+                        "success": preprocessor_result.success,
+                        "processing_time_ms": preprocessing_time,
+                        "rate_limited": preprocessor_result.rate_limited,
+                        "error_code": preprocessor_result.error_code,
+                        "phone": aggregated_message.phone,
+                        "turn_controlled": True,
+                        "turn_id": turn_context.get("turn_id"),
+                    },
                 )
 
-                # Return appropriate error response based on preprocessor result
-                if preprocessor_result.rate_limited:
-                    return {
-                        "status": "rate_limited",
-                        "message": "Rate limit exceeded. Please wait before sending another message.",
-                        "error_code": "RATE_LIMITED",
+                # Handle preprocessing failures
+                if not preprocessor_result.success:
+                    app_logger.warning(
+                        f"MessagePreprocessor failed for {aggregated_message.phone}: {preprocessor_result.error_code}"
+                    )
+
+                    # Return appropriate error response based on preprocessor result
+                    if preprocessor_result.rate_limited:
+                        return {
+                            "status": "rate_limited",
+                            "message": "Rate limit exceeded. Please wait before sending another message.",
+                            "error_code": "RATE_LIMITED",
+                        }
+                    elif preprocessor_result.error_code == "AUTH_FAILED":
+                        return {
+                            "status": "auth_failed",
+                            "message": "Authentication failed",
+                            "error_code": "AUTH_FAILED",
+                        }
+                    else:
+                        return {
+                            "status": "preprocessing_failed",
+                            "message": preprocessor_result.error_message,
+                            "error_code": preprocessor_result.error_code,
+                        }
+
+                # SUCCESS: Continue to Orchestrator with preprocessed message
+                app_logger.info("🚀 Passing to orchestrator for workflow routing")
+
+                # TODO: Create orchestrator that handles session management and intent classification
+                # For now, continue to existing pipeline orchestrator
+                from app.core.pipeline_orchestrator import pipeline_orchestrator
+                from app.services.pipeline_monitor import pipeline_monitor
+
+                # Initialize pipeline orchestrator if needed
+                await pipeline_orchestrator.initialize()
+
+                # Execute pipeline with PREPROCESSED message + turn context
+                # Add turn context to message for downstream processing
+                preprocessed_with_context = preprocessor_result.message._replace(
+                    message_id=turn_context["turn_id"]  # Use turn_id as message identifier
+                )
+                
+                pipeline_result = await pipeline_orchestrator.execute_pipeline(
+                    message=preprocessed_with_context,  # Use preprocessed message with turn context
+                    headers=headers,
+                    instance_name=settings.EVOLUTION_INSTANCE_NAME or "kumonvilaa",
+                    skip_preprocessing=True,  # Skip preprocessing since already done
+                    turn_context=turn_context,  # Pass turn context for minimal architecture
+                )
+
+                # Record pipeline execution for monitoring
+                await pipeline_monitor.record_pipeline_execution(
+                    execution_id=pipeline_result.execution_id,
+                    phone_number=pipeline_result.phone_number,
+                    stage_results=pipeline_result.stage_results,
+                    total_duration_ms=pipeline_result.metrics.total_duration_ms,
+                    status=pipeline_result.status,
+                    errors=pipeline_result.metrics.errors,
+                )
+
+                # Handle different pipeline results
+                if pipeline_result.status.value == "completed":
+                    # Successful pipeline execution
+                    response = {
+                        "status": "success",
+                        "message": pipeline_result.response_message,
+                        "execution_id": pipeline_result.execution_id,
+                        "processing_time_ms": pipeline_result.metrics.total_duration_ms,
+                        "metadata": {
+                            "pipeline_version": "2.1",
+                            "processing_mode": "full_pipeline_orchestration",
+                            "stage_count": len(pipeline_result.stage_results),
+                            "cache_hits": pipeline_result.metrics.cache_hits,
+                            "cache_misses": pipeline_result.metrics.cache_misses,
+                            "circuit_breaker_triggers": pipeline_result.metrics.circuit_breaker_triggers,
+                            "recovery_used": pipeline_result.recovery_used,
+                            "sla_compliant": pipeline_result.metrics.total_duration_ms <= 3000,
+                        },
+                        "stage_performance": {
+                            stage: {
+                                "duration_ms": pipeline_result.metrics.stage_durations.get(stage, 0),
+                                "success": stage in pipeline_result.stage_results,
+                            }
+                            for stage in [
+                                "preprocessing",
+                                "business_rules",
+                                "langgraph_workflow",
+                                "postprocessing",
+                                "delivery",
+                            ]
+                        },
                     }
-                elif preprocessor_result.error_code == "AUTH_FAILED":
+
+                    app_logger.info(
+                        "Pipeline execution completed successfully",
+                        extra={
+                            "execution_id": pipeline_result.execution_id,
+                            "phone": pipeline_result.phone_number,
+                            "total_time_ms": pipeline_result.metrics.total_duration_ms,
+                            "stages_completed": len(pipeline_result.stage_results),
+                            "sla_compliant": pipeline_result.metrics.total_duration_ms <= 3000,
+                            "recovery_used": pipeline_result.recovery_used,
+                        },
+                    )
+
+                    return response
+
+                elif pipeline_result.status.value == "circuit_breaker_open":
+                    # Circuit breaker protection triggered
+                    app_logger.warning(f"Circuit breaker protection for {pipeline_result.phone_number}")
+
                     return {
-                        "status": "auth_failed",
-                        "message": "Authentication failed",
-                        "error_code": "AUTH_FAILED",
+                        "status": "service_degraded",
+                        "message": pipeline_result.response_message,
+                        "execution_id": pipeline_result.execution_id,
+                        "processing_time_ms": pipeline_result.metrics.total_duration_ms,
+                        "circuit_breaker_triggered": True,
+                        "retry_after_seconds": 60,
                     }
+
+                elif pipeline_result.status.value == "timeout":
+                    # Pipeline timeout
+                    app_logger.error(f"Pipeline timeout for {pipeline_result.phone_number}")
+
+                    return {
+                        "status": "timeout",
+                        "message": pipeline_result.response_message,
+                        "execution_id": pipeline_result.execution_id,
+                        "processing_time_ms": pipeline_result.metrics.total_duration_ms,
+                        "contact": "(51) 99692-1999",
+                    }
+
                 else:
+                    # Pipeline failure with recovery attempt
+                    app_logger.error(f"Pipeline execution failed for {pipeline_result.phone_number}")
+
                     return {
-                        "status": "preprocessing_failed",
-                        "message": preprocessor_result.error_message,
-                        "error_code": preprocessor_result.error_code,
+                        "status": "pipeline_failed",
+                        "message": pipeline_result.response_message,
+                        "execution_id": pipeline_result.execution_id,
+                        "processing_time_ms": pipeline_result.metrics.total_duration_ms,
+                        "error_details": pipeline_result.error_details,
+                        "recovery_used": pipeline_result.recovery_used,
+                        "contact": "(51) 99692-1999",
                     }
 
-            # SUCCESS: Continue to Orchestrator with preprocessed message
-            app_logger.info("🚀 Passing to orchestrator for workflow routing")
-
-            # TODO: Create orchestrator that handles session management and intent classification
-            # For now, continue to existing pipeline orchestrator
-            from app.core.pipeline_orchestrator import pipeline_orchestrator
-            from app.services.pipeline_monitor import pipeline_monitor
-
-            # Initialize pipeline orchestrator if needed
-            await pipeline_orchestrator.initialize()
-
-            # Execute pipeline with PREPROCESSED message + turn context
-            # Add turn context to message for downstream processing
-            preprocessed_with_context = preprocessor_result.message._replace(
-                message_id=turn_context["turn_id"]  # Use turn_id as message identifier
-            )
-            
-            pipeline_result = await pipeline_orchestrator.execute_pipeline(
-                message=preprocessed_with_context,  # Use preprocessed message with turn context
-                headers=headers,
-                instance_name=settings.EVOLUTION_INSTANCE_NAME or "kumonvilaa",
-                skip_preprocessing=True,  # Skip preprocessing since already done
-                turn_context=turn_context,  # Pass turn context for minimal architecture
-            )
-
-        except Exception as e:
-            app_logger.error(f"🚨 MessagePreprocessor critical failure: {str(e)}", exc_info=True)
-            
-            # 🚨 SECURITY CRITICAL: DO NOT bypass authentication on exceptions
-            # Log the security incident
-            app_logger.critical(
-                f"🚨 SECURITY ALERT: Message processing exception bypassed authentication checks",
-                extra={
-                    "phone": aggregated_message.phone,
-                    "error": str(e),
-                    "headers_available": len(headers),
-                    "security_incident": True,
-                    "turn_controlled": True,
-                    "turn_id": turn_context.get("turn_id")
+            except Exception as e:
+                app_logger.error(f"🚨 MessagePreprocessor critical failure: {str(e)}", exc_info=True)
+                
+                # 🚨 SECURITY CRITICAL: DO NOT bypass authentication on exceptions
+                # Log the security incident
+                app_logger.critical(
+                    f"🚨 SECURITY ALERT: Message processing exception bypassed authentication checks",
+                    extra={
+                        "phone": aggregated_message.phone,
+                        "error": str(e),
+                        "headers_available": len(headers),
+                        "security_incident": True,
+                        "turn_controlled": True,
+                        "turn_id": turn_context.get("turn_id")
+                    }
+                )
+                
+                # Return secure error response - DO NOT PROCEED TO WORKFLOW
+                return {
+                    "status": "system_error", 
+                    "message": "System temporarily unavailable. Please try again later.",
+                    "error_code": "SYSTEM_ERROR",
+                    "timestamp": datetime.now().isoformat()
                 }
-            )
-            
-            # Return secure error response - DO NOT PROCEED TO WORKFLOW
-            return {
-                "status": "system_error", 
-                "message": "System temporarily unavailable. Please try again later.",
-                "error_code": "SYSTEM_ERROR",
-                "timestamp": datetime.now().isoformat()
-            }
-
-        # Record pipeline execution for monitoring
-        await pipeline_monitor.record_pipeline_execution(
-            execution_id=pipeline_result.execution_id,
-            phone_number=pipeline_result.phone_number,
-            stage_results=pipeline_result.stage_results,
-            total_duration_ms=pipeline_result.metrics.total_duration_ms,
-            status=pipeline_result.status,
-            errors=pipeline_result.metrics.errors,
-        )
-
-        # Handle different pipeline results
-        if pipeline_result.status.value == "completed":
-            # Successful pipeline execution
-            response = {
-                "status": "success",
-                "message": pipeline_result.response_message,
-                "execution_id": pipeline_result.execution_id,
-                "processing_time_ms": pipeline_result.metrics.total_duration_ms,
-                "metadata": {
-                    "pipeline_version": "2.1",
-                    "processing_mode": "full_pipeline_orchestration",
-                    "stage_count": len(pipeline_result.stage_results),
-                    "cache_hits": pipeline_result.metrics.cache_hits,
-                    "cache_misses": pipeline_result.metrics.cache_misses,
-                    "circuit_breaker_triggers": pipeline_result.metrics.circuit_breaker_triggers,
-                    "recovery_used": pipeline_result.recovery_used,
-                    "sla_compliant": pipeline_result.metrics.total_duration_ms <= 3000,
-                },
-                "stage_performance": {
-                    stage: {
-                        "duration_ms": pipeline_result.metrics.stage_durations.get(stage, 0),
-                        "success": stage in pipeline_result.stage_results,
-                    }
-                    for stage in [
-                        "preprocessing",
-                        "business_rules",
-                        "langgraph_workflow",
-                        "postprocessing",
-                        "delivery",
-                    ]
-                },
-            }
-
-            app_logger.info(
-                "Pipeline execution completed successfully",
-                extra={
-                    "execution_id": pipeline_result.execution_id,
-                    "phone": pipeline_result.phone_number,
-                    "total_time_ms": pipeline_result.metrics.total_duration_ms,
-                    "stages_completed": len(pipeline_result.stage_results),
-                    "sla_compliant": pipeline_result.metrics.total_duration_ms <= 3000,
-                    "recovery_used": pipeline_result.recovery_used,
-                },
-            )
-
-            return response
-
-        elif pipeline_result.status.value == "circuit_breaker_open":
-            # Circuit breaker protection triggered
-            app_logger.warning(f"Circuit breaker protection for {pipeline_result.phone_number}")
-
-            return {
-                "status": "service_degraded",
-                "message": pipeline_result.response_message,
-                "execution_id": pipeline_result.execution_id,
-                "processing_time_ms": pipeline_result.metrics.total_duration_ms,
-                "circuit_breaker_triggered": True,
-                "retry_after_seconds": 60,
-            }
-
-        elif pipeline_result.status.value == "timeout":
-            # Pipeline timeout
-            app_logger.error(f"Pipeline timeout for {pipeline_result.phone_number}")
-
-            return {
-                "status": "timeout",
-                "message": pipeline_result.response_message,
-                "execution_id": pipeline_result.execution_id,
-                "processing_time_ms": pipeline_result.metrics.total_duration_ms,
-                "contact": "(51) 99692-1999",
-            }
-
-        else:
-            # Pipeline failure with recovery attempt
-            app_logger.error(f"Pipeline execution failed for {pipeline_result.phone_number}")
-
-            return {
-                "status": "pipeline_failed",
-                "message": pipeline_result.response_message,
-                "execution_id": pipeline_result.execution_id,
-                "processing_time_ms": pipeline_result.metrics.total_duration_ms,
-                "error_details": pipeline_result.error_details,
-                "recovery_used": pipeline_result.recovery_used,
-                "contact": "(51) 99692-1999",
-            }
 
     except Exception as e:
         app_logger.error(f"Error processing Evolution API webhook: {str(e)}", exc_info=True)
