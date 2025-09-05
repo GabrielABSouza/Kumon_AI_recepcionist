@@ -674,9 +674,15 @@ class CeciliaWorkflow:
                 # Create new CeciliaState if no existing state found
                 if not existing_state:
                     logger.info(f"🆕 Creating new CeciliaState for {phone_number}")
-                    existing_state = create_initial_cecilia_state(phone_number, user_message, instance=instance or "")
+                    valid_instance = instance if instance else "kumon_assistant"
+                    existing_state = create_initial_cecilia_state(phone_number, user_message, instance=valid_instance)
                     session_id = existing_state["conversation_id"]
-                    logger.info(f"✅ Created new CeciliaState session: {session_id}")
+                    
+                    # Inject instance at multiple levels for redundancy
+                    from .router.instance_resolver import inject_instance_to_state
+                    inject_instance_to_state(existing_state, valid_instance)
+                    
+                    logger.info(f"✅ Created new CeciliaState session: {session_id} with instance: {valid_instance}")
                     
                     # Apply StageResolver to define initial context for V2 architecture
                     from .nodes.stage_resolver import StageResolver
@@ -693,8 +699,13 @@ class CeciliaWorkflow:
                 logger.error(f"🚨 CeciliaState management failed for {phone_number}: {state_error}")
                 logger.error(f"Error details: {type(state_error).__name__}: {str(state_error)}")
                 # Create minimal fallback state
-                existing_state = create_initial_cecilia_state(phone_number, user_message, instance=instance or "")
+                valid_instance = instance if instance else "kumon_assistant"
+                existing_state = create_initial_cecilia_state(phone_number, user_message, instance=valid_instance)
                 session_id = existing_state["conversation_id"]
+                
+                # Inject instance at multiple levels for redundancy
+                from .router.instance_resolver import inject_instance_to_state
+                inject_instance_to_state(existing_state, valid_instance)
                 
                 # Apply StageResolver to fallback state too
                 from .nodes.stage_resolver import StageResolver

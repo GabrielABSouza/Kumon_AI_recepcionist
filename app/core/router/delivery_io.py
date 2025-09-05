@@ -16,6 +16,8 @@ import logging
 from typing import Dict, Any
 from ...api.evolution import send_message
 from ...workflows.contracts import MessageEnvelope, ensure_outbox, normalize_outbox_messages, OUTBOX_KEY
+from ..contracts.outbox import OutboxItem, rehydrate_outbox_if_needed
+from .instance_resolver import resolve_instance, inject_instance_to_state
 
 logger = logging.getLogger(__name__)
 
@@ -31,24 +33,22 @@ def _msg_id(msg: Dict[str, Any]) -> str:
 
 def _resolve_whatsapp_instance(msg: Dict[str, Any], state: Dict[str, Any]) -> str:
     """
-    Resolve WhatsApp instance using structured observability
+    Resolve WhatsApp instance using new canonical resolver
     
-    Delega para structured_logging.resolve_whatsapp_instance() que implementa:
-    - Hierarchy canônica completa
-    - Validação de padrões inválidos (thread_*, default)
-    - Logs estruturados INSTANCE_TRACE e INSTANCE_GUARD
+    Uses instance_resolver.resolve_instance() which:
+    - Validates against VALID_INSTANCES set
+    - Rejects invalid patterns (thread_*, default)
+    - Falls back to kumon_assistant
     
     Args:
         msg: Message dictionary with potential instance in meta
         state: Conversation state with potential channel config
         
     Returns:
-        str: Resolved instance name or raises ValueError if none found
+        str: Valid instance name (never raises)
     """
-    from ..observability.structured_logging import resolve_whatsapp_instance
-    
-    envelope_meta = msg.get("meta", {})
-    return resolve_whatsapp_instance(envelope_meta, state)
+    # Use new canonical resolver
+    return resolve_instance(state, msg)
 
 
 async def emit_to_channel(msg: Dict[str, Any], state: Dict[str, Any]) -> bool:
@@ -148,6 +148,9 @@ async def delivery_node(state: dict, *, max_batch: int = 10) -> dict:
     
     # Ensure outbox exists and add structured PRE-DELIVERY telemetry
     ensure_outbox(state)
+    
+    # CRITICAL: Rehydrate outbox if needed (fixes planner→delivery bridge issue)
+    rehydrate_outbox_if_needed(state)
     
     # Structured logging - OUTBOX_TRACE delivery phase  
     from ..observability.structured_logging import log_outbox_trace

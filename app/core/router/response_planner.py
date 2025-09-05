@@ -9,6 +9,7 @@ from ...services.production_llm_service import ProductionLLMService
 from ..state.models import CeciliaState
 from ...workflows.contracts import RoutingDecision, MessageEnvelope, ensure_outbox, normalize_outbox_messages, OUTBOX_KEY
 from .smart_router_adapter import CoreRoutingDecision, routing_mode_from_decision, normalize_rd_obj
+from ..contracts.outbox import OutboxItem, enqueue_to_outbox
 
 logger = logging.getLogger(__name__)
 
@@ -568,8 +569,8 @@ def _plan_template(state: dict, fallback_level: int | None):
     # Render template
     text = render_template(template_name, state)
     
-    # Create MessageEnvelope and enqueue using unified format
-    envelope = MessageEnvelope(
+    # Create OutboxItem and enqueue using unified format
+    item = OutboxItem(
         text=text,
         channel=resolve_channel(state),
         meta={
@@ -577,11 +578,16 @@ def _plan_template(state: dict, fallback_level: int | None):
             "fallback_level": fallback_level, 
             "mode": "template",
             "source": "response_planner",
-            "instance": state.get("instance", "")  # Include instance from state
+            "instance": state.get("instance", "kumon_assistant")  # Use valid default
         }
     )
     
-    state[OUTBOX_KEY].append(envelope.to_dict())
+    # Use unified enqueue function
+    enqueue_to_outbox(state, item)
+    
+    # Create snapshot for bridge protection
+    state["_planner_snapshot_outbox"] = list(state.get(OUTBOX_KEY, []))
+    
     return state
 
 
@@ -615,19 +621,24 @@ Responda brevemente sobre o método Kumon e como podemos ajudar.
         logger.warning(f"LLM generation failed: {e}")
         answer = "Obrigada pela pergunta! Para melhor esclarecimento, entre em contato: (51) 99692-1999"
     
-    # Create MessageEnvelope and enqueue using unified format
-    envelope = MessageEnvelope(
+    # Create OutboxItem and enqueue using unified format
+    item = OutboxItem(
         text=answer,
         channel=resolve_channel(state),
         meta={
             "mode": "llm_rag", 
             "llm_used": True,
             "source": "response_planner",
-            "instance": state.get("instance", "")  # Include instance from state
+            "instance": state.get("instance", "kumon_assistant")  # Use valid default
         }
     )
     
-    state[OUTBOX_KEY].append(envelope.to_dict())
+    # Use unified enqueue function
+    enqueue_to_outbox(state, item)
+    
+    # Create snapshot for bridge protection
+    state["_planner_snapshot_outbox"] = list(state.get(OUTBOX_KEY, []))
+    
     return state
 
 
@@ -641,17 +652,22 @@ def _plan_handoff(state: dict):
         "🕐 Segunda a Sexta, 8h às 18h"
     )
     
-    # Create MessageEnvelope and enqueue using unified format
-    envelope = MessageEnvelope(
+    # Create OutboxItem and enqueue using unified format
+    item = OutboxItem(
         text=handoff_text,
         channel=resolve_channel(state),
         meta={
             "mode": "handoff", 
             "escalated": True,
             "source": "response_planner",
-            "instance": state.get("instance", "")  # Include instance from state
+            "instance": state.get("instance", "kumon_assistant")  # Use valid default
         }
     )
     
-    state[OUTBOX_KEY].append(envelope.to_dict())
+    # Use unified enqueue function
+    enqueue_to_outbox(state, item)
+    
+    # Create snapshot for bridge protection
+    state["_planner_snapshot_outbox"] = list(state.get(OUTBOX_KEY, []))
+    
     return state

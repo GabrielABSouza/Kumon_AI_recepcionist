@@ -549,11 +549,12 @@ class PipelineOrchestrator:
             
             app_logger.debug(f"Executing LangGraph workflow for {message.phone}")
             
-            # Execute workflow with timeout
+            # Execute workflow with timeout (pass instance)
             workflow_result = await asyncio.wait_for(
                 get_cecilia_workflow().process_message(
                     phone_number=message.phone,
                     user_message=message.message,
+                    instance="kumon_assistant",  # Pass valid instance explicitly
                     use_orchestrator=False  # Direct execution to avoid circular dependency
                 ),
                 timeout=30.0  # 30 second timeout
