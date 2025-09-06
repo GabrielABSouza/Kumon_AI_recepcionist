@@ -39,6 +39,28 @@ class FeatureFlagManager:
     
     def __init__(self):
         self.flags: Dict[str, FeatureFlag] = {
+            # Pipeline Control Feature Flags - Nova arquitetura principal
+            "MAIN_PIPELINE_ENABLED": FeatureFlag(
+                name="MAIN_PIPELINE_ENABLED",
+                enabled=self._get_env_bool("MAIN_PIPELINE_ENABLED", True),
+                description="Enable main pipeline: preprocess → classify → route → plan → outbox → delivery",
+                rollout_percentage=100
+            ),
+            
+            "TURN_GUARD_ONLY": FeatureFlag(
+                name="TURN_GUARD_ONLY",
+                enabled=self._get_env_bool("TURN_GUARD_ONLY", True),
+                description="Turn Controller acts only as guardrails (concurrency/dedup), not content generation",
+                rollout_percentage=100
+            ),
+            
+            "OUTBOX_REDIS_FALLBACK": FeatureFlag(
+                name="OUTBOX_REDIS_FALLBACK",
+                enabled=self._get_env_bool("OUTBOX_REDIS_FALLBACK", True),
+                description="Enable Redis fallback for outbox persistence when DB unavailable",
+                rollout_percentage=100
+            ),
+            
             # Enum Normalization Feature Flags
             "STRICT_ENUM_STAGESTEP": FeatureFlag(
                 name="STRICT_ENUM_STAGESTEP",
@@ -288,6 +310,21 @@ def is_variable_policy_v2_enabled() -> bool:
 def is_outbox_v2_enforced() -> bool:
     """Check if V2 outbox handoff enforcement is enabled"""
     return feature_flags.is_enabled("OUTBOX_V2_ENFORCED", default=True)
+
+
+def is_main_pipeline_enabled() -> bool:
+    """Check if main pipeline is enabled (preprocess → classify → route → plan → outbox → delivery)"""
+    return feature_flags.is_enabled("MAIN_PIPELINE_ENABLED", default=True)
+
+
+def is_turn_guard_only() -> bool:
+    """Check if Turn Controller acts only as guardrails (not content generation)"""
+    return feature_flags.is_enabled("TURN_GUARD_ONLY", default=True)
+
+
+def is_outbox_redis_fallback_enabled() -> bool:
+    """Check if Redis fallback for outbox persistence is enabled"""
+    return feature_flags.is_enabled("OUTBOX_REDIS_FALLBACK", default=True)
 
 
 # ========== CANONICAL API ==========

@@ -867,142 +867,249 @@ async def _process_single_message(message: WhatsAppMessage, headers: Optional[Di
 
 
 async def _process_through_turn_architecture(message: WhatsAppMessage, turn_data: Optional[Dict] = None):
-    """Process message through minimal turn-based architecture: TurnController → Planner → Delivery"""
+    """
+    NOVA ARQUITETURA: Pipeline principal (preprocess → classify → route → plan → outbox → delivery)
+    Turn Controller atua APENAS como guardrails (concurrency/dedup/single response per turn)
+    """
     try:
-        from ..core.router.response_planner import response_planner
-        from ..core.router.delivery_io import delivery_node_turn_based
+        from ..core.feature_flags import is_main_pipeline_enabled, is_turn_guard_only
         
-        # Import defensivo para cache - tolerância a refatores futuros
-        redis_cache = None
+        # CRÍTICO: Log obrigatório - marcador exato para pipeline start
+        app_logger.info(f"PIPELINE|start|phone={message.phone[-4:]}|main_enabled={is_main_pipeline_enabled()}|turn_guard_only={is_turn_guard_only()}")
+        
+        # STEP 1: PREPROCESSING - Sanitização, rate limiting, auth validation
         try:
-            from ..core.cache_manager import redis_cache
-            app_logger.info("CACHE_INIT|source=app.core.cache_manager|success")
-        except ModuleNotFoundError:
-            # Fallback para import legado se necessário
-            try:
-                from ..cache.redis_manager import redis_cache
-                app_logger.info("CACHE_INIT|source=app.cache.redis_manager(shim)|fallback_success")
-            except ModuleNotFoundError:
-                app_logger.warning("CACHE_INIT|both_sources_failed|continuing_without_cache")
-        
-        # Import defensivo para psycopg2 - pode não estar disponível
-        try:
-            import psycopg2
-            PSYCOPG2_AVAILABLE = True
-            app_logger.info("PSYCOPG2_INIT|available|turn_architecture_ready")
-        except ModuleNotFoundError:
-            psycopg2 = None
-            PSYCOPG2_AVAILABLE = False
-            app_logger.warning("PSYCOPG2_INIT|unavailable|continuing_without_direct_db")
-        
-        import os
-        
-        # Build state for turn-based processing
-        conversation_id = f"conv_{message.phone}"
-        turn_id = turn_data['turn_id'] if turn_data else f"single_{message.message_id}"
-        
-        state = {
-            "phone_number": message.phone,
-            "conversation_id": conversation_id,
-            "turn_id": turn_id,
-            "last_user_message": message.message,
-            "instance": message.instance,
-            "cache": redis_cache.client if redis_cache else None,
-            "db": None,  # Will try to get DB connection
-            "current_stage": "greeting",  # Default stage
-            "current_step": "welcome",    # Default step
-        }
-        
-        # Try to get database connection for outbox persistence
-        try:
-            database_url = os.getenv("DATABASE_URL")
-            if database_url and PSYCOPG2_AVAILABLE:
-                from urllib.parse import urlparse
-                result = urlparse(database_url)
-                conn = psycopg2.connect(
-                    database=result.path[1:],
-                    user=result.username,
-                    password=result.password,
-                    host=result.hostname,
-                    port=result.port
-                )
-                state["db"] = conn
-                app_logger.info("✅ Database connection established for outbox persistence")
-            elif database_url and not PSYCOPG2_AVAILABLE:
-                app_logger.warning("Database URL available but psycopg2 not installed - using repository fallback")
-        except Exception as db_error:
-            app_logger.warning(f"Could not establish DB connection: {db_error}")
-        
-        # Step 1: Smart Routing (simplified for minimal architecture)
-        routing_decision = {
-            "target_node": "greeting",  # Simplified routing
-            "threshold_action": "proceed",
-            "confidence": 0.8,
-            "reasoning": "Turn-based processing",
-            "rule_applied": "turn_controller"
-        }
-        
-        # Step 2: Response Planning
-        try:
-            # Create outbox item for the response
-            from ..core.outbox_repository import save_outbox
-            response_text = "Olá! Sou Cecília do Kumon Vila A. Como posso ajudá-lo hoje? 😊"
+            from ..services.message_preprocessor import message_preprocessor
+            from ..core.structured_logging import log_turn_event
             
-            outbox_items = [{
-                "text": response_text,
+            # Build headers for auth validation (defensive)
+            headers = turn_data.get('headers', {}) if turn_data else {}
+            
+            # CRÍTICO: Log obrigatório - marcador exato
+            app_logger.info(f"PIPELINE|preprocess_start|phone={message.phone[-4:]}")
+            log_turn_event("preprocess", message.phone, "start", {"message_id": message.message_id})
+            
+            preprocess_result = await message_preprocessor.process_message(message, headers)
+            
+            if not preprocess_result.success:
+                app_logger.warning(f"PIPELINE|preprocess_failed|phone={message.phone[-4:]}|error={preprocess_result.error_code}")
+                log_turn_event("preprocess", message.phone, "failed", {"error": preprocess_result.error_code})
+                return  # Stop pipeline on preprocessing failure
+            
+            preprocessed_message = preprocess_result.message
+            app_logger.info(f"PIPELINE|preprocess_complete|phone={message.phone[-4:]}|processing_time={preprocess_result.processing_time_ms:.1f}ms")
+            log_turn_event("preprocess", message.phone, "complete", {"processing_time_ms": preprocess_result.processing_time_ms})
+            
+        except Exception as preprocess_error:
+            app_logger.error(f"PIPELINE|preprocess_error|phone={message.phone[-4:]}|error={str(preprocess_error)}")
+            return  # Critical pipeline failure - stop processing
+
+        # STEP 2: INTENT CLASSIFICATION - Análise da intenção do usuário
+        try:
+            from ..workflows.intent_classifier import AdvancedIntentClassifier
+            from ..core.dependencies import llm_service
+            
+            app_logger.info(f"PIPELINE|classify_start|phone={message.phone[-4:]}|message={preprocessed_message.message[:50]}")
+            log_turn_event("classify", message.phone, "start", {"message_preview": preprocessed_message.message[:50]})
+            
+            # Build conversation state for classification
+            conversation_id = f"conv_{message.phone}"
+            state = {
+                "phone_number": message.phone,
+                "conversation_id": conversation_id,
+                "last_user_message": preprocessed_message.message,
+                "current_stage": "greeting",  # Default stage, will be loaded from DB if available
+                "current_step": "welcome",
                 "channel": "whatsapp",
-                "meta": {"source": "turn_planner"}
-            }]
+                "messages": []
+            }
             
-            # Persist to database - no longer dependent on db connection in state
-            idem_keys = save_outbox(conversation_id, outbox_items)
-            if idem_keys:
-                app_logger.info(f"OUTBOX|persisted|conv={conversation_id}|count={len(outbox_items)}")
-                
-                # Add idempotency keys to items for state
-                for i, key in enumerate(idem_keys):
-                    if i < len(outbox_items):
-                        outbox_items[i]["idempotency_key"] = key
+            # Initialize intent classifier
+            intent_classifier = AdvancedIntentClassifier(llm_service_instance=llm_service)
+            intent_result = await intent_classifier.classify_intent(preprocessed_message.message, state)
             
-            # Also save in state for immediate consumption
-            state["_planner_snapshot_outbox"] = outbox_items
+            app_logger.info(f"PIPELINE|classify_complete|phone={message.phone[-4:]}|intent={intent_result.category}|confidence={intent_result.confidence:.2f}")
+            log_turn_event("classify", message.phone, "complete", {
+                "intent_category": intent_result.category,
+                "confidence": intent_result.confidence,
+                "subcategory": intent_result.subcategory
+            })
             
-        except Exception as planning_error:
-            app_logger.error(f"Response planning error: {planning_error}")
-            # Create fallback outbox
+        except Exception as classify_error:
+            app_logger.error(f"PIPELINE|classify_error|phone={message.phone[-4:]}|error={str(classify_error)}")
+            # Create fallback intent result
+            from ..workflows.contracts import IntentResult
+            intent_result = IntentResult(
+                category="clarification",
+                subcategory="technical_confusion",
+                confidence=0.3,
+                context_entities={"error": str(classify_error)},
+                delivery_payload=None,
+                slots={"error": str(classify_error)}
+            )
+
+        # STEP 3: SMART ROUTING - Decisão de roteamento inteligente
+        try:
+            from ..workflows.smart_router import smart_router
+            
+            app_logger.info(f"PIPELINE|route_start|phone={message.phone[-4:]}|intent={intent_result.category}|confidence={intent_result.confidence:.2f}")
+            log_turn_event("route", message.phone, "start", {
+                "intent_category": intent_result.category,
+                "confidence": intent_result.confidence
+            })
+            
+            routing_decision = await smart_router.make_routing_decision(state, intent_result)
+            
+            app_logger.info(f"PIPELINE|route_complete|phone={message.phone[-4:]}|target={routing_decision.target_node}|action={routing_decision.threshold_action}|final_confidence={routing_decision.final_confidence:.2f}")
+            log_turn_event("route", message.phone, "complete", {
+                "target_node": routing_decision.target_node,
+                "threshold_action": routing_decision.threshold_action,
+                "final_confidence": routing_decision.final_confidence,
+                "rule_applied": routing_decision.rule_applied
+            })
+            
+        except Exception as route_error:
+            app_logger.error(f"PIPELINE|route_error|phone={message.phone[-4:]}|error={str(route_error)}")
+            # Create fallback routing decision
+            from ..workflows.contracts import RoutingDecision
+            from datetime import datetime
+            routing_decision = RoutingDecision(
+                target_node="fallback",
+                threshold_action="fallback_level1",
+                final_confidence=0.3,
+                intent_confidence=0.2,
+                pattern_confidence=0.2,
+                rule_applied="error_fallback",
+                reasoning=f"Routing error: {str(route_error)}",
+                timestamp=datetime.now()
+            )
+
+        # STEP 4: RESPONSE PLANNING - Geração da resposta
+        try:
+            from ..core.router.response_planner import ResponsePlanner
+            
+            app_logger.info(f"PIPELINE|plan_start|phone={message.phone[-4:]}|target={routing_decision.target_node}|action={routing_decision.threshold_action}")
+            log_turn_event("plan", message.phone, "start", {
+                "target_node": routing_decision.target_node,
+                "threshold_action": routing_decision.threshold_action
+            })
+            
+            # Initialize response planner
+            response_planner = ResponsePlanner()
+            
+            # Plan and generate response - this will populate state with planned response and outbox items
+            await response_planner.plan_and_generate(state, routing_decision)
+            
+            planned_outbox = state.get("_planner_snapshot_outbox", [])
+            app_logger.info(f"PIPELINE|plan_complete|phone={message.phone[-4:]}|outbox_count={len(planned_outbox)}")
+            log_turn_event("plan", message.phone, "complete", {
+                "outbox_count": len(planned_outbox),
+                "response_type": state.get("response_metadata", {}).get("type", "unknown")
+            })
+            
+        except Exception as plan_error:
+            app_logger.error(f"PIPELINE|plan_error|phone={message.phone[-4:]}|error={str(plan_error)}")
+            # Create emergency fallback outbox
+            turn_id = turn_data.get('turn_id') if turn_data else f"single_{message.message_id}"
             state["_planner_snapshot_outbox"] = [{
-                "text": "Obrigada pelo contato!",
+                "text": "Desculpe, tive um problema técnico. Pode repetir sua mensagem?",
                 "channel": "whatsapp",
-                "meta": {"source": "planning_fallback"},
-                "idempotency_key": f"{turn_id}_fallback"
+                "meta": {"source": "plan_error_fallback"},
+                "idempotency_key": f"{turn_id}_plan_error"
             }]
-        
-        # Step 3: Workflow Guards - Check for recursion and loops
-        from ..core.workflow_guards import check_recursion_limit, prevent_greeting_loops
-        
-        # Check recursion limit
-        if not check_recursion_limit(conversation_id, state.get("current_stage")):
-            app_logger.error(f"WORKFLOW|recursion_limit_exceeded|conv={conversation_id}")
-            return  # Stop processing to prevent infinite loops
-        
-        # Check greeting loops
-        if not prevent_greeting_loops(message.phone, state.get("current_stage"), "greeting"):
-            app_logger.warning(f"WORKFLOW|greeting_loop_prevented|phone={message.phone[-4:]}")
-            return  # Stop processing to prevent greeting loops
-        
-        # Step 4: Delivery
+
+        # STEP 5: OUTBOX PERSISTENCE - Persistir mensagens planejadas
         try:
-            result_state = await delivery_node_turn_based(state)
-            app_logger.info(f"✅ Turn delivery completed: status = {result_state.get('turn_status')}")
-        except Exception as delivery_error:
-            app_logger.error(f"Delivery error: {delivery_error}")
-        
-        # Cleanup database connection
-        if state.get("db"):
+            from ..core.outbox_repository import save_outbox
+            from ..core.outbox_repo_redis import outbox_push
+            from ..core.feature_flags import is_outbox_redis_fallback_enabled
+            
+            outbox_items = state.get("_planner_snapshot_outbox", [])
+            
+            app_logger.info(f"PIPELINE|outbox_start|phone={message.phone[-4:]}|count={len(outbox_items)}")
+            log_turn_event("outbox", message.phone, "start", {"outbox_count": len(outbox_items)})
+            
+            # Try database first
+            idem_keys = []
             try:
-                state["db"].close()
-            except:
-                pass
+                idem_keys = save_outbox(conversation_id, outbox_items)
+                if idem_keys:
+                    app_logger.info(f"PIPELINE|outbox_db_success|phone={message.phone[-4:]}|count={len(outbox_items)}")
+                    # Add idempotency keys to items
+                    for i, key in enumerate(idem_keys):
+                        if i < len(outbox_items):
+                            outbox_items[i]["idempotency_key"] = key
+                else:
+                    raise Exception("DB outbox returned empty keys")
+            except Exception as db_error:
+                app_logger.warning(f"PIPELINE|outbox_db_failed|phone={message.phone[-4:]}|error={str(db_error)}")
+                
+                # FALLBACK: Redis outbox if enabled
+                if is_outbox_redis_fallback_enabled():
+                    try:
+                        redis_count = outbox_push(conversation_id, outbox_items)
+                        if redis_count > 0:
+                            app_logger.info(f"PIPELINE|outbox_redis_success|phone={message.phone[-4:]}|count={redis_count}")
+                        else:
+                            raise Exception("Redis outbox failed")
+                    except Exception as redis_error:
+                        app_logger.error(f"PIPELINE|outbox_redis_failed|phone={message.phone[-4:]}|error={str(redis_error)}")
+                        # Continue with in-memory outbox for immediate delivery
+                
+            app_logger.info(f"PIPELINE|outbox_complete|phone={message.phone[-4:]}|count={len(outbox_items)}")
+            log_turn_event("outbox", message.phone, "complete", {"outbox_count": len(outbox_items)})
+            
+        except Exception as outbox_error:
+            app_logger.error(f"PIPELINE|outbox_error|phone={message.phone[-4:]}|error={str(outbox_error)}")
+
+        # STEP 6: DELIVERY - Entregar mensagens ao usuário (single-shot, idempotente)
+        try:
+            from ..core.router.delivery_io import delivery_node_turn_based
+            
+            app_logger.info(f"PIPELINE|delivery_start|phone={message.phone[-4:]}|outbox_count={len(state.get('_planner_snapshot_outbox', []))}")
+            log_turn_event("delivery", message.phone, "start", {
+                "outbox_count": len(state.get('_planner_snapshot_outbox', []))
+            })
+            
+            # Delivery with idempotency and single-shot guarantee
+            result_state = await delivery_node_turn_based(state)
+            
+            delivery_status = result_state.get('turn_status', 'unknown')
+            app_logger.info(f"PIPELINE|delivery_complete|phone={message.phone[-4:]}|status={delivery_status}")
+            log_turn_event("delivery", message.phone, "complete", {
+                "turn_status": delivery_status,
+                "messages_sent": result_state.get('messages_sent', 0)
+            })
+            
+        except Exception as delivery_error:
+            app_logger.error(f"PIPELINE|delivery_error|phone={message.phone[-4:]}|error={str(delivery_error)}")
+            log_turn_event("delivery", message.phone, "error", {"error": str(delivery_error)})
+
+        # GUARDRAILS: Turn Controller workflow guards (APENAS guardrails, não geração de conteúdo)
+        if is_turn_guard_only():
+            try:
+                from ..core.workflow_guards import check_recursion_limit, prevent_greeting_loops
+                
+                app_logger.info(f"PIPELINE|guards_start|phone={message.phone[-4:]}")
+                
+                # Check recursion limit
+                if not check_recursion_limit(conversation_id, state.get("current_stage")):
+                    app_logger.error(f"PIPELINE|guards_recursion_exceeded|conv={conversation_id}")
+                    return  # Stop processing to prevent infinite loops
+                
+                # Check greeting loops
+                if not prevent_greeting_loops(message.phone, state.get("current_stage"), "greeting"):
+                    app_logger.warning(f"PIPELINE|guards_greeting_loop|phone={message.phone[-4:]}")
+                    return  # Stop processing to prevent greeting loops
+                
+                app_logger.info(f"PIPELINE|guards_complete|phone={message.phone[-4:]}")
+                
+            except Exception as guards_error:
+                app_logger.error(f"PIPELINE|guards_error|phone={message.phone[-4:]}|error={str(guards_error)}")
+
+        # CRÍTICO: Log obrigatório - marcador exato para pipeline complete
+        app_logger.info(f"PIPELINE|complete|phone={message.phone[-4:]}|pipeline_success=true")
+        log_turn_event("pipeline", message.phone, "complete", {"pipeline_success": True})
 
     except Exception as e:
         app_logger.error(f"TURN|architecture_error|phone={message.phone[-4:]}|error={str(e)}", exc_info=True)
