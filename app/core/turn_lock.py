@@ -25,8 +25,8 @@ LOCK_PREFIX = "turnlock"
 def _get_redis_client():
     """Get Redis client - import locally to avoid circular dependencies"""
     try:
-        from ..cache.redis_manager import redis_cache
-        return redis_cache.client
+        from .cache_manager import get_redis
+        return get_redis()
     except ImportError:
         logger.error("TURN_LOCK|redis_unavailable|no_turn_protection")
         return None

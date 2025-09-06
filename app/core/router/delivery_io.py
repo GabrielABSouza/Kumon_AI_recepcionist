@@ -70,8 +70,8 @@ except ImportError:
     def resolve_instance(state):
         return state.get("instance", "kumon_assistant")
 
-from ..outbox_store import load_outbox, mark_sent, mark_failed
-from ..dedup_store import seen_idem, mark_idem, ensure_fallback_key
+from ..outbox_repository import get_next_outbox_for_delivery, mark_outbox_as_sent, mark_outbox_as_failed
+from ..turn_dedup import seen_idem, mark_idem, ensure_fallback_key
 
 logger = logging.getLogger(__name__)
 
@@ -119,15 +119,13 @@ async def delivery_node_turn_based(state: dict) -> dict:
     
     # Step 3: **ESSENCIAL** Rehydrate from DB if still empty (durável)
     if not items:
-        db_connection = state.get("db")
-        if db_connection:
-            items = load_outbox(db_connection, conversation_id, turn_id)
-            if items:
-                logger.info(f"DELIVERY|rehydrate=db|count={len(items)}|turn={turn_id}")
-            else:
-                logger.debug(f"DELIVERY|no_db_items|turn={turn_id}")
+        result = get_next_outbox_for_delivery(conversation_id)
+        if result:
+            message_dict, idem_key = result
+            items = [message_dict]
+            logger.info(f"DELIVERY|rehydrate_hit|conv={conversation_id}|idem={idem_key}")
         else:
-            logger.warning(f"DELIVERY|no_db_connection|turn={turn_id}")
+            logger.debug(f"DELIVERY|rehydrate_miss|conv={conversation_id}")
     
     # Step 4: Generate fallback if still empty - BUT idempotente por turn_id
     if not items:
@@ -193,9 +191,9 @@ async def delivery_node_turn_based(state: dict) -> dict:
                 )
                 
                 # Step 8: Mark as sent in DB + Redis dedup
-                db_connection = state.get("db")
-                if db_connection:
-                    mark_sent(db_connection, conversation_id, turn_id, 0, provider_id)
+                db_id = item.get("_db_id")
+                if db_id:
+                    mark_outbox_as_sent(db_id, provider_id)
                 
                 if cache:
                     mark_idem(cache, conversation_id, idem_key)
@@ -214,10 +212,10 @@ async def delivery_node_turn_based(state: dict) -> dict:
                 )
                 
                 # Mark as failed in DB for retry
-                db_connection = state.get("db") 
-                if db_connection:
+                db_id = item.get("_db_id")
+                if db_id:
                     error_reason = str(provider_result) if provider_result else "send_failed"
-                    mark_failed(db_connection, conversation_id, turn_id, 0, error_reason)
+                    mark_outbox_as_failed(db_id, error_reason)
                 
                 state["turn_status"] = "send_failed"
                 return state
@@ -232,10 +230,10 @@ async def delivery_node_turn_based(state: dict) -> dict:
     except Exception as e:
         logger.error(f"DELIVERY|exception|turn={turn_id}|error={e}")
         
-        # Mark as failed 
-        db_connection = state.get("db")
-        if db_connection:
-            mark_failed(db_connection, conversation_id, turn_id, 0, str(e))
+        # Mark as failed - using the item's db_id if available
+        db_id = item.get("_db_id") if 'item' in locals() else None
+        if db_id:
+            mark_outbox_as_failed(db_id, str(e))
         
         state["turn_status"] = "exception"
         state["delivery_error"] = str(e)

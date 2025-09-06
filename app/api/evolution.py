@@ -438,9 +438,10 @@ async def handle_messages_upsert_direct(request: Request, background_tasks: Back
         instance = webhook_data.get("instance")
         message_data = webhook_data.get("data", {})
 
-        # Skip messages from ourselves
+        # Skip messages from ourselves (prevent echo loops)
         if message_data.get("key", {}).get("fromMe", False):
-            app_logger.info(f"🔄 Skipping message from self (fromMe=True)")
+            from ..core.structured_logging import log_webhook_event
+            log_webhook_event("echo_filtered", "unknown", webhook_data.get("data", {}).get("key", {}).get("id", "unknown"))
             return {"status": "ok", "message": "Message from self, skipped"}
 
         app_logger.info(f"📱 Processing message from instance: {instance}")
@@ -788,15 +789,6 @@ async def handle_new_jwt_token(request: Request):
 async def process_message_background(message: WhatsAppMessage, headers: Optional[Dict] = None):
     """Process incoming WhatsApp message in background with turn management"""
     try:
-        # Build context for the message
-        context = {
-            "phone": message.phone,
-            "sender_name": message.sender_name,
-            "message_id": message.message_id,
-            "instance": message.instance,
-            "timestamp": message.timestamp,
-        }
-
         # Skip empty messages
         if not message.message.strip():
             app_logger.info(f"Skipping empty message from {message.phone}")
@@ -804,63 +796,32 @@ async def process_message_background(message: WhatsAppMessage, headers: Optional
 
         app_logger.info(f"🔄 Processing message: '{message.message}' from {message.phone}")
 
-        # Step 0: Turn Management - Add message to buffer and check if turn is ready
-        try:
-            from ..core.turn_controller import append_user_message, flush_turn_if_quiet, turn_lock, _now_ms
-            from ..cache.redis_manager import redis_cache
-            
-            cache_client = redis_cache.client if redis_cache else None
-            if not cache_client:
-                app_logger.warning("Redis not available for turn management - processing immediately")
-                # Fall back to immediate processing without turn management
-                await _process_single_message(message, headers)
+        # Step 1: Message-level deduplication
+        from ..core.turn_dedup import is_duplicate_message, turn_lock
+        
+        # Check for duplicate message  
+        if is_duplicate_message(message.instance, message.phone, message.message_id):
+            from ..core.structured_logging import log_webhook_event
+            log_webhook_event("duplicate", message.phone, message.message_id)
+            return
+        
+        # Step 2: Conversation-level turn lock
+        conversation_id = f"conv_{message.phone}"
+        
+        with turn_lock(conversation_id) as acquired:
+            if not acquired:
+                app_logger.info(f"TURNLOCK|duplicate|conv={conversation_id}")
                 return
             
-            # Add message to turn buffer
-            now_ms = _now_ms()
-            append_user_message(cache_client, message.phone, message.message_id, message.message, now_ms)
+            app_logger.info(f"TURNLOCK|acquired|conv={conversation_id}")
             
-            # Check if turn is ready (quiet period elapsed)
-            turn_data = flush_turn_if_quiet(cache_client, message.phone, now_ms)
-            
-            if not turn_data:
-                # Turn not ready yet (still within debounce window)
-                app_logger.info(f"Turn not ready for {message.phone}, message buffered")
-                return
-            
-            # Turn is ready - try to acquire lock and process
-            with turn_lock(cache_client, message.phone) as got_lock:
-                if not got_lock:
-                    # Another process is already handling this turn
-                    app_logger.info(f"Turn locked by another process for {message.phone}")
-                    return
-                
-                app_logger.info(f"Processing turn {turn_data['turn_id']} for {message.phone} with {turn_data['message_count']} messages")
-                
-                # Create aggregated message from turn data
-                aggregated_message = WhatsAppMessage(
-                    message_id=turn_data['turn_id'],
-                    phone=message.phone,
-                    message=turn_data['text'],  # Aggregated text from all messages in turn
-                    message_type=message.message_type,
-                    timestamp=turn_data['last_ts'],
-                    instance=message.instance,
-                    sender_name=message.sender_name,
-                    quoted_message=message.quoted_message,
-                    media_url=message.media_url,
-                    media_type=message.media_type,
-                )
-                
-                # Process the aggregated turn
-                await _process_single_message(aggregated_message, headers, turn_data)
-                
-        except Exception as turn_error:
-            app_logger.error(f"Turn management error: {turn_error}")
-            # Fall back to immediate processing
+            # Step 3: Process the message (no fallback in except)
             await _process_single_message(message, headers)
 
     except Exception as e:
-        app_logger.error(f"❌ Error processing message in background: {str(e)}")
+        # CRITICAL: Do not send fallback here - just log and exit
+        app_logger.error(f"TURN|error_before_planner|phone={message.phone[-4:]}|error={str(e)}", exc_info=True)
+        # Let the error bubble up without sending any message
 
 
 async def _process_single_message(message: WhatsAppMessage, headers: Optional[Dict] = None, turn_data: Optional[Dict] = None):
@@ -898,8 +859,8 @@ async def _process_single_message(message: WhatsAppMessage, headers: Optional[Di
             await _process_through_turn_architecture(final_message, turn_data)
 
         except Exception as e:
-            app_logger.error(f"Error in preprocessing/workflow: {str(e)}")
-            # Even for errors, let DeliveryService handle it - no sending from evolution.py
+            app_logger.error(f"TURN|processing_error|phone={message.phone[-4:]}|error={str(e)}", exc_info=True)
+            # CRITICAL: Do not send any messages from evolution.py - let Delivery handle via outbox
 
     except Exception as e:
         app_logger.error(f"❌ Error in _process_single_message: {str(e)}")
@@ -961,20 +922,24 @@ async def _process_through_turn_architecture(message: WhatsAppMessage, turn_data
         # Step 2: Response Planning
         try:
             # Create outbox item for the response
-            from ..core.outbox_store import persist_outbox
+            from ..core.outbox_repository import save_outbox
             response_text = "Olá! Sou Cecília do Kumon Vila A. Como posso ajudá-lo hoje? 😊"
             
             outbox_items = [{
                 "text": response_text,
                 "channel": "whatsapp",
-                "meta": {"source": "turn_planner"},
-                "idempotency_key": f"{turn_id}_response"
+                "meta": {"source": "turn_planner"}
             }]
             
-            # Persist to database if available
-            if state["db"]:
-                persist_outbox(state["db"], conversation_id, turn_id, outbox_items)
-                app_logger.info(f"✅ Persisted {len(outbox_items)} items to outbox for turn {turn_id}")
+            # Persist to database - no longer dependent on db connection in state
+            idem_keys = save_outbox(conversation_id, outbox_items)
+            if idem_keys:
+                app_logger.info(f"OUTBOX|persisted|conv={conversation_id}|count={len(outbox_items)}")
+                
+                # Add idempotency keys to items for state
+                for i, key in enumerate(idem_keys):
+                    if i < len(outbox_items):
+                        outbox_items[i]["idempotency_key"] = key
             
             # Also save in state for immediate consumption
             state["_planner_snapshot_outbox"] = outbox_items
@@ -989,7 +954,20 @@ async def _process_through_turn_architecture(message: WhatsAppMessage, turn_data
                 "idempotency_key": f"{turn_id}_fallback"
             }]
         
-        # Step 3: Delivery
+        # Step 3: Workflow Guards - Check for recursion and loops
+        from ..core.workflow_guards import check_recursion_limit, prevent_greeting_loops
+        
+        # Check recursion limit
+        if not check_recursion_limit(conversation_id, state.get("current_stage")):
+            app_logger.error(f"WORKFLOW|recursion_limit_exceeded|conv={conversation_id}")
+            return  # Stop processing to prevent infinite loops
+        
+        # Check greeting loops
+        if not prevent_greeting_loops(message.phone, state.get("current_stage"), "greeting"):
+            app_logger.warning(f"WORKFLOW|greeting_loop_prevented|phone={message.phone[-4:]}")
+            return  # Stop processing to prevent greeting loops
+        
+        # Step 4: Delivery
         try:
             result_state = await delivery_node_turn_based(state)
             app_logger.info(f"✅ Turn delivery completed: status = {result_state.get('turn_status')}")
@@ -1004,18 +982,8 @@ async def _process_through_turn_architecture(message: WhatsAppMessage, turn_data
                 pass
 
     except Exception as e:
-        app_logger.error(f"❌ Error in turn architecture processing: {str(e)}")
-        # Ultimate fallback - send direct message (should be rare)
-        try:
-            fallback_response = "Olá! Como posso ajudar?"
-            result = await send_message(
-                phone_number=message.phone,
-                message=fallback_response,
-                instance_name=message.instance
-            )
-            app_logger.info(f"🚨 Emergency fallback sent: {result}")
-        except Exception as fallback_error:
-            app_logger.error(f"❌ Emergency fallback failed: {fallback_error}")
+        app_logger.error(f"TURN|architecture_error|phone={message.phone[-4:]}|error={str(e)}", exc_info=True)
+        # CRITICAL: No emergency fallback from evolution.py - let proper flow handle via outbox
 
 
 @router.get("/health")
