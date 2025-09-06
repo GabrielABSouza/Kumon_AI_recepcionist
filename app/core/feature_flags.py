@@ -61,6 +61,13 @@ class FeatureFlagManager:
                 rollout_percentage=100
             ),
             
+            "ALLOW_EMPTY_HEADERS": FeatureFlag(
+                name="ALLOW_EMPTY_HEADERS",
+                enabled=self._get_env_bool("ALLOW_EMPTY_HEADERS", False),
+                description="Allow requests with empty headers when trusted_source=True",
+                rollout_percentage=100
+            ),
+            
             # Enum Normalization Feature Flags
             "STRICT_ENUM_STAGESTEP": FeatureFlag(
                 name="STRICT_ENUM_STAGESTEP",
@@ -325,6 +332,11 @@ def is_turn_guard_only() -> bool:
 def is_outbox_redis_fallback_enabled() -> bool:
     """Check if Redis fallback for outbox persistence is enabled"""
     return feature_flags.is_enabled("OUTBOX_REDIS_FALLBACK", default=True)
+
+
+def is_allow_empty_headers() -> bool:
+    """Check if empty headers are allowed for trusted sources"""
+    return feature_flags.is_enabled("ALLOW_EMPTY_HEADERS", default=False)
 
 
 # ========== CANONICAL API ==========

@@ -172,18 +172,33 @@ class AuthValidator:
         ]
         self.valid_api_keys = [key for key in self.valid_api_keys if key]  # Filter None values
 
-    async def validate_request(self, headers: Dict[str, str], payload: Dict[str, Any]) -> bool:
+    async def validate_request(self, headers: Dict[str, str], payload: Dict[str, Any], trusted_source: bool = False) -> bool:
         """
         Validate webhook authentication and source verification
 
         Args:
             headers: Request headers
             payload: Request payload
+            trusted_source: Whether the request comes from a trusted source
 
         Returns:
             True if request is authenticated, False otherwise
         """
         try:
+            # Check for empty headers with trusted_source and feature flag
+            if not headers or len(headers) == 0:
+                from ..core.feature_flags import is_allow_empty_headers
+                from ..core.structured_logging import log_pipeline_event
+                
+                if trusted_source and is_allow_empty_headers():
+                    app_logger.warning(f"Auth headers empty - allowing due to ALLOW_EMPTY_HEADERS (trusted_source={trusted_source})")
+                    log_pipeline_event("auth_ok", has_headers=False, trusted_source=trusted_source)
+                    return True
+                else:
+                    app_logger.error(f"PREPROCESS|auth_failed|reason=missing_headers|trusted_source={trusted_source}")
+                    log_pipeline_event("auth_failed", reason="missing_headers", trusted_source=trusted_source)
+                    return False
+            
             # Debug: Log all headers to understand what Evolution API is sending
             app_logger.info(f"Authentication validation - Headers received: {list(headers.keys())}")
             # Security-safe authentication header logging
@@ -228,6 +243,7 @@ class AuthValidator:
                 )
 
                 if is_evolution_webhook:
+                    from ..core.structured_logging import log_pipeline_event
                     app_logger.info(
                         "✅ Evolution API webhook authenticated via Railway infrastructure",
                         extra={
@@ -238,6 +254,7 @@ class AuthValidator:
                             "total_headers": len(headers)
                         }
                     )
+                    log_pipeline_event("auth_ok", has_headers=True, trusted_source=trusted_source, auth_type="evolution_webhook")
                     return True
                 else:
                     # Log failed webhook authentication attempts for security monitoring
@@ -306,10 +323,14 @@ class AuthValidator:
             )
 
             if api_key in self.valid_api_keys:
+                from ..core.structured_logging import log_pipeline_event
                 app_logger.info("✅ API key validation successful")
+                log_pipeline_event("auth_ok", has_headers=True, trusted_source=trusted_source)
                 return True
             else:
+                from ..core.structured_logging import log_pipeline_event
                 app_logger.error("❌ Authentication failed - invalid API key provided")
+                log_pipeline_event("auth_failed", reason="invalid_api_key", trusted_source=trusted_source)
                 return False
 
         except Exception as e:
@@ -417,7 +438,7 @@ class MessagePreprocessor:
         self.auth_validator = AuthValidator()
 
     async def process_message(
-        self, message: WhatsAppMessage, headers: Dict[str, str]
+        self, message: WhatsAppMessage, headers: Dict[str, str], trusted_source: bool = False
     ) -> PreprocessorResponse:
         """
         Process incoming WhatsApp message through complete preprocessing pipeline
@@ -425,6 +446,7 @@ class MessagePreprocessor:
         Args:
             message: WhatsApp message to process
             headers: Request headers for authentication
+            trusted_source: Whether the message comes from a trusted source
 
         Returns:
             PreprocessorResponse with processing results
@@ -435,7 +457,7 @@ class MessagePreprocessor:
             app_logger.info(f"Starting preprocessing pipeline for message from {message.phone}")
 
             # Step 1: Authentication validation
-            if not await self.auth_validator.validate_request(headers, {}):
+            if not await self.auth_validator.validate_request(headers, {}, trusted_source=trusted_source):
                 return PreprocessorResponse(
                     success=False,
                     message=None,

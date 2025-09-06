@@ -451,7 +451,13 @@ async def handle_messages_upsert_direct(request: Request, background_tasks: Back
         
         if parsed_message:
             # Process message in background to avoid webhook timeout
-            background_tasks.add_task(process_message_background, parsed_message, dict(request.headers))
+            # Mark as trusted_source since it came through authenticated webhook endpoint
+            background_tasks.add_task(
+                process_message_background, 
+                parsed_message, 
+                dict(request.headers),
+                trusted_source=True  # Webhook already authenticated
+            )
         else:
             app_logger.info("No processable message found in messages-upsert webhook")
 
@@ -786,8 +792,14 @@ async def handle_new_jwt_token(request: Request):
 
 
 
-async def process_message_background(message: WhatsAppMessage, headers: Optional[Dict] = None):
-    """Process incoming WhatsApp message in background with turn management"""
+async def process_message_background(message: WhatsAppMessage, headers: Optional[Dict] = None, trusted_source: bool = False):
+    """Process incoming WhatsApp message in background with turn management
+    
+    Args:
+        message: WhatsApp message to process
+        headers: Request headers for authentication
+        trusted_source: Whether the message comes from a trusted source (authenticated webhook)
+    """
     try:
         # Skip empty messages
         if not message.message.strip():
@@ -816,7 +828,7 @@ async def process_message_background(message: WhatsAppMessage, headers: Optional
             app_logger.info(f"TURNLOCK|acquired|conv={conversation_id}")
             
             # Step 3: Process the message (no fallback in except)
-            await _process_single_message(message, headers)
+            await _process_single_message(message, headers, trusted_source=trusted_source)
 
     except Exception as e:
         # CRITICAL: Do not send fallback here - just log and exit
@@ -824,15 +836,24 @@ async def process_message_background(message: WhatsAppMessage, headers: Optional
         # Let the error bubble up without sending any message
 
 
-async def _process_single_message(message: WhatsAppMessage, headers: Optional[Dict] = None, turn_data: Optional[Dict] = None):
-    """Process a single message (or aggregated turn) through the workflow"""
+async def _process_single_message(message: WhatsAppMessage, headers: Optional[Dict] = None, turn_data: Optional[Dict] = None, trusted_source: bool = False):
+    """Process a single message (or aggregated turn) through the workflow
+    
+    Args:
+        message: WhatsApp message to process
+        headers: Request headers for authentication  
+        turn_data: Optional turn data
+        trusted_source: Whether the message comes from a trusted source
+    """
     try:
         # Clean Architecture: Preprocessor first, then workflow
         try:
             # Step 1: Preprocess message - USE ACTUAL HEADERS FROM REQUEST
             actual_headers = headers or {}
-            app_logger.info(f"🔍 DEBUG: Passing headers to preprocessor: {list(actual_headers.keys())}")
-            preprocessor_result = await message_preprocessor.process_message(message, actual_headers)
+            app_logger.info(f"🔍 DEBUG: Passing headers to preprocessor: {list(actual_headers.keys())} | trusted_source={trusted_source}")
+            preprocessor_result = await message_preprocessor.process_message(
+                message, actual_headers, trusted_source=trusted_source
+            )
             
             if not preprocessor_result.success:
                 app_logger.critical(
@@ -856,7 +877,7 @@ async def _process_single_message(message: WhatsAppMessage, headers: Optional[Di
                 app_logger.info("✅ Message preprocessed successfully")
 
             # Step 2: Process through turn-based delivery architecture
-            await _process_through_turn_architecture(final_message, turn_data)
+            await _process_through_turn_architecture(final_message, turn_data, headers=actual_headers, trusted_source=trusted_source)
 
         except Exception as e:
             app_logger.error(f"TURN|processing_error|phone={message.phone[-4:]}|error={str(e)}", exc_info=True)
@@ -866,10 +887,16 @@ async def _process_single_message(message: WhatsAppMessage, headers: Optional[Di
         app_logger.error(f"❌ Error in _process_single_message: {str(e)}")
 
 
-async def _process_through_turn_architecture(message: WhatsAppMessage, turn_data: Optional[Dict] = None):
+async def _process_through_turn_architecture(message: WhatsAppMessage, turn_data: Optional[Dict] = None, headers: Optional[Dict] = None, trusted_source: bool = False):
     """
     NOVA ARQUITETURA: Pipeline principal (preprocess → classify → route → plan → outbox → delivery)
     Turn Controller atua APENAS como guardrails (concurrency/dedup/single response per turn)
+    
+    Args:
+        message: WhatsApp message to process
+        turn_data: Optional turn data
+        headers: Request headers for authentication
+        trusted_source: Whether the message comes from a trusted source
     """
     try:
         from ..core.feature_flags import is_main_pipeline_enabled, is_turn_guard_only
@@ -882,14 +909,16 @@ async def _process_through_turn_architecture(message: WhatsAppMessage, turn_data
             from ..services.message_preprocessor import message_preprocessor
             from ..core.structured_logging import log_pipeline_event
             
-            # Build headers for auth validation (defensive)
-            headers = turn_data.get('headers', {}) if turn_data else {}
+            # Build headers for auth validation (defensive) - prefer passed headers over turn_data
+            actual_headers = headers or turn_data.get('headers', {}) if turn_data else {}
             
             # CRÍTICO: Log obrigatório - marcador exato
-            app_logger.info(f"PIPELINE|preprocess_start|phone={message.phone[-4:]}")
-            log_pipeline_event("preprocess_start", phone=message.phone[-4:], message_id=message.message_id)
+            app_logger.info(f"PIPELINE|preprocess_start|phone={message.phone[-4:]}|trusted_source={trusted_source}")
+            log_pipeline_event("preprocess_start", phone=message.phone[-4:], message_id=message.message_id, trusted_source=trusted_source)
             
-            preprocess_result = await message_preprocessor.process_message(message, headers)
+            preprocess_result = await message_preprocessor.process_message(
+                message, actual_headers, trusted_source=trusted_source
+            )
             
             if not preprocess_result.success:
                 app_logger.warning(f"PIPELINE|preprocess_failed|phone={message.phone[-4:]}|error={preprocess_result.error_code}")
