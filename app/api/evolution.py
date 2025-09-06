@@ -885,7 +885,16 @@ async def _process_through_turn_architecture(message: WhatsAppMessage, turn_data
             except ModuleNotFoundError:
                 app_logger.warning("CACHE_INIT|both_sources_failed|continuing_without_cache")
         
-        import psycopg2
+        # Import defensivo para psycopg2 - pode não estar disponível
+        try:
+            import psycopg2
+            PSYCOPG2_AVAILABLE = True
+            app_logger.info("PSYCOPG2_INIT|available|turn_architecture_ready")
+        except ModuleNotFoundError:
+            psycopg2 = None
+            PSYCOPG2_AVAILABLE = False
+            app_logger.warning("PSYCOPG2_INIT|unavailable|continuing_without_direct_db")
+        
         import os
         
         # Build state for turn-based processing
@@ -907,8 +916,7 @@ async def _process_through_turn_architecture(message: WhatsAppMessage, turn_data
         # Try to get database connection for outbox persistence
         try:
             database_url = os.getenv("DATABASE_URL")
-            if database_url:
-                import psycopg2
+            if database_url and PSYCOPG2_AVAILABLE:
                 from urllib.parse import urlparse
                 result = urlparse(database_url)
                 conn = psycopg2.connect(
@@ -920,6 +928,8 @@ async def _process_through_turn_architecture(message: WhatsAppMessage, turn_data
                 )
                 state["db"] = conn
                 app_logger.info("✅ Database connection established for outbox persistence")
+            elif database_url and not PSYCOPG2_AVAILABLE:
+                app_logger.warning("Database URL available but psycopg2 not installed - using repository fallback")
         except Exception as db_error:
             app_logger.warning(f"Could not establish DB connection: {db_error}")
         
