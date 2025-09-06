@@ -355,18 +355,22 @@ async def startup_event():
     """Application startup validation and initialization"""
     app_logger.info("🚀 Kumon AI Receptionist API v2.0 starting up...")
 
-    # CRITICAL: Lazy workflow initialization to prevent startup crashes
+    # CRITICAL: Lazy workflow initialization with graceful degradation
+    workflow = None
     try:
         app_logger.info("🔄 Initializing Cecilia Workflow (lazy pattern)...")
         from app.core.compat_imports import get_cecilia_workflow
         # Initialize workflow (lazy loading)
         workflow = get_cecilia_workflow()
         app_logger.info("✅ Cecilia workflow created successfully")
+    except ModuleNotFoundError as e:
+        app_logger.error(f"❌ Module not found for Cecilia Workflow: {e}")
+        app_logger.warning("⚠️ Continuing in degraded mode - some workflow features will be unavailable")
     except Exception as e:
-        app_logger.error(f"❌ CRITICAL: Failed to initialize Cecilia Workflow: {e}")
+        app_logger.error(f"❌ Failed to initialize Cecilia Workflow: {e}")
         import traceback
         app_logger.error(f"Full traceback: {traceback.format_exc()}")
-        raise RuntimeError(f"Cecilia Workflow initialization failed: {e}")
+        app_logger.warning("⚠️ Continuing in degraded mode - some workflow features will be unavailable")
 
     # DEBUG: Print ALL environment variables to identify the problem
     app_logger.info("🔍 DEBUG: All environment variables:")
@@ -433,8 +437,8 @@ async def startup_event():
     dependencies.intent_classifier = optimized_startup_manager.service_instances.get(
         "intent_classifier"
     )
-    # UPDATED: Using CeciliaWorkflow instead of secure_workflow - use lazily initialized instance
-    dependencies.cecilia_workflow = get_cecilia_workflow()
+    # UPDATED: Using CeciliaWorkflow instead of secure_workflow - use safely initialized instance
+    dependencies.cecilia_workflow = workflow
     dependencies.langchain_rag_service = optimized_startup_manager.service_instances.get(
         "langchain_rag_service"
     )
@@ -472,7 +476,7 @@ async def startup_event():
         dependencies.llm_service = await service_factory.get_service("llm_service")
         dependencies.intent_classifier = await service_factory.get_service("intent_classifier")
         # UPDATED: Using CeciliaWorkflow instead of secure_workflow from service factory
-        dependencies.cecilia_workflow = get_cecilia_workflow()
+        dependencies.cecilia_workflow = workflow
         dependencies.langchain_rag_service = await service_factory.get_service(
             "langchain_rag_service"
         )
@@ -539,7 +543,7 @@ async def startup_event():
 
     except Exception as e:
         app_logger.error(f"💀 CRITICAL: Startup validation error: {e}")
-        raise RuntimeError(f"Startup validation failed: {e}")
+        app_logger.warning("⚠️ Continuing startup in degraded mode - some features may be unavailable")
 
     # Initialize security systems (Phase 2)
     try:

@@ -8,10 +8,89 @@ import logging
 import uuid
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
-import psycopg2
-from psycopg2.extras import RealDictCursor
 
 logger = logging.getLogger(__name__)
+
+# Try to import psycopg2, handle ModuleNotFoundError gracefully
+try:
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+    PSYCOPG2_AVAILABLE = True
+except ModuleNotFoundError as e:
+    logger.error(f"psycopg2 not available for outbox repository: {e}")
+    PSYCOPG2_AVAILABLE = False
+
+
+def ensure_outbox_schema() -> bool:
+    """
+    Ensure outbox_messages table exists, create if missing
+    
+    Returns:
+        bool: True if table exists or was created successfully
+    """
+    if not PSYCOPG2_AVAILABLE:
+        logger.warning("OUTBOX_SCHEMA|psycopg2_unavailable|skipping_schema_check")
+        return False
+    
+    from .database.connection import get_database_connection
+    
+    conn = get_database_connection()
+    if not conn:
+        logger.warning("OUTBOX_SCHEMA|no_database|skipping_schema_check")
+        return False
+    
+    try:
+        with conn.cursor() as cur:
+            # Check if table exists
+            cur.execute("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_schema = 'public' 
+                    AND table_name = 'outbox_messages'
+                );
+            """)
+            
+            table_exists = cur.fetchone()[0]
+            
+            if table_exists:
+                logger.info("OUTBOX_SCHEMA|table_exists|skipping_creation")
+                return True
+            
+            logger.info("OUTBOX_SCHEMA|creating_table|auto_migration")
+            
+            # Create table with full schema
+            cur.execute("""
+                CREATE TABLE outbox_messages (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    conversation_id TEXT NOT NULL,
+                    idempotency_key TEXT NOT NULL UNIQUE,
+                    text TEXT NOT NULL,
+                    channel TEXT NOT NULL DEFAULT 'whatsapp',
+                    meta JSONB DEFAULT '{}',
+                    status TEXT NOT NULL DEFAULT 'QUEUED' CHECK (status IN ('QUEUED', 'SENT', 'FAILED')),
+                    message_order INTEGER NOT NULL DEFAULT 0,
+                    provider_message_id TEXT,
+                    error_reason TEXT,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    sent_at TIMESTAMPTZ,
+                    failed_at TIMESTAMPTZ
+                );
+            """)
+            
+            # Create indexes
+            cur.execute("CREATE INDEX idx_outbox_conversation_status ON outbox_messages (conversation_id, status);")
+            cur.execute("CREATE INDEX idx_outbox_status_created ON outbox_messages (status, created_at);")
+            cur.execute("CREATE INDEX idx_outbox_conversation_order ON outbox_messages (conversation_id, message_order);")
+            cur.execute("CREATE INDEX idx_outbox_created_at ON outbox_messages (created_at);")
+            cur.execute("CREATE UNIQUE INDEX idx_outbox_idempotency ON outbox_messages (idempotency_key);")
+            cur.execute("CREATE INDEX idx_outbox_provider_id ON outbox_messages (provider_message_id) WHERE provider_message_id IS NOT NULL;")
+            
+            logger.info("OUTBOX_SCHEMA|table_created|success")
+            return True
+            
+    except Exception as e:
+        logger.error(f"OUTBOX_SCHEMA|creation_failed|error={e}")
+        return False
 
 
 def save_outbox(conversation_id: str, messages: List[Dict[str, Any]]) -> List[str]:
@@ -25,11 +104,20 @@ def save_outbox(conversation_id: str, messages: List[Dict[str, Any]]) -> List[st
     Returns:
         List[str]: List of idempotency keys for saved messages
     """
+    if not PSYCOPG2_AVAILABLE:
+        logger.warning(f"OUTBOX_SAVE|psycopg2_unavailable|conv={conversation_id}|degrading_gracefully")
+        return []
+    
     from .database.connection import get_database_connection
     
     conn = get_database_connection()
     if not conn:
         logger.warning(f"OUTBOX_SAVE|no_database|conv={conversation_id}|degrading_gracefully")
+        return []
+    
+    # Ensure outbox table exists
+    if not ensure_outbox_schema():
+        logger.warning(f"OUTBOX_SAVE|schema_unavailable|conv={conversation_id}|degrading_gracefully")
         return []
     
     idempotency_keys = []
@@ -82,11 +170,20 @@ def get_next_outbox_for_delivery(conversation_id: str) -> Optional[Tuple[Dict[st
     Returns:
         Tuple of (message_dict, idempotency_key) or None if no messages
     """
+    if not PSYCOPG2_AVAILABLE:
+        logger.warning(f"DELIVERY_REHYDRATE|psycopg2_unavailable|conv={conversation_id}")
+        return None
+    
     from .database.connection import get_database_connection
     
     conn = get_database_connection()
     if not conn:
         logger.warning(f"DELIVERY_REHYDRATE|no_database|conv={conversation_id}")
+        return None
+    
+    # Ensure outbox table exists
+    if not ensure_outbox_schema():
+        logger.warning(f"DELIVERY_REHYDRATE|schema_unavailable|conv={conversation_id}")
         return None
     
     try:
@@ -140,6 +237,11 @@ def mark_outbox_as_sent(db_id: str, provider_message_id: Optional[str] = None) -
         logger.warning(f"OUTBOX_MARK_SENT|no_database|db_id={db_id}")
         return False
     
+    # Ensure outbox table exists
+    if not ensure_outbox_schema():
+        logger.warning(f"OUTBOX_MARK_SENT|schema_unavailable|db_id={db_id}")
+        return False
+    
     try:
         with conn.cursor() as cur:
             cur.execute("""
@@ -182,6 +284,11 @@ def mark_outbox_as_failed(db_id: str, error_reason: str) -> bool:
         logger.warning(f"OUTBOX_MARK_FAILED|no_database|db_id={db_id}")
         return False
     
+    # Ensure outbox table exists
+    if not ensure_outbox_schema():
+        logger.warning(f"OUTBOX_MARK_FAILED|schema_unavailable|db_id={db_id}")
+        return False
+    
     try:
         with conn.cursor() as cur:
             cur.execute("""
@@ -221,6 +328,11 @@ def cleanup_old_outbox_messages(days: int = 7) -> int:
     conn = get_database_connection()
     if not conn:
         logger.warning("OUTBOX_CLEANUP|no_database")
+        return 0
+    
+    # Ensure outbox table exists
+    if not ensure_outbox_schema():
+        logger.warning("OUTBOX_CLEANUP|schema_unavailable")
         return 0
     
     try:
