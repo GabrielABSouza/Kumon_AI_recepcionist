@@ -1,0 +1,239 @@
+{
+  "name": "WhatsApp Cloud API + OpenAI + Redis (Companheiro de Obra)",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "wa-cloud-gpt",
+        "options": {
+          "responseMode": "lastNode",
+          "responseData": "OK",
+          "responseCode": 200
+        }
+      },
+      "id": "Webhook_In",
+      "name": "Webhook In (Meta)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "/* Router: se for GET (verificação do webhook), responde hub.challenge; se for POST, segue o fluxo */\nconst method = $method || '';\nif (method.toUpperCase() === 'GET') {\n  const query = $query || {};\n  // Meta envia: hub.mode, hub.verify_token, hub.challenge\n  if (query['hub.verify_token'] !== $env.META_VERIFY_TOKEN) {\n    return [{ __verify__: true, status: 403, body: 'Invalid verify token' }];\n  }\n  return [{ __verify__: true, status: 200, body: query['hub.challenge'] }];\n}\n// POST normal (mensagem)\nreturn [{ __verify__: false }];"
+      },
+      "id": "Route_Verify_or_Message",
+      "name": "Route: Verify or Message",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 2,
+      "position": [420, 300]
+    },
+    {
+      "parameters": {
+        "responseBody": "={{$json[\"body\"] || \"OK\"}}",
+        "responseCode": "={{$json[\"status\"] || 200}}"
+      },
+      "id": "Respond_Verify",
+      "name": "Respond Verify",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [640, 180]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [],
+          "string": [
+            {
+              "value1": "={{$json[\"__verify__\"]}}",
+              "operation": "isTrue"
+            }
+          ]
+        }
+      },
+      "id": "IF_Verify",
+      "name": "IF Verify",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [640, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "/* Parse do payload da Meta (Cloud API)\nEstrutura típica: entry[0].changes[0].value.messages[0]\nCampos úteis: messages[0].from (wa_id), messages[0].text.body (texto) */\nconst body = $json;\ntry {\n  const entry = body.entry?.[0];\n  const change = entry?.changes?.[0];\n  const value = change?.value || {};\n  const msg = (value.messages || [])[0] || {};\n  const contacts = value.contacts || [];\n  const waId = msg.from || contacts?.[0]?.wa_id || '';\n  let text = '';\n  if (msg.type === 'text') text = msg.text?.body || '';\n  else if (msg.type === 'interactive') {\n    // exemplo: botão/lista\n    text = msg.interactive?.button_reply?.title || msg.interactive?.list_reply?.title || '';\n  }\n  return [{ waId, text, raw: body }];\n} catch (e) {\n  return [{ waId: '', text: '', raw: body, parseError: String(e) }];\n}"
+      },
+      "id": "Parse_Incoming",
+      "name": "Parse Incoming",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 2,
+      "position": [860, 420]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "key": "chat:wa:{{$json[\"waId\"]}}:history"
+      },
+      "id": "Redis_Get",
+      "name": "Redis Get History",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [1080, 420],
+      "credentials": {
+        "redis": {
+          "id": "__SET_REDIS_CREDENTIAL_ID__",
+          "name": "Redis-Production"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "/* Constrói mensagens para a OpenAI com sistema + histórico + entrada atual */\nconst prevRaw = $json.value || null;\nlet history = [];\nif (prevRaw) { try { history = JSON.parse(prevRaw); } catch (_) { history = []; } }\n// segura até 14 trocas recentes\nhistory = history.slice(-14);\nconst systemPrompt = \"Você é o Companheiro de Obra: um assistente prático para dúvidas de obra (materiais, prazos, orçamento, fornecedores) e atendimento via WhatsApp. Seja claro, cordial e objetivo. Quando faltar dado, faça perguntas curtas e específicas. Responda em PT-BR.\";\nconst userMsg = { role: 'user', content: $items(\"Parse Incoming\")[0].json.text || '' };\nconst messages = [ { role: 'system', content: systemPrompt }, ...history, userMsg ];\nreturn [{ messages, history }];"
+      },
+      "id": "Build_Messages",
+      "name": "Build Messages",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 2,
+      "position": [1300, 420]
+    },
+    {
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "sendBody": true,
+        "options": {
+          "timeout": 60000
+        },
+        "url": "https://api.openai.com/v1/chat/completions",
+        "method": "POST",
+        "jsonParameters": true,
+        "specifyBody": "json",
+        "bodyParametersJson": "={\n  \"model\": \"gpt-4o-mini\",\n  \"temperature\": 0.3,\n  \"messages\": {{$json[\"messages\"]}}\n}",
+        "headerParametersJson": "={\n  \"Content-Type\": \"application/json\"\n}"
+      },
+      "id": "OpenAI_Chat",
+      "name": "OpenAI Chat",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1520, 420],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "__SET_OPENAI_BEARER_CREDENTIAL_ID__",
+          "name": "OpenAI Bearer"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "/* Extrai resposta da OpenAI e atualiza histórico */\nlet reply = '';\ntry { reply = $json.choices[0].message.content || ''; } catch (_) { reply = 'Desculpe, ocorreu um problema ao gerar a resposta.'; }\nconst prev = $items(\"Build Messages\")[0].json.history || [];\nprev.push({ role: 'assistant', content: reply });\nreturn [{ reply, historyUpdated: JSON.stringify(prev) }];"
+      },
+      "id": "Extract_And_Update",
+      "name": "Extract Reply & Update History",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 2,
+      "position": [1740, 420]
+    },
+    {
+      "parameters": {
+        "operation": "set",
+        "key": "chat:wa:{{$items(\"Parse Incoming\")[0].json.waId}}:history",
+        "value": "={{$json[\"historyUpdated\"]}}",
+        "ttl": 86400
+      },
+      "id": "Redis_Set",
+      "name": "Redis Set History (24h TTL)",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [1960, 420],
+      "credentials": {
+        "redis": {
+          "id": "__SET_REDIS_CREDENTIAL_ID__",
+          "name": "Redis-Production"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "sendBody": true,
+        "url": "=https://graph.facebook.com/v20.0/{{$env.META_WA_PHONE_NUMBER_ID}}/messages",
+        "jsonParameters": true,
+        "options": {
+          "timeout": 60000
+        },
+        "specifyBody": "json",
+        "bodyParametersJson": "={\n  \"messaging_product\": \"whatsapp\",\n  \"to\": {{$items(\"Parse Incoming\")[0].json.waId}},\n  \"type\": \"text\",\n  \"text\": { \"body\": {{$json[\"reply\"]}} }\n}"
+      },
+      "id": "WhatsApp_Send",
+      "name": "WhatsApp Send (Meta)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2180, 420],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "__SET_META_BEARER_CREDENTIAL_ID__",
+          "name": "Meta WhatsApp Bearer"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "responseBody": "OK",
+        "responseCode": 200
+      },
+      "id": "Respond_200",
+      "name": "Respond 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2400, 420]
+    }
+  ],
+  "connections": {
+    "Webhook In (Meta)": {
+      "main": [
+        [{ "node": "Route: Verify or Message", "type": "main", "index": 0 }]
+      ]
+    },
+    "Route: Verify or Message": {
+      "main": [
+        [{ "node": "IF Verify", "type": "main", "index": 0 }]
+      ]
+    },
+    "IF Verify": {
+      "main": [
+        [{ "node": "Respond Verify", "type": "main", "index": 0 }],
+        [{ "node": "Parse Incoming", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Incoming": {
+      "main": [
+        [{ "node": "Redis Get History", "type": "main", "index": 0 }]
+      ]
+    },
+    "Redis Get History": {
+      "main": [
+        [{ "node": "Build Messages", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Messages": {
+      "main": [
+        [{ "node": "OpenAI Chat", "type": "main", "index": 0 }]
+      ]
+    },
+    "OpenAI Chat": {
+      "main": [
+        [{ "node": "Extract Reply & Update History", "type": "main", "index": 0 }]
+      ]
+    },
+    "Extract Reply & Update History": {
+      "main": [
+        [{ "node": "Redis Set History (24h TTL)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Redis Set History (24h TTL)": {
+      "main": [
+        [{ "node": "WhatsApp Send (Meta)", "type": "main", "index": 0 }]
+      ]
+    },
+    "WhatsApp Send (Meta)": {
+      "main": [
+        [{ "node": "Respond 200", "type": "main", "index": 0 }]
+      ]
+    }
+  }
+}

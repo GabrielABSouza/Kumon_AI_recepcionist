@@ -1,0 +1,233 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Intent Classifier Telemetry Schema",
+  "description": "JSON Schema for validating telemetry events from intent classifier",
+  "type": "object",
+  "required": [
+    "trace_id",
+    "ts", 
+    "engine",
+    "duration_ms",
+    "n_rules_evaluated",
+    "winning_rule",
+    "top2_margin",
+    "text_hash",
+    "lang",
+    "code_switch",
+    "timeout_per_rule_ms"
+  ],
+  "properties": {
+    "trace_id": {
+      "type": "string",
+      "title": "Trace ID",
+      "description": "UUID v4 trace identifier for request correlation",
+      "format": "uuid"
+    },
+    "ts": {
+      "type": "string",
+      "title": "Timestamp",
+      "description": "ISO 8601 timestamp of the classification event",
+      "format": "date-time"
+    },
+    "engine": {
+      "type": "string",
+      "title": "Regex Engine",
+      "description": "Regex engine used for pattern matching",
+      "enum": ["re2", "regex", "re"]
+    },
+    "duration_ms": {
+      "type": "number",
+      "title": "Duration (ms)",
+      "description": "Total classification duration in milliseconds",
+      "minimum": 0,
+      "maximum": 10000
+    },
+    "n_rules_evaluated": {
+      "type": "integer",
+      "title": "Rules Evaluated",
+      "description": "Number of rules actually evaluated (after prefiltering)",
+      "minimum": 0,
+      "maximum": 1000
+    },
+    "winning_rule": {
+      "type": "string",
+      "title": "Winning Rule",
+      "description": "ID of the rule that matched, or special value",
+      "oneOf": [
+        {
+          "pattern": "^[a-z0-9_.-]+$",
+          "title": "Rule ID"
+        },
+        {
+          "enum": ["no_match", "timeout", "error", "clarify_multi_intent"],
+          "title": "Special Result"
+        }
+      ]
+    },
+    "top2_margin": {
+      "type": "number",
+      "title": "Top 2 Margin",
+      "description": "Confidence margin between top 2 candidates (collision detection)",
+      "minimum": 0.0,
+      "maximum": 1.0
+    },
+    "text_hash": {
+      "type": "string",
+      "title": "Text Hash",
+      "description": "HMAC-SHA256 hash of input text (no PII)",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "lang": {
+      "type": "string",
+      "title": "Detected Language",
+      "description": "Auto-detected language of input text",
+      "enum": ["pt", "en", "unknown"]
+    },
+    "code_switch": {
+      "type": "boolean",
+      "title": "Code Switch Detected",
+      "description": "Whether code-switching between languages was detected"
+    },
+    "timeout_per_rule_ms": {
+      "type": "integer",
+      "title": "Timeout Per Rule (ms)",
+      "description": "Timeout setting per rule evaluation",
+      "minimum": 1,
+      "maximum": 50
+    },
+    "match_explanation": {
+      "type": "object",
+      "title": "Match Explanation",
+      "description": "Detailed explanation of the match for debugging",
+      "properties": {
+        "anchors": {
+          "type": "array",
+          "title": "Anchors Used",
+          "description": "Regex anchors that were triggered",
+          "items": {
+            "type": "string",
+            "enum": ["^", "$", "\\b", "\\A", "\\Z"]
+          }
+        },
+        "named_groups": {
+          "type": "object",
+          "title": "Named Groups",
+          "description": "Named groups captured from the regex",
+          "patternProperties": {
+            "^[a-zA-Z_][a-zA-Z0-9_]*$": {
+              "type": "string",
+              "maxLength": 256
+            }
+          }
+        },
+        "prefilter_literal": {
+          "type": "string",
+          "title": "Prefilter Literal",
+          "description": "The literal string that triggered this rule evaluation"
+        },
+        "specificity_score": {
+          "type": "number",
+          "title": "Specificity Score",
+          "description": "Calculated specificity score for the winning rule",
+          "minimum": 0,
+          "maximum": 20
+        },
+        "alternatives": {
+          "type": "array",
+          "title": "Alternative Matches",
+          "description": "Other rules that also matched (for collision analysis)",
+          "items": {
+            "type": "object",
+            "properties": {
+              "rule_id": {
+                "type": "string",
+                "pattern": "^[a-z0-9_.-]+$"
+              },
+              "priority": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "specificity": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 20
+              }
+            }
+          },
+          "maxItems": 10
+        }
+      },
+      "additionalProperties": false
+    },
+    "performance_metrics": {
+      "type": "object", 
+      "title": "Performance Metrics",
+      "description": "Additional performance metrics",
+      "properties": {
+        "prefilter_hits": {
+          "type": "integer",
+          "title": "Prefilter Hits",
+          "description": "Number of rules that passed prefiltering",
+          "minimum": 0
+        },
+        "regex_compile_time_ms": {
+          "type": "number",
+          "title": "Regex Compile Time (ms)",
+          "description": "Time spent compiling regex patterns",
+          "minimum": 0
+        },
+        "memory_usage_kb": {
+          "type": "number",
+          "title": "Memory Usage (KB)",
+          "description": "Peak memory usage during classification",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "error_details": {
+      "type": "object",
+      "title": "Error Details", 
+      "description": "Error information if classification failed",
+      "properties": {
+        "error_type": {
+          "type": "string",
+          "enum": ["timeout", "regex_error", "validation_error", "system_error"]
+        },
+        "error_message": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "failed_rule_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9_.-]+$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "context": {
+      "type": "object",
+      "title": "Context Information",
+      "description": "Additional context (no PII allowed)",
+      "properties": {
+        "conversation_stage": {
+          "type": "string",
+          "enum": ["greeting", "qualification", "information_gathering", "scheduling", "validation", "confirmation", "completed", "handoff", "unknown"]
+        },
+        "channel": {
+          "type": "string",
+          "enum": ["web", "app", "whatsapp", "unknown"]
+        },
+        "user_hash": {
+          "type": "string",
+          "title": "User Hash",
+          "description": "Anonymized user identifier",
+          "pattern": "^[a-f0-9]{32}$"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
