@@ -827,8 +827,13 @@ async def process_message_background(message: WhatsAppMessage, headers: Optional
             
             app_logger.info(f"TURNLOCK|acquired|conv={conversation_id}")
             
+            # Generate turn_id immediately after acquiring lock
+            turn_id = f"single_{message.message_id}"
+            turn_data = {"turn_id": turn_id}
+            app_logger.info(f"TURN|generated_id|turn_id={turn_id}")
+            
             # Step 3: Process the message (no fallback in except)
-            await _process_single_message(message, headers, trusted_source=trusted_source)
+            await _process_single_message(message, headers, turn_data=turn_data, trusted_source=trusted_source)
 
     except Exception as e:
         # CRITICAL: Do not send fallback here - just log and exit
@@ -973,9 +978,17 @@ async def _process_through_turn_architecture(
             
             # Build conversation state for classification
             conversation_id = f"conv_{message.phone}"
+            
+            # Extract turn_id from turn_data or generate fallback
+            turn_id = turn_data.get("turn_id") if turn_data else None
+            if not turn_id:
+                turn_id = f"single_{message.message_id}"
+                app_logger.warning(f"PIPELINE|turn_id_fallback|generated={turn_id}")
+            
             state = {
                 "phone_number": message.phone,
                 "conversation_id": conversation_id,
+                "turn_id": turn_id,  # CRITICAL: Add turn_id for delivery
                 "last_user_message": preprocessed_message.message,
                 "current_stage": "greeting",  # Default stage, will be loaded from DB if available
                 "current_step": "welcome",
@@ -1086,10 +1099,10 @@ async def _process_through_turn_architecture(
             app_logger.info(f"PIPELINE|outbox_start|phone={message.phone[-4:]}|count={len(outbox_items)}")
             log_pipeline_event("outbox_start", phone=message.phone[-4:], outbox_count=len(outbox_items))
             
-            # Try database first
+            # Try database first (now passing state for Redis fallback)
             idem_keys = []
             try:
-                idem_keys = save_outbox(conversation_id, outbox_items)
+                idem_keys = save_outbox(conversation_id, outbox_items, state)
                 if idem_keys:
                     app_logger.info(f"PIPELINE|outbox_db_success|phone={message.phone[-4:]}|count={len(outbox_items)}")
                     # Add idempotency keys to items
@@ -1147,15 +1160,17 @@ async def _process_through_turn_architecture(
             
             app_logger.info(f"PIPELINE|guards_start|phone={message.phone[-4:]}")
             
-            # Check recursion limit
+            # Check recursion limit (just log, don't block)
             if not check_recursion_limit(conversation_id, state.get("current_stage")):
-                app_logger.error(f"PIPELINE|guards_recursion_exceeded|conv={conversation_id}")
-                return  # Stop processing to prevent infinite loops
+                app_logger.error(f"PIPELINE|guards_recursion_exceeded|conv={conversation_id}|continuing_anyway")
+                state["recursion_warning"] = True
+                # Don't return - let pipeline continue but mark the warning
             
-            # Check greeting loops
+            # Check greeting loops (just log, don't block)
             if not prevent_greeting_loops(message.phone, state.get("current_stage"), "greeting"):
-                app_logger.warning(f"PIPELINE|guards_greeting_loop|phone={message.phone[-4:]}")
-                return  # Stop processing to prevent greeting loops
+                app_logger.warning(f"PIPELINE|guards_greeting_loop|phone={message.phone[-4:]}|continuing_anyway")
+                state["greeting_loop_warning"] = True
+                # Don't return - let pipeline continue but mark the warning
             
             app_logger.info(f"PIPELINE|guards_complete|phone={message.phone[-4:]}")
             

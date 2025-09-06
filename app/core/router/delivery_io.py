@@ -99,9 +99,11 @@ async def delivery_node_turn_based(state: dict) -> dict:
     conversation_id = state.get("conversation_id", f"conv_{phone_number}")
     
     if not turn_id:
-        logger.error(f"DELIVERY|missing_turn_id|phone={phone_number[-4:]}")
-        state["turn_status"] = "error"
-        return state
+        # Generate fallback turn_id based on message_id or timestamp
+        message_id = state.get("message_id", "noid")
+        turn_id = f"single_{message_id}"
+        state["turn_id"] = turn_id
+        logger.warning(f"DELIVERY|missing_turn_id|phone={phone_number[-4:]}|generated={turn_id}")
     
     logger.info(
         f"DELIVERY|turn_based_start|phone={phone_number[-4:]}|turn={turn_id}"

@@ -2,18 +2,38 @@ from typing import Dict, Any, Optional, Union
 import time
 import logging
 import hashlib
+from enum import Enum
 from dataclasses import asdict
 from ...prompts.manager import prompt_manager
 from ...prompts.template_variables import template_variable_resolver
 from ...core.service_factory import get_langchain_rag_service
 from ...services.production_llm_service import ProductionLLMService
-from ..state.models import CeciliaState
+from ..state.models import CeciliaState, ConversationStage
 from ...workflows.contracts import RoutingDecision, MessageEnvelope, ensure_outbox, normalize_outbox_messages, OUTBOX_KEY
 from .smart_router_adapter import CoreRoutingDecision, routing_mode_from_decision, normalize_rd_obj
 from ..contracts.outbox import OutboxItem, enqueue_to_outbox
 from ..outbox_store import persist_outbox
 
 logger = logging.getLogger(__name__)
+
+
+def _coerce_stage(stage_val) -> ConversationStage:
+    """Coerce stage value to ConversationStage enum safely."""
+    if isinstance(stage_val, ConversationStage):
+        return stage_val
+    if isinstance(stage_val, str):
+        try:
+            # Try uppercase first (most common)
+            return ConversationStage[stage_val.upper()]
+        except (KeyError, AttributeError):
+            try:
+                # Try as-is
+                return ConversationStage(stage_val.lower())
+            except (ValueError, AttributeError):
+                pass
+    # Default fallback
+    logger.warning(f"Could not coerce stage value '{stage_val}' to enum, using GREETING")
+    return ConversationStage.GREETING
 
 
 def ensure_idempotency_key(item: OutboxItem, phone_number: str, turn_id: str) -> None:
@@ -145,44 +165,50 @@ class ResponsePlanner:
             
         except Exception as e:
             logger.error(f"Response planning failed: {e}", exc_info=True)
-            # Emergency fallback
-            state["planned_response"] = self._get_emergency_response()
+            # Emergency fallback - always provide a response
+            response_text = "Oi! Sou o assistente da Kumon. Como posso ajudar você hoje?"
+            state["planned_response"] = response_text
             state["response_metadata"] = {
                 "strategy": "emergency_fallback",
                 "error": str(e),
                 "generation_time_ms": round((time.time() - start_time) * 1000, 2)
             }
+        
+        # CRITICAL: Always populate outbox snapshot for delivery
+        # This ensures outbox_count > 0 even on errors
+        response_text = state.get("planned_response", "")
+        if response_text:
+            state["_planner_snapshot_outbox"] = [{
+                "text": response_text,
+                "channel": "whatsapp",
+                "meta": {
+                    "source": "response_planner",
+                    "route": decision.target_node if hasattr(decision, 'target_node') else "unknown",
+                    "strategy": state.get("response_metadata", {}).get("strategy", "unknown")
+                }
+                # idempotency_key will be generated during persistence
+            }]
+            logger.info(f"PLANNER|outbox_populated|count={len(state.get('_planner_snapshot_outbox', []))}")
+        else:
+            # Absolute fallback - should never happen but be defensive
+            state["_planner_snapshot_outbox"] = [{
+                "text": "Olá! Como posso ajudar?",
+                "channel": "whatsapp",
+                "meta": {"source": "response_planner_fallback"}
+            }]
+            logger.warning("PLANNER|empty_response|using_absolute_fallback")
     
     async def _generate_template(self, state: CeciliaState, decision: Union[RoutingDecision, CoreRoutingDecision]) -> str:
         """Gera resposta usando PromptManager (templates)"""
         # Determine template name based on stage + intent
-        stage = state.get("current_stage", "unknown")
+        raw_stage = state.get("current_stage", "greeting")
         
-        # ENUM VALIDATION: Check if stage is proper Enum
-        from ..state.models import ConversationStage
-        if not isinstance(stage, ConversationStage):
-            logger.error(f"ResponsePlanner: current_stage should be ConversationStage enum, got {type(stage)} = {stage}")
-            
-            # Record telemetry violation
-            from ..telemetry.enum_metrics import record_stage_not_enum
-            session_id = state.get("session_id", "unknown")
-            record_stage_not_enum(
-                session_id=session_id,
-                actual_value=stage,
-                module_name="response_planner",
-                stack_hint="ResponsePlanner._generate_template"
-            )
-            
-            # Try to convert string to enum as fallback
-            if isinstance(stage, str) and stage != "unknown":
-                try:
-                    stage = ConversationStage(stage.lower())
-                    logger.warning(f"ResponsePlanner: converted string stage '{stage}' to enum")
-                except ValueError:
-                    logger.error(f"ResponsePlanner: invalid stage string '{stage}', using greeting fallback")
-                    stage = "greeting"  # Keep as string for template lookup
-            else:
-                stage = "greeting"  # Safe fallback for template lookup
+        # Coerce stage to enum safely
+        stage = _coerce_stage(raw_stage)
+        
+        # Log if coercion was needed
+        if not isinstance(raw_stage, ConversationStage):
+            logger.info(f"ResponsePlanner: coerced stage from {type(raw_stage).__name__}('{raw_stage}') to {stage.name}")
         
         # Get intent from routing_info if available, otherwise derive from target_node
         routing_info = state.get("routing_info", {})

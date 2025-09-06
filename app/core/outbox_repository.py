@@ -6,6 +6,7 @@ Provides persistent storage for planned messages with delivery status tracking
 import json
 import logging
 import uuid
+import hashlib
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
 
@@ -93,20 +94,28 @@ def ensure_outbox_schema() -> bool:
         return False
 
 
-def save_outbox(conversation_id: str, messages: List[Dict[str, Any]]) -> List[str]:
+def generate_idempotency_key(phone: str, turn_id: str, idx: int) -> str:
+    """Generate deterministic idempotency key"""
+    raw = f"{phone}:{turn_id}:{idx}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+def save_outbox(conversation_id: str, messages: List[Dict[str, Any]], state: Optional[Dict] = None) -> List[str]:
     """
-    Save outbox messages to database
+    Save outbox messages to database with Redis fallback
     
     Args:
         conversation_id: Unique conversation identifier
         messages: List of message dictionaries to persist
+        state: Optional state dict with phone_number and turn_id
         
     Returns:
         List[str]: List of idempotency keys for saved messages
     """
     if not PSYCOPG2_AVAILABLE:
-        logger.warning(f"OUTBOX_SAVE|psycopg2_unavailable|conv={conversation_id}|degrading_gracefully")
-        return []
+        logger.warning(f"OUTBOX_SAVE|psycopg2_unavailable|conv={conversation_id}|trying_redis_fallback")
+        # Fallback to Redis
+        return _save_outbox_redis_fallback(conversation_id, messages, state)
     
     from .database.connection import get_database_connection
     
@@ -156,7 +165,66 @@ def save_outbox(conversation_id: str, messages: List[Dict[str, Any]]) -> List[st
         return idempotency_keys
         
     except Exception as e:
-        logger.error(f"OUTBOX_SAVE|error|conv={conversation_id}|error={e}")
+        logger.error(f"OUTBOX_SAVE|postgres_error|conv={conversation_id}|error={e}|trying_redis_fallback")
+        # Fallback to Redis on any DB error
+        return _save_outbox_redis_fallback(conversation_id, messages, state)
+
+
+def _save_outbox_redis_fallback(conversation_id: str, messages: List[Dict[str, Any]], state: Optional[Dict] = None) -> List[str]:
+    """
+    Save outbox messages to Redis as fallback
+    
+    Args:
+        conversation_id: Unique conversation identifier
+        messages: List of message dictionaries to persist
+        state: Optional state dict with phone_number and turn_id
+        
+    Returns:
+        List[str]: List of idempotency keys for saved messages
+    """
+    try:
+        from ..core.redis_client import get_redis_client
+        from ..core.feature_flags import is_outbox_redis_fallback_enabled
+        
+        if not is_outbox_redis_fallback_enabled():
+            logger.warning(f"OUTBOX_SAVE|redis_fallback_disabled|conv={conversation_id}")
+            return []
+        
+        redis_client = get_redis_client()
+        if not redis_client:
+            logger.error(f"OUTBOX_SAVE|redis_unavailable|conv={conversation_id}")
+            return []
+        
+        # Extract necessary data from state
+        phone = state.get("phone_number", "unknown") if state else "unknown"
+        turn_id = state.get("turn_id", "noturn") if state else "noturn"
+        
+        keys = []
+        redis_key = f"outbox:{conversation_id}"
+        
+        for idx, item in enumerate(messages):
+            # Generate idempotency key
+            idem_key = generate_idempotency_key(phone, turn_id, idx)
+            
+            # Add idempotency key to the message
+            payload = {
+                **item,
+                "idempotency_key": idem_key,
+                "_source": "redis_fallback"
+            }
+            
+            # Push to Redis list
+            redis_client.lpush(redis_key, json.dumps(payload))
+            keys.append(idem_key)
+            
+        # Set expiration (1 hour)
+        redis_client.expire(redis_key, 3600)
+        
+        logger.info(f"OUTBOX_SAVE|redis_fallback_success|conv={conversation_id}|count={len(keys)}")
+        return keys
+        
+    except Exception as e:
+        logger.error(f"OUTBOX_SAVE|redis_fallback_error|conv={conversation_id}|error={e}")
         return []
 
 
