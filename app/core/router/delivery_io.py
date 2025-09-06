@@ -129,13 +129,38 @@ async def delivery_node_turn_based(state: dict) -> dict:
     
     # Step 4: Generate fallback if still empty - BUT idempotente por turn_id
     if not items:
-        logger.warning(f"DELIVERY|empty_outbox_fallback|turn={turn_id}")
+        # Check for various error conditions that require fallback
+        plan_error = state.get("plan_error")
+        preprocess_error = state.get("preprocess_error")
+        route_error = state.get("route_error")
+        
+        if plan_error:
+            logger.warning(f"DELIVERY|plan_error_fallback|turn={turn_id}|error={plan_error}")
+            fallback_text = "Desculpe, tive um problema ao processar sua mensagem. Vou transferir você para um atendente que poderá ajudar melhor."
+            fallback_source = "plan_error_fallback"
+        elif preprocess_error:
+            logger.warning(f"DELIVERY|preprocess_error_fallback|turn={turn_id}|error={preprocess_error}")
+            # Different fallback for rate limiting vs other preprocessing errors
+            if "RATE_LIMITED" in str(preprocess_error):
+                fallback_text = "Por favor, aguarde um momento antes de enviar a próxima mensagem. Estamos processando suas solicitações."
+                fallback_source = "rate_limit_fallback"
+            else:
+                fallback_text = "Desculpe, não consegui processar sua mensagem. Por favor, tente novamente."
+                fallback_source = "preprocess_error_fallback"
+        elif route_error:
+            logger.warning(f"DELIVERY|route_error_fallback|turn={turn_id}|error={route_error}")
+            fallback_text = "Desculpe, não entendi completamente sua mensagem. Pode reformular sua pergunta?"
+            fallback_source = "route_error_fallback"
+        else:
+            logger.warning(f"DELIVERY|empty_outbox_fallback|turn={turn_id}")
+            fallback_text = "Olá! Como posso ajudar?"
+            fallback_source = "delivery_fallback"
         
         fallback_key = ensure_fallback_key(phone_number, turn_id)
         fallback_item = {
-            "text": "Olá! Como posso ajudar?",
+            "text": fallback_text,
             "channel": "whatsapp",
-            "meta": {"source": "delivery_fallback"},
+            "meta": {"source": fallback_source},
             "idempotency_key": fallback_key
         }
         items = [fallback_item]

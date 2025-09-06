@@ -877,7 +877,14 @@ async def _process_single_message(message: WhatsAppMessage, headers: Optional[Di
                 app_logger.info("✅ Message preprocessed successfully")
 
             # Step 2: Process through turn-based delivery architecture
-            await _process_through_turn_architecture(final_message, turn_data, headers=actual_headers, trusted_source=trusted_source)
+            # Pass preprocessor result to avoid duplicate processing
+            await _process_through_turn_architecture(
+                final_message, 
+                turn_data, 
+                headers=actual_headers, 
+                trusted_source=trusted_source,
+                preprocessor_result=preprocessor_result  # Pass the result to avoid reprocessing
+            )
 
         except Exception as e:
             app_logger.error(f"TURN|processing_error|phone={message.phone[-4:]}|error={str(e)}", exc_info=True)
@@ -887,7 +894,13 @@ async def _process_single_message(message: WhatsAppMessage, headers: Optional[Di
         app_logger.error(f"❌ Error in _process_single_message: {str(e)}")
 
 
-async def _process_through_turn_architecture(message: WhatsAppMessage, turn_data: Optional[Dict] = None, headers: Optional[Dict] = None, trusted_source: bool = False):
+async def _process_through_turn_architecture(
+    message: WhatsAppMessage, 
+    turn_data: Optional[Dict] = None, 
+    headers: Optional[Dict] = None, 
+    trusted_source: bool = False,
+    preprocessor_result = None
+):
     """
     NOVA ARQUITETURA: Pipeline principal (preprocess → classify → route → plan → outbox → delivery)
     Turn Controller atua APENAS como guardrails (concurrency/dedup/single response per turn)
@@ -897,6 +910,7 @@ async def _process_through_turn_architecture(message: WhatsAppMessage, turn_data
         turn_data: Optional turn data
         headers: Request headers for authentication
         trusted_source: Whether the message comes from a trusted source
+        preprocessor_result: Optional preprocessor result to avoid duplicate processing
     """
     try:
         from ..core.feature_flags import is_main_pipeline_enabled, is_turn_guard_only
@@ -909,25 +923,41 @@ async def _process_through_turn_architecture(message: WhatsAppMessage, turn_data
             from ..services.message_preprocessor import message_preprocessor
             from ..core.structured_logging import log_pipeline_event
             
-            # Build headers for auth validation (defensive) - prefer passed headers over turn_data
-            actual_headers = headers or turn_data.get('headers', {}) if turn_data else {}
-            
-            # CRÍTICO: Log obrigatório - marcador exato
-            app_logger.info(f"PIPELINE|preprocess_start|phone={message.phone[-4:]}|trusted_source={trusted_source}")
-            log_pipeline_event("preprocess_start", phone=message.phone[-4:], message_id=message.message_id, trusted_source=trusted_source)
-            
-            preprocess_result = await message_preprocessor.process_message(
-                message, actual_headers, trusted_source=trusted_source
-            )
-            
-            if not preprocess_result.success:
-                app_logger.warning(f"PIPELINE|preprocess_failed|phone={message.phone[-4:]}|error={preprocess_result.error_code}")
-                log_pipeline_event("preprocess_failed", phone=message.phone[-4:], error=preprocess_result.error_code)
-                return  # Stop pipeline on preprocessing failure
-            
-            preprocessed_message = preprocess_result.message
-            app_logger.info(f"PIPELINE|preprocess_complete|phone={message.phone[-4:]}|processing_time={preprocess_result.processing_time_ms:.1f}ms")
-            log_pipeline_event("preprocess_complete", phone=message.phone[-4:], processing_time_ms=preprocess_result.processing_time_ms)
+            # Check if preprocessing was already done
+            if preprocessor_result is not None:
+                # Reuse existing preprocessor result
+                app_logger.info(f"PIPELINE|preprocess_reused|phone={message.phone[-4:]}|trusted_source={trusted_source}")
+                log_pipeline_event("preprocess_reused", phone=message.phone[-4:], message_id=message.message_id, trusted_source=trusted_source)
+                
+                if not preprocessor_result.success:
+                    app_logger.warning(f"PIPELINE|preprocess_failed|phone={message.phone[-4:]}|error={preprocessor_result.error_code}")
+                    log_pipeline_event("preprocess_failed", phone=message.phone[-4:], error=preprocessor_result.error_code)
+                    return  # Stop pipeline on preprocessing failure
+                
+                preprocessed_message = preprocessor_result.message
+                app_logger.info(f"PIPELINE|preprocess_complete|phone={message.phone[-4:]}|reused=true")
+                
+            else:
+                # Perform preprocessing if not already done
+                # Build headers for auth validation (defensive) - prefer passed headers over turn_data
+                actual_headers = headers or turn_data.get('headers', {}) if turn_data else {}
+                
+                # CRÍTICO: Log obrigatório - marcador exato
+                app_logger.info(f"PIPELINE|preprocess_start|phone={message.phone[-4:]}|trusted_source={trusted_source}")
+                log_pipeline_event("preprocess_start", phone=message.phone[-4:], message_id=message.message_id, trusted_source=trusted_source)
+                
+                preprocess_result = await message_preprocessor.process_message(
+                    message, actual_headers, trusted_source=trusted_source
+                )
+                
+                if not preprocess_result.success:
+                    app_logger.warning(f"PIPELINE|preprocess_failed|phone={message.phone[-4:]}|error={preprocess_result.error_code}")
+                    log_pipeline_event("preprocess_failed", phone=message.phone[-4:], error=preprocess_result.error_code)
+                    return  # Stop pipeline on preprocessing failure
+                
+                preprocessed_message = preprocess_result.message
+                app_logger.info(f"PIPELINE|preprocess_complete|phone={message.phone[-4:]}|processing_time={preprocess_result.processing_time_ms:.1f}ms")
+                log_pipeline_event("preprocess_complete", phone=message.phone[-4:], processing_time_ms=preprocess_result.processing_time_ms)
             
         except Exception as preprocess_error:
             app_logger.error(f"PIPELINE|preprocess_error|phone={message.phone[-4:]}|error={str(preprocess_error)}")
@@ -950,7 +980,11 @@ async def _process_through_turn_architecture(message: WhatsAppMessage, turn_data
                 "current_stage": "greeting",  # Default stage, will be loaded from DB if available
                 "current_step": "welcome",
                 "channel": "whatsapp",
-                "messages": []
+                "messages": [],
+                "trusted_source": trusted_source,  # Propagate trusted_source flag
+                "instance": message.instance,  # Add instance for delivery
+                "message_id": message.message_id,  # Add message_id for tracking
+                "preprocessed": True  # Mark that preprocessing was successful
             }
             
             # Initialize intent classifier
@@ -996,6 +1030,8 @@ async def _process_through_turn_architecture(message: WhatsAppMessage, turn_data
             
         except Exception as route_error:
             app_logger.error(f"PIPELINE|route_error|phone={message.phone[-4:]}|error={str(route_error)}")
+            # Mark error in state for delivery to handle
+            state["route_error"] = str(route_error)
             # Create fallback routing decision
             from ..workflows.contracts import RoutingDecision
             from datetime import datetime
@@ -1009,6 +1045,7 @@ async def _process_through_turn_architecture(message: WhatsAppMessage, turn_data
                 reasoning=f"Routing error: {str(route_error)}",
                 timestamp=datetime.now()
             )
+            log_pipeline_event("route_failed", phone=message.phone[-4:], error=str(route_error))
 
         # STEP 4: RESPONSE PLANNING - Geração da resposta
         try:
@@ -1033,14 +1070,10 @@ async def _process_through_turn_architecture(message: WhatsAppMessage, turn_data
             
         except Exception as plan_error:
             app_logger.error(f"PIPELINE|plan_error|phone={message.phone[-4:]}|error={str(plan_error)}")
-            # Create emergency fallback outbox
-            turn_id = turn_data.get('turn_id') if turn_data else f"single_{message.message_id}"
-            state["_planner_snapshot_outbox"] = [{
-                "text": "Desculpe, tive um problema técnico. Pode repetir sua mensagem?",
-                "channel": "whatsapp",
-                "meta": {"source": "plan_error_fallback"},
-                "idempotency_key": f"{turn_id}_plan_error"
-            }]
+            # Mark error in state - let delivery handle fallback decision
+            state["plan_error"] = str(plan_error)
+            state["_planner_snapshot_outbox"] = []  # Empty outbox - delivery will decide what to do
+            log_pipeline_event("plan_failed", phone=message.phone[-4:], error=str(plan_error))
 
         # STEP 5: OUTBOX PERSISTENCE - Persistir mensagens planejadas
         try:
@@ -1107,27 +1140,31 @@ async def _process_through_turn_architecture(message: WhatsAppMessage, turn_data
             app_logger.error(f"PIPELINE|delivery_error|phone={message.phone[-4:]}|error={str(delivery_error)}")
             log_pipeline_event("delivery_error", phone=message.phone[-4:], error=str(delivery_error))
 
-        # GUARDRAILS: Turn Controller workflow guards (APENAS guardrails, não geração de conteúdo)
-        if is_turn_guard_only():
-            try:
-                from ..core.workflow_guards import check_recursion_limit, prevent_greeting_loops
-                
-                app_logger.info(f"PIPELINE|guards_start|phone={message.phone[-4:]}")
-                
-                # Check recursion limit
-                if not check_recursion_limit(conversation_id, state.get("current_stage")):
-                    app_logger.error(f"PIPELINE|guards_recursion_exceeded|conv={conversation_id}")
-                    return  # Stop processing to prevent infinite loops
-                
-                # Check greeting loops
-                if not prevent_greeting_loops(message.phone, state.get("current_stage"), "greeting"):
-                    app_logger.warning(f"PIPELINE|guards_greeting_loop|phone={message.phone[-4:]}")
-                    return  # Stop processing to prevent greeting loops
-                
-                app_logger.info(f"PIPELINE|guards_complete|phone={message.phone[-4:]}")
-                
-            except Exception as guards_error:
-                app_logger.error(f"PIPELINE|guards_error|phone={message.phone[-4:]}|error={str(guards_error)}")
+        # GUARDRAILS: Turn Controller workflow guards (always run as safety checks)
+        # Note: These run regardless of turn_guard_only flag, but only as safety checks
+        try:
+            from ..core.workflow_guards import check_recursion_limit, prevent_greeting_loops
+            
+            app_logger.info(f"PIPELINE|guards_start|phone={message.phone[-4:]}")
+            
+            # Check recursion limit
+            if not check_recursion_limit(conversation_id, state.get("current_stage")):
+                app_logger.error(f"PIPELINE|guards_recursion_exceeded|conv={conversation_id}")
+                return  # Stop processing to prevent infinite loops
+            
+            # Check greeting loops
+            if not prevent_greeting_loops(message.phone, state.get("current_stage"), "greeting"):
+                app_logger.warning(f"PIPELINE|guards_greeting_loop|phone={message.phone[-4:]}")
+                return  # Stop processing to prevent greeting loops
+            
+            app_logger.info(f"PIPELINE|guards_complete|phone={message.phone[-4:]}")
+            
+        except ImportError as import_error:
+            # Guards module not available, continue without them
+            app_logger.warning(f"PIPELINE|guards_skipped|phone={message.phone[-4:]}|reason=module_not_found")
+        except Exception as guards_error:
+            app_logger.error(f"PIPELINE|guards_error|phone={message.phone[-4:]}|error={str(guards_error)}")
+            # Don't stop pipeline for guard errors, just log them
 
         # CRÍTICO: Log obrigatório - marcador exato para pipeline complete
         app_logger.info(f"PIPELINE|complete|phone={message.phone[-4:]}|pipeline_success=true")

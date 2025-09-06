@@ -49,7 +49,7 @@ class FeatureFlagManager:
             
             "TURN_GUARD_ONLY": FeatureFlag(
                 name="TURN_GUARD_ONLY",
-                enabled=self._get_env_bool("TURN_GUARD_ONLY", True),
+                enabled=self._get_env_bool("TURN_GUARD_ONLY", False),  # Changed to False to enable full pipeline
                 description="Turn Controller acts only as guardrails (concurrency/dedup), not content generation",
                 rollout_percentage=100
             ),
@@ -326,7 +326,7 @@ def is_main_pipeline_enabled() -> bool:
 
 def is_turn_guard_only() -> bool:
     """Check if Turn Controller acts only as guardrails (not content generation)"""
-    return feature_flags.is_enabled("TURN_GUARD_ONLY", default=True)
+    return feature_flags.is_enabled("TURN_GUARD_ONLY", default=False)  # Changed default to False
 
 
 def is_outbox_redis_fallback_enabled() -> bool:
