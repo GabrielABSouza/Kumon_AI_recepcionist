@@ -10,9 +10,36 @@ from typing import Dict, Any, Optional
 logger = logging.getLogger(__name__)
 
 
+def log_pipeline_event(event: str, **fields):
+    """
+    Log pipeline events with structured format (generic, kwargs-only)
+    
+    Args:
+        event: Event name (e.g., "preprocess_start", "classify_complete")
+        **fields: Event data as keyword arguments only
+    
+    Usage:
+        log_pipeline_event("preprocess_start", phone="1234", message_id="abc")
+        log_pipeline_event("classify_complete", phone="1234", intent="info", confidence=0.85)
+    """
+    parts = [f"event={event}"]
+    for k, v in fields.items():
+        if v is not None:
+            parts.append(f"{k}={v}")
+    
+    log_message = "|".join(parts)
+    
+    if "error" in event or "failed" in event:
+        logger.error(f"PIPELINE|{log_message}")
+    elif "start" in event or "complete" in event:
+        logger.info(f"PIPELINE|{log_message}")
+    else:
+        logger.info(f"PIPELINE|{log_message}")
+
+
 def log_turn_event(event_type: str, conversation_id: str, phone: str, **kwargs):
     """
-    Log turn-level events with structured format
+    Log turn-level events with structured format (legacy compatibility)
     
     Args:
         event_type: Type of turn event (acquired, duplicate, released, etc.)

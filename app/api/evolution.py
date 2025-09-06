@@ -880,25 +880,25 @@ async def _process_through_turn_architecture(message: WhatsAppMessage, turn_data
         # STEP 1: PREPROCESSING - Sanitização, rate limiting, auth validation
         try:
             from ..services.message_preprocessor import message_preprocessor
-            from ..core.structured_logging import log_turn_event
+            from ..core.structured_logging import log_pipeline_event
             
             # Build headers for auth validation (defensive)
             headers = turn_data.get('headers', {}) if turn_data else {}
             
             # CRÍTICO: Log obrigatório - marcador exato
             app_logger.info(f"PIPELINE|preprocess_start|phone={message.phone[-4:]}")
-            log_turn_event("preprocess", message.phone, "start", {"message_id": message.message_id})
+            log_pipeline_event("preprocess_start", phone=message.phone[-4:], message_id=message.message_id)
             
             preprocess_result = await message_preprocessor.process_message(message, headers)
             
             if not preprocess_result.success:
                 app_logger.warning(f"PIPELINE|preprocess_failed|phone={message.phone[-4:]}|error={preprocess_result.error_code}")
-                log_turn_event("preprocess", message.phone, "failed", {"error": preprocess_result.error_code})
+                log_pipeline_event("preprocess_failed", phone=message.phone[-4:], error=preprocess_result.error_code)
                 return  # Stop pipeline on preprocessing failure
             
             preprocessed_message = preprocess_result.message
             app_logger.info(f"PIPELINE|preprocess_complete|phone={message.phone[-4:]}|processing_time={preprocess_result.processing_time_ms:.1f}ms")
-            log_turn_event("preprocess", message.phone, "complete", {"processing_time_ms": preprocess_result.processing_time_ms})
+            log_pipeline_event("preprocess_complete", phone=message.phone[-4:], processing_time_ms=preprocess_result.processing_time_ms)
             
         except Exception as preprocess_error:
             app_logger.error(f"PIPELINE|preprocess_error|phone={message.phone[-4:]}|error={str(preprocess_error)}")
@@ -910,7 +910,7 @@ async def _process_through_turn_architecture(message: WhatsAppMessage, turn_data
             from ..core.dependencies import llm_service
             
             app_logger.info(f"PIPELINE|classify_start|phone={message.phone[-4:]}|message={preprocessed_message.message[:50]}")
-            log_turn_event("classify", message.phone, "start", {"message_preview": preprocessed_message.message[:50]})
+            log_pipeline_event("classify_start", phone=message.phone[-4:], message_preview=preprocessed_message.message[:50])
             
             # Build conversation state for classification
             conversation_id = f"conv_{message.phone}"
@@ -929,11 +929,10 @@ async def _process_through_turn_architecture(message: WhatsAppMessage, turn_data
             intent_result = await intent_classifier.classify_intent(preprocessed_message.message, state)
             
             app_logger.info(f"PIPELINE|classify_complete|phone={message.phone[-4:]}|intent={intent_result.category}|confidence={intent_result.confidence:.2f}")
-            log_turn_event("classify", message.phone, "complete", {
-                "intent_category": intent_result.category,
-                "confidence": intent_result.confidence,
-                "subcategory": intent_result.subcategory
-            })
+            log_pipeline_event("classify_complete", phone=message.phone[-4:],
+                intent_category=intent_result.category,
+                confidence=intent_result.confidence,
+                subcategory=intent_result.subcategory)
             
         except Exception as classify_error:
             app_logger.error(f"PIPELINE|classify_error|phone={message.phone[-4:]}|error={str(classify_error)}")
@@ -953,20 +952,18 @@ async def _process_through_turn_architecture(message: WhatsAppMessage, turn_data
             from ..workflows.smart_router import smart_router
             
             app_logger.info(f"PIPELINE|route_start|phone={message.phone[-4:]}|intent={intent_result.category}|confidence={intent_result.confidence:.2f}")
-            log_turn_event("route", message.phone, "start", {
-                "intent_category": intent_result.category,
-                "confidence": intent_result.confidence
-            })
+            log_pipeline_event("route_start", phone=message.phone[-4:],
+                intent_category=intent_result.category,
+                confidence=intent_result.confidence)
             
             routing_decision = await smart_router.make_routing_decision(state, intent_result)
             
             app_logger.info(f"PIPELINE|route_complete|phone={message.phone[-4:]}|target={routing_decision.target_node}|action={routing_decision.threshold_action}|final_confidence={routing_decision.final_confidence:.2f}")
-            log_turn_event("route", message.phone, "complete", {
-                "target_node": routing_decision.target_node,
-                "threshold_action": routing_decision.threshold_action,
-                "final_confidence": routing_decision.final_confidence,
-                "rule_applied": routing_decision.rule_applied
-            })
+            log_pipeline_event("route_complete", phone=message.phone[-4:],
+                target_node=routing_decision.target_node,
+                threshold_action=routing_decision.threshold_action,
+                final_confidence=routing_decision.final_confidence,
+                rule_applied=routing_decision.rule_applied)
             
         except Exception as route_error:
             app_logger.error(f"PIPELINE|route_error|phone={message.phone[-4:]}|error={str(route_error)}")
@@ -989,10 +986,9 @@ async def _process_through_turn_architecture(message: WhatsAppMessage, turn_data
             from ..core.router.response_planner import ResponsePlanner
             
             app_logger.info(f"PIPELINE|plan_start|phone={message.phone[-4:]}|target={routing_decision.target_node}|action={routing_decision.threshold_action}")
-            log_turn_event("plan", message.phone, "start", {
-                "target_node": routing_decision.target_node,
-                "threshold_action": routing_decision.threshold_action
-            })
+            log_pipeline_event("plan_start", phone=message.phone[-4:],
+                target_node=routing_decision.target_node,
+                threshold_action=routing_decision.threshold_action)
             
             # Initialize response planner
             response_planner = ResponsePlanner()
@@ -1002,10 +998,9 @@ async def _process_through_turn_architecture(message: WhatsAppMessage, turn_data
             
             planned_outbox = state.get("_planner_snapshot_outbox", [])
             app_logger.info(f"PIPELINE|plan_complete|phone={message.phone[-4:]}|outbox_count={len(planned_outbox)}")
-            log_turn_event("plan", message.phone, "complete", {
-                "outbox_count": len(planned_outbox),
-                "response_type": state.get("response_metadata", {}).get("type", "unknown")
-            })
+            log_pipeline_event("plan_complete", phone=message.phone[-4:],
+                outbox_count=len(planned_outbox),
+                response_type=state.get("response_metadata", {}).get("type", "unknown"))
             
         except Exception as plan_error:
             app_logger.error(f"PIPELINE|plan_error|phone={message.phone[-4:]}|error={str(plan_error)}")
@@ -1027,7 +1022,7 @@ async def _process_through_turn_architecture(message: WhatsAppMessage, turn_data
             outbox_items = state.get("_planner_snapshot_outbox", [])
             
             app_logger.info(f"PIPELINE|outbox_start|phone={message.phone[-4:]}|count={len(outbox_items)}")
-            log_turn_event("outbox", message.phone, "start", {"outbox_count": len(outbox_items)})
+            log_pipeline_event("outbox_start", phone=message.phone[-4:], outbox_count=len(outbox_items))
             
             # Try database first
             idem_keys = []
@@ -1057,7 +1052,7 @@ async def _process_through_turn_architecture(message: WhatsAppMessage, turn_data
                         # Continue with in-memory outbox for immediate delivery
                 
             app_logger.info(f"PIPELINE|outbox_complete|phone={message.phone[-4:]}|count={len(outbox_items)}")
-            log_turn_event("outbox", message.phone, "complete", {"outbox_count": len(outbox_items)})
+            log_pipeline_event("outbox_complete", phone=message.phone[-4:], outbox_count=len(outbox_items))
             
         except Exception as outbox_error:
             app_logger.error(f"PIPELINE|outbox_error|phone={message.phone[-4:]}|error={str(outbox_error)}")
@@ -1067,23 +1062,21 @@ async def _process_through_turn_architecture(message: WhatsAppMessage, turn_data
             from ..core.router.delivery_io import delivery_node_turn_based
             
             app_logger.info(f"PIPELINE|delivery_start|phone={message.phone[-4:]}|outbox_count={len(state.get('_planner_snapshot_outbox', []))}")
-            log_turn_event("delivery", message.phone, "start", {
-                "outbox_count": len(state.get('_planner_snapshot_outbox', []))
-            })
+            log_pipeline_event("delivery_start", phone=message.phone[-4:],
+                outbox_count=len(state.get('_planner_snapshot_outbox', [])))
             
             # Delivery with idempotency and single-shot guarantee
             result_state = await delivery_node_turn_based(state)
             
             delivery_status = result_state.get('turn_status', 'unknown')
             app_logger.info(f"PIPELINE|delivery_complete|phone={message.phone[-4:]}|status={delivery_status}")
-            log_turn_event("delivery", message.phone, "complete", {
-                "turn_status": delivery_status,
-                "messages_sent": result_state.get('messages_sent', 0)
-            })
+            log_pipeline_event("delivery_complete", phone=message.phone[-4:],
+                turn_status=delivery_status,
+                messages_sent=result_state.get('messages_sent', 0))
             
         except Exception as delivery_error:
             app_logger.error(f"PIPELINE|delivery_error|phone={message.phone[-4:]}|error={str(delivery_error)}")
-            log_turn_event("delivery", message.phone, "error", {"error": str(delivery_error)})
+            log_pipeline_event("delivery_error", phone=message.phone[-4:], error=str(delivery_error))
 
         # GUARDRAILS: Turn Controller workflow guards (APENAS guardrails, não geração de conteúdo)
         if is_turn_guard_only():
@@ -1109,7 +1102,7 @@ async def _process_through_turn_architecture(message: WhatsAppMessage, turn_data
 
         # CRÍTICO: Log obrigatório - marcador exato para pipeline complete
         app_logger.info(f"PIPELINE|complete|phone={message.phone[-4:]}|pipeline_success=true")
-        log_turn_event("pipeline", message.phone, "complete", {"pipeline_success": True})
+        log_pipeline_event("pipeline_complete", phone=message.phone[-4:], pipeline_success=True)
 
     except Exception as e:
         app_logger.error(f"TURN|architecture_error|phone={message.phone[-4:]}|error={str(e)}", exc_info=True)
