@@ -26,7 +26,7 @@ DEDUPE_TTL_SEC = 30    # 30 segundos
 def _get_redis_client():
     """Get Redis client - import locally to avoid circular dependencies"""
     try:
-        from ..cache.redis_manager import redis_cache
+        from .cache_manager import redis_cache
         return redis_cache.client
     except ImportError:
         logger.error("REDIS_OUTBOX|redis_unavailable|falling_back_to_memory")

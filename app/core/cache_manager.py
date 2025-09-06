@@ -37,6 +37,7 @@ class RedisManager:
                 "redis://localhost:6379"
             )
             
+            logger.info(f"CACHE_INIT|source=app.core.cache_manager|connecting_to_redis")
             logger.info(f"Connecting to Redis: {redis_url[:20]}...")
             
             # Create Redis client with connection pooling

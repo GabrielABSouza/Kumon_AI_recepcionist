@@ -871,7 +871,20 @@ async def _process_through_turn_architecture(message: WhatsAppMessage, turn_data
     try:
         from ..core.router.response_planner import response_planner
         from ..core.router.delivery_io import delivery_node_turn_based
-        from ..cache.redis_manager import redis_cache
+        
+        # Import defensivo para cache - tolerância a refatores futuros
+        redis_cache = None
+        try:
+            from ..core.cache_manager import redis_cache
+            app_logger.info("CACHE_INIT|source=app.core.cache_manager|success")
+        except ModuleNotFoundError:
+            # Fallback para import legado se necessário
+            try:
+                from ..cache.redis_manager import redis_cache
+                app_logger.info("CACHE_INIT|source=app.cache.redis_manager(shim)|fallback_success")
+            except ModuleNotFoundError:
+                app_logger.warning("CACHE_INIT|both_sources_failed|continuing_without_cache")
+        
         import psycopg2
         import os
         
