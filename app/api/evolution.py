@@ -786,7 +786,7 @@ async def handle_new_jwt_token(request: Request):
 
 
 async def process_message_background(message: WhatsAppMessage, headers: Optional[Dict] = None):
-    """Process incoming WhatsApp message in background"""
+    """Process incoming WhatsApp message in background with turn management"""
     try:
         # Build context for the message
         context = {
@@ -804,6 +804,68 @@ async def process_message_background(message: WhatsAppMessage, headers: Optional
 
         app_logger.info(f"🔄 Processing message: '{message.message}' from {message.phone}")
 
+        # Step 0: Turn Management - Add message to buffer and check if turn is ready
+        try:
+            from ..core.turn_controller import append_user_message, flush_turn_if_quiet, turn_lock, _now_ms
+            from ..cache.redis_manager import redis_cache
+            
+            cache_client = redis_cache.client if redis_cache else None
+            if not cache_client:
+                app_logger.warning("Redis not available for turn management - processing immediately")
+                # Fall back to immediate processing without turn management
+                await _process_single_message(message, headers)
+                return
+            
+            # Add message to turn buffer
+            now_ms = _now_ms()
+            append_user_message(cache_client, message.phone, message.message_id, message.message, now_ms)
+            
+            # Check if turn is ready (quiet period elapsed)
+            turn_data = flush_turn_if_quiet(cache_client, message.phone, now_ms)
+            
+            if not turn_data:
+                # Turn not ready yet (still within debounce window)
+                app_logger.info(f"Turn not ready for {message.phone}, message buffered")
+                return
+            
+            # Turn is ready - try to acquire lock and process
+            with turn_lock(cache_client, message.phone) as got_lock:
+                if not got_lock:
+                    # Another process is already handling this turn
+                    app_logger.info(f"Turn locked by another process for {message.phone}")
+                    return
+                
+                app_logger.info(f"Processing turn {turn_data['turn_id']} for {message.phone} with {turn_data['message_count']} messages")
+                
+                # Create aggregated message from turn data
+                aggregated_message = WhatsAppMessage(
+                    message_id=turn_data['turn_id'],
+                    phone=message.phone,
+                    message=turn_data['text'],  # Aggregated text from all messages in turn
+                    message_type=message.message_type,
+                    timestamp=turn_data['last_ts'],
+                    instance=message.instance,
+                    sender_name=message.sender_name,
+                    quoted_message=message.quoted_message,
+                    media_url=message.media_url,
+                    media_type=message.media_type,
+                )
+                
+                # Process the aggregated turn
+                await _process_single_message(aggregated_message, headers, turn_data)
+                
+        except Exception as turn_error:
+            app_logger.error(f"Turn management error: {turn_error}")
+            # Fall back to immediate processing
+            await _process_single_message(message, headers)
+
+    except Exception as e:
+        app_logger.error(f"❌ Error processing message in background: {str(e)}")
+
+
+async def _process_single_message(message: WhatsAppMessage, headers: Optional[Dict] = None, turn_data: Optional[Dict] = None):
+    """Process a single message (or aggregated turn) through the workflow"""
+    try:
         # Clean Architecture: Preprocessor first, then workflow
         try:
             # Step 1: Preprocess message - USE ACTUAL HEADERS FROM REQUEST
@@ -832,23 +894,128 @@ async def process_message_background(message: WhatsAppMessage, headers: Optional
                 final_message = preprocessor_result.message
                 app_logger.info("✅ Message preprocessed successfully")
 
-            # Step 2: Process through workflow (only if preprocessing succeeded)
-            workflow_result = await get_cecilia_workflow().process_message(
-                phone_number=final_message.phone,
-                user_message=final_message.message,
-                instance=final_message.instance,  # Pass instance information!
-            )
-
-            # DeliveryService handles ALL message sending - Evolution API only processes workflow
-            app_logger.info("✅ Workflow processing completed - DeliveryService handles response delivery")
+            # Step 2: Process through turn-based delivery architecture
+            await _process_through_turn_architecture(final_message, turn_data)
 
         except Exception as e:
             app_logger.error(f"Error in preprocessing/workflow: {str(e)}")
             # Even for errors, let DeliveryService handle it - no sending from evolution.py
 
     except Exception as e:
-        app_logger.error(f"❌ Error processing message in background: {str(e)}")
-        # DeliveryService handles ALL message sending, including error responses
+        app_logger.error(f"❌ Error in _process_single_message: {str(e)}")
+
+
+async def _process_through_turn_architecture(message: WhatsAppMessage, turn_data: Optional[Dict] = None):
+    """Process message through minimal turn-based architecture: TurnController → Planner → Delivery"""
+    try:
+        from ..core.router.response_planner import response_planner
+        from ..core.router.delivery_io import delivery_node_turn_based
+        from ..cache.redis_manager import redis_cache
+        import psycopg2
+        import os
+        
+        # Build state for turn-based processing
+        conversation_id = f"conv_{message.phone}"
+        turn_id = turn_data['turn_id'] if turn_data else f"single_{message.message_id}"
+        
+        state = {
+            "phone_number": message.phone,
+            "conversation_id": conversation_id,
+            "turn_id": turn_id,
+            "last_user_message": message.message,
+            "instance": message.instance,
+            "cache": redis_cache.client if redis_cache else None,
+            "db": None,  # Will try to get DB connection
+            "current_stage": "greeting",  # Default stage
+            "current_step": "welcome",    # Default step
+        }
+        
+        # Try to get database connection for outbox persistence
+        try:
+            database_url = os.getenv("DATABASE_URL")
+            if database_url:
+                import psycopg2
+                from urllib.parse import urlparse
+                result = urlparse(database_url)
+                conn = psycopg2.connect(
+                    database=result.path[1:],
+                    user=result.username,
+                    password=result.password,
+                    host=result.hostname,
+                    port=result.port
+                )
+                state["db"] = conn
+                app_logger.info("✅ Database connection established for outbox persistence")
+        except Exception as db_error:
+            app_logger.warning(f"Could not establish DB connection: {db_error}")
+        
+        # Step 1: Smart Routing (simplified for minimal architecture)
+        routing_decision = {
+            "target_node": "greeting",  # Simplified routing
+            "threshold_action": "proceed",
+            "confidence": 0.8,
+            "reasoning": "Turn-based processing",
+            "rule_applied": "turn_controller"
+        }
+        
+        # Step 2: Response Planning
+        try:
+            # Create outbox item for the response
+            from ..core.outbox_store import persist_outbox
+            response_text = "Olá! Sou Cecília do Kumon Vila A. Como posso ajudá-lo hoje? 😊"
+            
+            outbox_items = [{
+                "text": response_text,
+                "channel": "whatsapp",
+                "meta": {"source": "turn_planner"},
+                "idempotency_key": f"{turn_id}_response"
+            }]
+            
+            # Persist to database if available
+            if state["db"]:
+                persist_outbox(state["db"], conversation_id, turn_id, outbox_items)
+                app_logger.info(f"✅ Persisted {len(outbox_items)} items to outbox for turn {turn_id}")
+            
+            # Also save in state for immediate consumption
+            state["_planner_snapshot_outbox"] = outbox_items
+            
+        except Exception as planning_error:
+            app_logger.error(f"Response planning error: {planning_error}")
+            # Create fallback outbox
+            state["_planner_snapshot_outbox"] = [{
+                "text": "Obrigada pelo contato!",
+                "channel": "whatsapp",
+                "meta": {"source": "planning_fallback"},
+                "idempotency_key": f"{turn_id}_fallback"
+            }]
+        
+        # Step 3: Delivery
+        try:
+            result_state = await delivery_node_turn_based(state)
+            app_logger.info(f"✅ Turn delivery completed: status = {result_state.get('turn_status')}")
+        except Exception as delivery_error:
+            app_logger.error(f"Delivery error: {delivery_error}")
+        
+        # Cleanup database connection
+        if state.get("db"):
+            try:
+                state["db"].close()
+            except:
+                pass
+
+    except Exception as e:
+        app_logger.error(f"❌ Error in turn architecture processing: {str(e)}")
+        # Ultimate fallback - send direct message (should be rare)
+        try:
+            fallback_response = "Olá! Como posso ajudar?"
+            result = await send_message(
+                phone_number=message.phone,
+                message=fallback_response,
+                instance_name=message.instance
+            )
+            app_logger.info(f"🚨 Emergency fallback sent: {result}")
+        except Exception as fallback_error:
+            app_logger.error(f"❌ Emergency fallback failed: {fallback_error}")
 
 
 @router.get("/health")

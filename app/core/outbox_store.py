@@ -35,26 +35,29 @@ def persist_outbox(db, conversation_id: str, turn_id: str, items: List[Dict[str,
         return True
     
     try:
-        # Insere cada item com índice sequencial
-        for idx, item in enumerate(items):
-            # Valida campos obrigatórios
-            if not item.get("idempotency_key"):
-                logger.error(f"OUTBOX_STORE|missing_idem_key|conv={conversation_id}|turn={turn_id}|idx={idx}")
-                continue
-            
-            # Insert with ON CONFLICT DO NOTHING para idempotência
-            db.execute("""
-                INSERT INTO outbox_messages (
-                    conversation_id, turn_id, item_index, payload, status, idempotency_key
-                ) VALUES (%s, %s, %s, %s::jsonb, 'queued', %s)
-                ON CONFLICT (conversation_id, turn_id, item_index) DO NOTHING
-            """, (
-                conversation_id,
-                turn_id, 
-                idx,
-                json.dumps(item),
-                item["idempotency_key"]
-            ))
+        with db.cursor() as cur:
+            # Insere cada item com índice sequencial
+            for idx, item in enumerate(items):
+                # Valida campos obrigatórios
+                if not item.get("idempotency_key"):
+                    logger.error(f"OUTBOX_STORE|missing_idem_key|conv={conversation_id}|turn={turn_id}|idx={idx}")
+                    continue
+                
+                # Insert with ON CONFLICT DO NOTHING para idempotência
+                cur.execute("""
+                    INSERT INTO outbox_messages (
+                        conversation_id, turn_id, item_index, payload, status, idempotency_key
+                    ) VALUES (%s, %s, %s, %s::jsonb, 'queued', %s)
+                    ON CONFLICT (conversation_id, turn_id, item_index) DO NOTHING
+                """, (
+                    conversation_id,
+                    turn_id, 
+                    idx,
+                    json.dumps(item),
+                    item["idempotency_key"]
+                ))
+        
+        db.commit()
         
         logger.info(
             f"OUTBOX_STORE|persisted|conv={conversation_id}|turn={turn_id}|count={len(items)}"
@@ -80,14 +83,16 @@ def load_outbox(db, conversation_id: str, turn_id: str) -> List[Dict[str, Any]]:
     """
     try:
         # Busca itens pendentes (queued ou failed) ordenados por índice
-        rows = db.fetch("""
-            SELECT item_index, payload
-            FROM outbox_messages 
-            WHERE conversation_id = %s 
-              AND turn_id = %s 
-              AND status IN ('queued', 'failed')
-            ORDER BY item_index ASC
-        """, (conversation_id, turn_id))
+        with db.cursor() as cur:
+            cur.execute("""
+                SELECT item_index, payload
+                FROM outbox_messages 
+                WHERE conversation_id = %s 
+                  AND turn_id = %s 
+                  AND status IN ('queued', 'failed')
+                ORDER BY item_index ASC
+            """, (conversation_id, turn_id))
+            rows = cur.fetchall()
         
         if not rows:
             logger.debug(f"OUTBOX_STORE|no_items|conv={conversation_id}|turn={turn_id}")
@@ -97,11 +102,12 @@ def load_outbox(db, conversation_id: str, turn_id: str) -> List[Dict[str, Any]]:
         items = []
         for row in rows:
             try:
-                payload = row["payload"]
+                # row is a tuple (item_index, payload)
+                item_index, payload = row
                 if isinstance(payload, str):
                     payload = json.loads(payload)
                 items.append(payload)
-            except json.JSONDecodeError as e:
+            except (json.JSONDecodeError, ValueError) as e:
                 logger.error(f"OUTBOX_STORE|json_decode_error|conv={conversation_id}|turn={turn_id}|error={e}")
                 continue
         
@@ -130,18 +136,20 @@ def mark_sent(db, conversation_id: str, turn_id: str, item_index: int, provider_
         bool: True se marcou com sucesso
     """
     try:
-        result = db.execute("""
-            UPDATE outbox_messages 
-            SET status = 'sent', 
-                sent_provider_id = %s, 
-                sent_at = now()
-            WHERE conversation_id = %s 
-              AND turn_id = %s 
-              AND item_index = %s
-        """, (provider_id, conversation_id, turn_id, item_index))
-        
-        # Verifica se atualizou alguma linha
-        updated = getattr(result, 'rowcount', 1) > 0
+        with db.cursor() as cur:
+            cur.execute("""
+                UPDATE outbox_messages 
+                SET status = 'sent', 
+                    sent_provider_id = %s, 
+                    sent_at = now()
+                WHERE conversation_id = %s 
+                  AND turn_id = %s 
+                  AND item_index = %s
+            """, (provider_id, conversation_id, turn_id, item_index))
+            
+            # Verifica se atualizou alguma linha
+            updated = cur.rowcount > 0
+            db.commit()
         
         if updated:
             logger.info(
@@ -178,15 +186,18 @@ def mark_failed(db, conversation_id: str, turn_id: str, item_index: int, error_r
         bool: True se marcou com sucesso
     """
     try:
-        result = db.execute("""
-            UPDATE outbox_messages 
-            SET status = 'failed'
-            WHERE conversation_id = %s 
-              AND turn_id = %s 
-              AND item_index = %s
-        """, (conversation_id, turn_id, item_index))
-        
-        updated = getattr(result, 'rowcount', 1) > 0
+        with db.cursor() as cur:
+            cur.execute("""
+                UPDATE outbox_messages 
+                SET status = 'failed', 
+                    failed_reason = %s
+                WHERE conversation_id = %s 
+                  AND turn_id = %s 
+                  AND item_index = %s
+            """, (error_reason, conversation_id, turn_id, item_index))
+            
+            updated = cur.rowcount > 0
+            db.commit()
         
         if updated:
             logger.warning(
@@ -224,15 +235,18 @@ def get_outbox_stats(db, conversation_id: str, turn_id: Optional[str] = None) ->
             where_clause += " AND turn_id = %s"
             params.append(turn_id)
         
-        rows = db.fetch(f"""
-            SELECT status, COUNT(*) as count
-            FROM outbox_messages 
-            {where_clause}
-            GROUP BY status
-            ORDER BY status
-        """, params)
+        with db.cursor() as cur:
+            cur.execute(f"""
+                SELECT status, COUNT(*) as count
+                FROM outbox_messages 
+                {where_clause}
+                GROUP BY status
+                ORDER BY status
+            """, params)
+            rows = cur.fetchall()
         
-        stats = {row["status"]: row["count"] for row in rows}
+        # row is a tuple (status, count) 
+        stats = {row[0]: row[1] for row in rows}
         
         # Adiciona estatísticas zeradas para status ausentes
         for status in ["queued", "sent", "failed", "discarded"]:

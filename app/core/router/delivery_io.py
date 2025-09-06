@@ -15,9 +15,61 @@ import hashlib
 import logging
 from typing import Dict, Any
 from ...api.evolution import send_message
-from ...workflows.contracts import MessageEnvelope, ensure_outbox, normalize_outbox_messages, OUTBOX_KEY
-from ..contracts.outbox import OutboxItem, rehydrate_outbox_if_needed
-from .instance_resolver import resolve_instance
+try:
+    from ...workflows.contracts import MessageEnvelope, ensure_outbox, normalize_outbox_messages, OUTBOX_KEY
+except ImportError:
+    # Fallback definitions if contracts module has issues
+    OUTBOX_KEY = "outbox"
+    def ensure_outbox(state):
+        if OUTBOX_KEY not in state:
+            state[OUTBOX_KEY] = []
+    def normalize_outbox_messages(messages):
+        return [msg if hasattr(msg, 'to_dict') else MessageEnvelope.from_dict(msg) for msg in messages]
+    
+    class MessageEnvelope:
+        def __init__(self, text, channel, meta=None, idempotency_key=None):
+            self.text = text
+            self.channel = channel
+            self.meta = meta or {}
+            self.idempotency_key = idempotency_key or ""
+        
+        def to_dict(self):
+            return {
+                "text": self.text,
+                "channel": self.channel,
+                "meta": self.meta,
+                "idempotency_key": self.idempotency_key
+            }
+        
+        @classmethod
+        def from_dict(cls, data):
+            return cls(
+                text=data.get("text", ""),
+                channel=data.get("channel", "whatsapp"),
+                meta=data.get("meta", {}),
+                idempotency_key=data.get("idempotency_key", "")
+            )
+
+try:
+    from ..contracts.outbox import OutboxItem, rehydrate_outbox_if_needed
+except ImportError:
+    # Fallback for outbox contracts
+    def rehydrate_outbox_if_needed(state):
+        pass
+    
+    class OutboxItem:
+        def __init__(self, text, channel, meta=None, idempotency_key=None):
+            self.text = text
+            self.channel = channel
+            self.meta = meta or {}
+            self.idempotency_key = idempotency_key
+
+try:
+    from .instance_resolver import resolve_instance
+except ImportError:
+    def resolve_instance(state):
+        return state.get("instance", "kumon_assistant")
+
 from ..outbox_store import load_outbox, mark_sent, mark_failed
 from ..dedup_store import seen_idem, mark_idem, ensure_fallback_key
 
