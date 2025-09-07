@@ -1,2 +1,0 @@
-# Shadow Traffic Metrics - JSONL Format
-# Schema: session_id, timestamp, utterance, v1_data, v2_data, entity_flags, delivery_outcome, latencies
