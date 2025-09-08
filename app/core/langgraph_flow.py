@@ -150,8 +150,8 @@ def build_graph():
     graph.add_node("fallback_node", fallback_node)
 
     # Set conditional entry point based on classification
-    graph.add_conditional_edges(
-        "__start__",
+    # For langgraph 0.0.26, we need to use set_conditional_entry_point
+    graph.set_conditional_entry_point(
         classify_intent,
         {
             "greeting_node": "greeting_node",
