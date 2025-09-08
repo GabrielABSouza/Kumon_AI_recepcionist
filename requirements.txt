@@ -15,3 +15,4 @@ redis==5.0.1
 # LangChain ecosystem - simplified versions
 langchain==0.1.0
 langsmith==0.0.92
+langgraph==0.0.26
