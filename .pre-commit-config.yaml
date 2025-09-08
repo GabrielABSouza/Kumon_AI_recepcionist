@@ -1,62 +1,56 @@
-# See https://pre-commit.com for more information
-# See https://pre-commit.com/hooks.html for more hooks
 repos:
--   repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.6.0
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
     hooks:
-    -   id: trailing-whitespace
-    -   id: end-of-file-fixer
-    -   id: check-yaml
-    -   id: check-added-large-files
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-toml
+      - id: debug-statements  # Check for print() and debugger statements
 
-# Formatação de código
--   repo: https://github.com/psf/black
-    rev: 24.4.2
+  - repo: https://github.com/psf/black
+    rev: 23.12.1
     hooks:
-    -   id: black
-        args: [--line-length=100]
+      - id: black
+        language_version: python3
 
-# Organização de imports
--   repo: https://github.com/pycqa/isort
+  - repo: https://github.com/PyCQA/isort
     rev: 5.13.2
     hooks:
       - id: isort
-        name: isort (python)
-        args: ["--profile", "black", "--filter-files"]
+        args: ["--profile", "black"]
 
-# Análise de estilo e erros
--   repo: https://github.com/pycqa/flake8
-    rev: 7.1.0
+  - repo: https://github.com/PyCQA/flake8
+    rev: 7.0.0
     hooks:
-    -   id: flake8
-        args: [--max-line-length=100, --ignore=E501]
+      - id: flake8
+        args: ["--max-line-length=100", "--ignore=E203,W503"]
+        additional_dependencies:
+          - flake8-unused-arguments  # Check unused arguments
+          - flake8-bugbear  # Additional checks
 
-# Análise de segurança (temporariamente desabilitada para orchestration commit)
-# -   repo: https://github.com/pycqa/bandit
-#     rev: 1.7.9
-#     hooks:
-#     -   id: bandit
-#         args: ["-s", "B101"] # Ignorar assert
-
-# Detecção de segredos
--   repo: https://github.com/Yelp/detect-secrets
-    rev: v1.5.0
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.8.0
     hooks:
-    -   id: detect-secrets
+      - id: mypy
+        args: ["--ignore-missing-imports", "--check-untyped-defs"]
+        additional_dependencies: ["types-requests"]
 
-# Template linting V2 (security-critical)
--   repo: local
+  - repo: https://github.com/asottile/pyupgrade
+    rev: v3.15.0
     hooks:
-    -   id: lint-templates-v2
-        name: Advanced Template Linting V2
-        entry: python3 scripts/lint_templates_v2.py --strict --ci
-        language: system
-        files: 'app/prompts/templates/.*\.txt$'
-        pass_filenames: false
-        always_run: false
+      - id: pyupgrade
+        args: ["--py38-plus"]
 
-# Checagem estática de tipos (temporariamente desabilitada para orchestration commit)
-# -   repo: https://github.com/pre-commit/mirrors-mypy
-#     rev: v1.10.0
-#     hooks:
-#     -   id: mypy
+  - repo: https://github.com/PyCQA/autoflake
+    rev: v2.2.1
+    hooks:
+      - id: autoflake
+        args:
+          - --remove-all-unused-imports  # Remove unused imports
+          - --remove-unused-variables
+          - --remove-duplicate-keys
+          - --in-place

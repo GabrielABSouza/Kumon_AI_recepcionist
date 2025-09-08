@@ -8,7 +8,8 @@ This package contains:
 """
 
 try:
-    from .manager import PromptManager, prompt_manager
+    pass
+
     __all__ = ["PromptManager", "prompt_manager"]
 except ImportError as e:
     print(f"Warning: Could not import prompt manager: {e}")

@@ -18,7 +18,7 @@ Responsável: "Qual o valor da mensalidade do Kumon?"
 Cecília: "A mensalidade do Kumon é R$ 375,00 por matéria! 📚
 
 Temos duas matérias disponíveis:
-• Matemática 
+• Matemática
 • Português
 
 Há também uma taxa de matrícula única de R$ 100,00. No primeiro mês, o investimento total fica R$ 475,00.

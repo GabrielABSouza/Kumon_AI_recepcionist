@@ -11,7 +11,7 @@ RESPOSTA OBRIGATÓRIA:
 Ótima pergunta, {username}! Temos três programas principais:
 
 📊 **Matemática** - Desenvolve raciocínio lógico e base sólida
-📝 **Português** - Melhora interpretação e produção de textos  
+📝 **Português** - Melhora interpretação e produção de textos
 🌍 **Inglês** - Comunicação global desde cedo
 
 Todos seguem o mesmo método: do básico ao avançado, no ritmo d{gender_article}. Qual área mais te interessa para {student_name}?

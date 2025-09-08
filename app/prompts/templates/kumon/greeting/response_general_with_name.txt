@@ -7,7 +7,7 @@ variables: ["first_name"]
 stage_restrictions: ["greeting"]
 ---
 
-Olá, {first_name}! Sou a Cecília, recepcionista do Kumon Vila A. 
+Olá, {first_name}! Sou a Cecília, recepcionista do Kumon Vila A.
 
 Que bom falar com você! Posso te ajudar com informações sobre nossos programas ou com o agendamento de uma aula experimental gratuita?
 

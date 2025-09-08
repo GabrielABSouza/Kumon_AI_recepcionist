@@ -1,87 +1,15 @@
 {
-  "$schema": "https://railway.com/railway.schema.json",
+  "$schema": "https://railway.app/railway.schema.json",
   "build": {
     "builder": "DOCKERFILE",
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
-    "numReplicas": 1,
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 3,
-    "healthcheck": {
-      "path": "/api/v1/health",
-      "initialDelay": 15,
-      "interval": 30,
-      "timeout": 120,
-      "retries": 3
-    }
-  },
-  "environments": {
-    "production": {
-      "variables": {
-        "ENVIRONMENT": "production",
-        "DEBUG": "false",
-        "REQUIRE_HTTPS": "true",
-        "VALIDATE_API_KEYS": "true",
-        "ENABLE_HEALTH_CHECKS": "true",
-        "DB_POOL_SIZE": "2",
-        "DB_MAX_OVERFLOW": "4",
-        "DB_POOL_TIMEOUT": "30",
-        "DB_POOL_RECYCLE": "1800",
-        "DB_ECHO": "false",
-        "DB_POOL_PRE_PING": "true",
-        "MEMORY_REDIS_MAX_CONNECTIONS": "20",
-        "MEMORY_ACTIVE_SESSION_TTL": "604800",
-        "MEMORY_USER_PROFILE_TTL": "2592000",
-        "MEMORY_ANALYTICS_CACHE_TTL": "3600",
-        "LLM_DAILY_BUDGET_BRL": "5.0",
-        "LLM_COST_ALERT_THRESHOLD_BRL": "4.0",
-        "LLM_CIRCUIT_BREAKER_THRESHOLD": "5",
-        "LLM_REQUEST_TIMEOUT_SECONDS": "30",
-        "RESPONSE_TIME_TARGET": "5.0",
-        "RESPONSE_TIME_WARNING": "4.0",
-        "RAILWAY_ENVIRONMENT": "1",
-        "FORCE_RAILWAY_DETECTION": "1"
-      },
-      "scaling": {
-        "minReplicas": 1,
-        "maxReplicas": 4,
-        "targetCPU": 70,
-        "targetMemory": 80
-      }
-    },
-    "staging": {
-      "variables": {
-        "ENVIRONMENT": "staging",
-        "DEBUG": "true",
-        "REQUIRE_HTTPS": "false",
-        "VALIDATE_API_KEYS": "false",
-        "ENABLE_HEALTH_CHECKS": "true",
-        "DB_POOL_SIZE": "1",
-        "DB_MAX_OVERFLOW": "2",
-        "DB_POOL_TIMEOUT": "30",
-        "DB_POOL_RECYCLE": "1800",
-        "DB_ECHO": "true",
-        "DB_POOL_PRE_PING": "true",
-        "MEMORY_REDIS_MAX_CONNECTIONS": "10",
-        "MEMORY_ACTIVE_SESSION_TTL": "3600",
-        "MEMORY_USER_PROFILE_TTL": "7200",
-        "MEMORY_ANALYTICS_CACHE_TTL": "1800",
-        "LLM_DAILY_BUDGET_BRL": "1.0",
-        "LLM_COST_ALERT_THRESHOLD_BRL": "0.8",
-        "LLM_CIRCUIT_BREAKER_THRESHOLD": "3",
-        "LLM_REQUEST_TIMEOUT_SECONDS": "45",
-        "RESPONSE_TIME_TARGET": "10.0",
-        "RESPONSE_TIME_WARNING": "8.0",
-        "RAILWAY_ENVIRONMENT": "staging",
-        "FORCE_RAILWAY_DETECTION": "1"
-      },
-      "scaling": {
-        "minReplicas": 1,
-        "maxReplicas": 1,
-        "targetCPU": 80,
-        "targetMemory": 85
-      }
-    }
+    "healthcheckPath": "/health",
+    "healthcheckTimeout": 10,
+    "numReplicas": 1,
+    "region": "us-east4"
   }
 }
