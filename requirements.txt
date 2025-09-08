@@ -8,7 +8,10 @@ requests==2.31.0
 openai==0.28.1
 google-generativeai==0.3.2
 
-# LangGraph dependencies - compatible versions
-langgraph==0.0.26
+# Database
+asyncpg==0.29.0
+redis==5.0.1
+
+# LangChain ecosystem - simplified versions
 langchain==0.1.0
-langchain-core==0.1.24  # Compatible with langchain 0.1.0
+langsmith==0.0.92
