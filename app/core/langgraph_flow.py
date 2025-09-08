@@ -75,12 +75,12 @@ def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[st
     message_id = state.get("message_id")
     if not message_id:
         print(f"PIPELINE|node_error|name={node_name}|error=no_message_id")
-        return {"sent": False}
+        return {"sent": "false"}
 
     # Check if already replied
     if turn_controller.has_replied(message_id):
         print(f"PIPELINE|node_skip|name={node_name}|already_replied=true")
-        return {"sent": False}
+        return {"sent": "false"}
 
     print(f"PIPELINE|node_start|name={node_name}")
 
@@ -106,7 +106,7 @@ def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[st
         phone = state.get("phone")
         if not phone:
             print(f"PIPELINE|node_error|name={node_name}|error=no_phone")
-            return {"sent": False}
+            return {"sent": "false"}
 
         instance = state.get("instance", "recepcionistakumon")
 
@@ -134,7 +134,7 @@ def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[st
             if message_id:  # Only mark replied if we have message_id
                 turn_controller.mark_replied(message_id)
 
-        return {"sent": True, "response": fallback_text}
+        return {"sent": "true", "response": fallback_text}
 
 
 def build_graph():
@@ -182,8 +182,8 @@ def run(state: Dict[str, Any]) -> Dict[str, Any]:
 
     try:
         result = workflow.invoke(state)
-        print(f"PIPELINE|flow_complete|sent={result.get('sent', False)}")
+        print(f"PIPELINE|flow_complete|sent={result.get('sent', 'false')}")
         return result
     except Exception as e:
         print(f"PIPELINE|flow_error|error={str(e)}")
-        return {"sent": False, "error": str(e)}
+        return {"sent": "false", "error": str(e)}
