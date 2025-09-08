@@ -12,7 +12,8 @@ google-generativeai==0.3.2
 asyncpg==0.29.0
 redis==5.0.1
 
-# LangChain ecosystem - simplified versions
+# LangChain ecosystem - pinned compatible versions
 langchain==0.1.0
+langchain-core==0.1.19  # Compatible with langchain 0.1.0
 langsmith==0.0.92
 langgraph==0.0.26
