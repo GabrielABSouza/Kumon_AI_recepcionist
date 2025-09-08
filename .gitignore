@@ -132,7 +132,7 @@ docker-compose.override.yml
 *~
 
 # Temporary debug files (these should be in temp/debug/)
-test_*.py
+# test_*.py  # Commented out to allow test files in version control
 debug_*.py
 
 # Temporary files and directories
