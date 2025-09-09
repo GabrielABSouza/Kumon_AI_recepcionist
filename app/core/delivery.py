@@ -2,16 +2,29 @@
 Simple delivery service using Evolution API.
 Sends text messages to WhatsApp.
 """
+import json
 import os
+from typing import Any, Dict
 
 import requests
 
+from .phone import format_e164
 
-def send_text(phone: str, text: str, instance: str = "recepcionistakumon") -> bool:
+
+def send_text(
+    phone: str, text: str, instance: str = "recepcionistakumon"
+) -> Dict[str, Any]:
     """
     Send text message via Evolution API.
-    Returns True if successful, False otherwise.
+
+    Returns:
+        Dict with keys:
+        - sent: "true" or "false" (string)
+        - status_code: HTTP status code (int)
+        - error_reason: Optional error description (string or None)
     """
+    result = {"sent": "false", "status_code": 0, "error_reason": None}
+
     try:
         # Get Evolution API config from environment
         api_url = os.getenv("EVOLUTION_API_URL", "https://evo.whatlead.com.br")
@@ -19,31 +32,62 @@ def send_text(phone: str, text: str, instance: str = "recepcionistakumon") -> bo
 
         if not api_key:
             print("DELIVERY|error|missing_api_key")
-            return False
+            result["error_reason"] = "missing_api_key"
+            return result
 
-        # Clean phone number (remove non-digits)
-        clean_phone = "".join(filter(str.isdigit, phone))
-
-        # Ensure Brazilian format
-        if not clean_phone.startswith("55"):
-            clean_phone = "55" + clean_phone
+        # Format phone to E.164
+        try:
+            e164_phone = format_e164(phone)
+        except ValueError as e:
+            print(f"DELIVERY|error|invalid_phone_format|phone={phone}|error={str(e)}")
+            result["error_reason"] = "invalid_phone_format"
+            return result
 
         # Build request
         url = f"{api_url}/message/sendText/{instance}"
         headers = {"apikey": api_key, "Content-Type": "application/json"}
 
-        payload = {"number": clean_phone, "text": text}
+        # Evolution API expects number without +
+        payload = {"number": e164_phone.lstrip("+"), "text": text}
 
         # Send request
         response = requests.post(url, json=payload, headers=headers, timeout=5)
 
+        result["status_code"] = response.status_code
+
         if response.status_code == 200:
-            print(f"DELIVERY|sent|phone=****{clean_phone[-4:]}|chars={len(text)}")
-            return True
+            print(f"DELIVERY|sent|phone=****{e164_phone[-4:]}|chars={len(text)}")
+            result["sent"] = "true"
+            return result
+        elif response.status_code == 400:
+            # Parse error from response body
+            try:
+                error_body = response.json()
+                error_code = error_body.get("error", "unknown")
+                error_msg = error_body.get("message", "")
+                body_str = json.dumps(error_body)
+            except Exception:
+                error_code = "parse_error"
+                error_msg = response.text[:200]
+                body_str = response.text[:500]
+
+            # Log with full details for 400 errors
+            print(
+                f"DELIVERY|error|status=400|code={error_code}|msg={error_msg}|body={body_str}"
+            )
+            result["error_reason"] = error_code
+            # No retry for 400 errors
+            return result
         else:
             print(f"DELIVERY|error|status={response.status_code}")
-            return False
+            result["error_reason"] = f"http_{response.status_code}"
+            return result
 
+    except requests.exceptions.Timeout:
+        print("DELIVERY|error|timeout")
+        result["error_reason"] = "timeout"
+        return result
     except Exception as e:
         print(f"DELIVERY|error|exception={str(e)}")
-        return False
+        result["error_reason"] = str(e)
+        return result

@@ -30,7 +30,7 @@ async def webhook(request: Request) -> Dict[str, Any]:
         if data.get("key", {}).get("fromMe", True):
             print("WEBHOOK|skip|from_me=true")
             response = {
-                "status": "ignored", 
+                "status": "ignored",
                 "reason": "from_me",
                 "sent": "false",
                 "message_id": "unknown",
@@ -39,7 +39,7 @@ async def webhook(request: Request) -> Dict[str, Any]:
                 "intent": "fallback",
                 "confidence": 0.0,
                 "response_text": "",
-                "entities": {}
+                "entities": {},
             }
             return normalize_webhook_payload(response)
 
@@ -60,7 +60,7 @@ async def webhook(request: Request) -> Dict[str, Any]:
         if not text:
             print("WEBHOOK|skip|no_text")
             response = {
-                "status": "ignored", 
+                "status": "ignored",
                 "reason": "no_text",
                 "sent": "false",
                 "message_id": message_id or "unknown",
@@ -69,7 +69,7 @@ async def webhook(request: Request) -> Dict[str, Any]:
                 "intent": "fallback",
                 "confidence": 0.0,
                 "response_text": "",
-                "entities": {}
+                "entities": {},
             }
             return normalize_webhook_payload(response)
 
@@ -82,7 +82,7 @@ async def webhook(request: Request) -> Dict[str, Any]:
         if not turn_controller.start_turn(message_id):
             print(f"PIPELINE|turn_duplicate|message_id={message_id}")
             response = {
-                "status": "duplicate", 
+                "status": "duplicate",
                 "message_id": message_id,
                 "sent": "false",
                 "turn_id": f"turn_{message_id}",
@@ -90,7 +90,7 @@ async def webhook(request: Request) -> Dict[str, Any]:
                 "intent": "fallback",
                 "confidence": 0.0,
                 "response_text": "",
-                "entities": {}
+                "entities": {},
             }
             return normalize_webhook_payload(response)
 
@@ -122,17 +122,18 @@ async def webhook(request: Request) -> Dict[str, Any]:
             "entities": result.get("entities", {}),
             "turn_id": f"turn_{message_id}",
             "trace_id": f"trace_{message_id}",
+            "error_reason": result.get("error_reason"),
         }
-        
+
         # CRITICAL: Normalize response to ensure type safety
         normalized_response = normalize_webhook_payload(response)
-        
+
         return normalized_response
 
     except Exception as e:
         print(f"WEBHOOK|error|exception={str(e)}")
         response = {
-            "status": "error", 
+            "status": "error",
             "error": str(e),
             "sent": "false",
             "message_id": "unknown",
@@ -141,6 +142,6 @@ async def webhook(request: Request) -> Dict[str, Any]:
             "intent": "fallback",
             "confidence": 0.0,
             "response_text": "Desculpe, ocorreu um erro ao processar sua mensagem.",
-            "entities": {}
+            "entities": {},
         }
         return normalize_webhook_payload(response)

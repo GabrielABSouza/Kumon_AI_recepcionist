@@ -2,15 +2,15 @@
 Minimal LangGraph flow: Entry → [Single Node] → End
 Each node handles its intent and sends a response.
 """
-import os
+import asyncio
 from typing import Any, Dict
 
-import openai
 from langgraph.graph import END, StateGraph
 
 from app.core.dedup import turn_controller
 from app.core.delivery import send_text
 from app.core.gemini_classifier import Intent, classifier
+from app.core.llm import OpenAIClient
 from app.prompts.node_prompts import (
     get_fallback_prompt,
     get_greeting_prompt,
@@ -19,8 +19,16 @@ from app.prompts.node_prompts import (
     get_scheduling_prompt,
 )
 
-# Configure OpenAI
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# Initialize OpenAI adapter (lazy initialization)
+_openai_client = None
+
+
+def get_openai_client():
+    """Get or create OpenAI client instance."""
+    global _openai_client
+    if _openai_client is None:
+        _openai_client = OpenAIClient()
+    return _openai_client
 
 
 def classify_intent(state: Dict[str, Any]) -> str:
@@ -89,18 +97,21 @@ def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[st
         user_text = state.get("text", "")
         prompt = prompt_func(user_text)
 
-        # Generate response with OpenAI
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": prompt["system"]},
-                {"role": "user", "content": prompt["user"]},
-            ],
-            max_tokens=300,
-            temperature=0.7,
-        )
-
-        reply_text = response.choices[0].message.content.strip()
+        # Generate response with OpenAI adapter (async to sync bridge)
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            reply_text = loop.run_until_complete(
+                get_openai_client().chat(
+                    model="gpt-3.5-turbo",
+                    system_prompt=prompt["system"],
+                    user_prompt=prompt["user"],
+                    temperature=0.7,
+                    max_tokens=300,
+                )
+            )
+        finally:
+            loop.close()
 
         # Send via Evolution API
         phone = state.get("phone")
@@ -110,14 +121,19 @@ def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[st
 
         instance = state.get("instance", "recepcionistakumon")
 
-        success = send_text(phone, reply_text, instance)
+        delivery_result = send_text(phone, reply_text, instance)
+        sent_success = delivery_result.get("sent") == "true"
 
-        if success:
+        if sent_success:
             # Mark as replied
             turn_controller.mark_replied(message_id)
             print(f"PIPELINE|node_sent|name={node_name}|chars={len(reply_text)}")
 
-        return {"sent": "true" if success else "false", "response": reply_text}
+        return {
+            "sent": delivery_result.get("sent", "false"),
+            "response": reply_text,
+            "error_reason": delivery_result.get("error_reason"),
+        }
 
     except Exception as e:
         print(f"PIPELINE|node_error|name={node_name}|error={str(e)}")
@@ -130,11 +146,18 @@ def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[st
         phone = state.get("phone")
         if phone:  # Only send if we have a phone number
             instance = state.get("instance", "recepcionistakumon")
-            send_text(phone, fallback_text, instance)
-            if message_id:  # Only mark replied if we have message_id
+            delivery_result = send_text(phone, fallback_text, instance)
+            if (
+                message_id and delivery_result.get("sent") == "true"
+            ):  # Only mark replied if we have message_id and sent
                 turn_controller.mark_replied(message_id)
+            return {
+                "sent": delivery_result.get("sent", "false"),
+                "response": fallback_text,
+                "error_reason": delivery_result.get("error_reason"),
+            }
 
-        return {"sent": "true", "response": fallback_text}
+        return {"sent": "false", "response": fallback_text, "error_reason": "no_phone"}
 
 
 def build_graph():
