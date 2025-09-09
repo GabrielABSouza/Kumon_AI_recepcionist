@@ -82,8 +82,12 @@ def classify_intent(state: Dict[str, Any]) -> str:
             )
             return "scheduling_node"
 
-    # Use classifier for base intent (new conversations only)
-    intent, confidence = classifier.classify(text)
+    # Use classifier with contextual information for intelligent classification
+    context = {
+        "conversation_history": _get_conversation_history(phone),
+        **full_state,  # Include all state variables for context
+    }
+    intent, confidence = classifier.classify(text, context=context)
 
     # Context-aware routing adjustments
     if not has_parent_name:
@@ -123,6 +127,21 @@ def classify_intent(state: Dict[str, Any]) -> str:
     }
 
     return node_map.get(intent, "fallback_node")
+
+
+def _get_conversation_history(phone: str) -> list:
+    """Get recent conversation history for context."""
+    if not phone:
+        return []
+
+    try:
+        # This is a placeholder - in a real system you'd query message history from Redis/DB
+        # For now, return empty list since we don't have message persistence
+        # TODO: Implement actual conversation history retrieval
+        return []
+    except Exception as e:
+        print(f"Error retrieving conversation history: {e}")
+        return []
 
 
 def greeting_node(state: Dict[str, Any]) -> Dict[str, Any]:
