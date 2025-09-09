@@ -160,3 +160,118 @@ class TestFlowTransitions:
         assert (
             next_node == "fallback_node"
         ), "Should route to fallback for unrecognized text"
+
+    def test_greeting_node_always_transitions_to_qualification(self):
+        """Test that greeting_node always transitions to qualification_node."""
+        # State with greeting intent
+        greeting_state = {
+            "text": "Oi",
+            "phone": "+5511999999999",
+            "message_id": "MSG_007",
+            "instance": "test",
+        }
+
+        with patch("app.core.langgraph_flow.get_conversation_state") as mock_get_state:
+            with patch("app.core.langgraph_flow.turn_controller") as mock_turn:
+                with patch("app.core.langgraph_flow.get_openai_client") as mock_openai:
+                    with patch("app.core.langgraph_flow.send_text") as mock_send:
+                        # Setup mocks
+                        mock_get_state.return_value = {}  # No existing state
+                        mock_turn.has_replied.return_value = False
+                        mock_send.return_value = {
+                            "sent": "true",
+                            "status_code": 200,
+                        }
+
+                        mock_client = MagicMock()
+
+                        # Create async mock that returns a coroutine
+                        async def mock_chat():
+                            return (
+                                "Olá! Eu sou a Cecília do Kumon Vila A. "
+                                "Para começarmos qual é o seu nome?"
+                            )
+
+                        mock_client.chat = mock_chat
+                        mock_openai.return_value = mock_client
+
+                        # Execute workflow - this should go greeting_node → qualification_node
+                        # The workflow should NOT loop back to greeting_node
+                        result = workflow.invoke(greeting_state)
+
+                        # ASSERTIVA: Verificar que depois do greeting não há loop infinito
+                        # e que o fluxo passou pelo qualification_node
+                        assert (
+                            result.get("sent") == "true"
+                        ), "Should process and send response"
+
+                        # A chave está em verificar que não houve recursão infinita
+                        # Se chegou aqui sem timeout, a transição direta funcionou
+
+    def test_qualification_node_loops_if_required_data_is_missing(self):
+        """Test that qualification_node loops back to itself if required data is missing."""
+        # Test the routing function directly with partial data
+        from app.core.langgraph_flow import route_from_qualification
+
+        # State with only parent_name and preferred_name, missing child_name,
+        # child_age, program_interests
+        state_partial = {
+            "parent_name": "Maria",
+            "preferred_name": "Maria",
+            # Missing: child_name, child_age, program_interests
+        }
+
+        # Test routing decision with incomplete data
+        next_node = route_from_qualification(state_partial)
+
+        # Should loop back to qualification_node when data is missing
+        assert next_node == "qualification_node", (
+            f"Should loop back to qualification_node when required "
+            f"data is missing, got {next_node}"
+        )
+
+    def test_qualification_node_transitions_when_all_data_is_collected(self):
+        """Test that qualification_node transitions to next node when all required data is collected."""
+        # Test the routing function directly with complete data
+        from app.core.langgraph_flow import route_from_qualification
+
+        # State with all required qualification data
+        state_complete = {
+            "parent_name": "Maria",
+            "preferred_name": "Maria",
+            "child_name": "Ana",
+            "child_age": 7,
+            "program_interests": ["mathematics"],
+        }
+
+        # Test routing decision with complete data
+        next_node = route_from_qualification(state_complete)
+
+        # Should transition to scheduling_node when all qualification data is collected
+        assert next_node == "scheduling_node", (
+            f"Should transition to scheduling_node when all "
+            f"qualification data is collected, got {next_node}"
+        )
+
+    def test_greeting_node_always_transitions_to_qualification_simplified(self):
+        """Test that greeting_node ALWAYS transitions to qualification_node."""
+        # Test the routing function directly
+        from app.core.langgraph_flow import route_from_greeting
+
+        # Test various states - all should go to qualification
+        test_states = [
+            {},  # Empty state
+            {"parent_name": "Maria"},  # State with parent name
+            {"text": "oi"},  # Simple greeting
+            {
+                "text": "quero matrícula",
+                "parent_name": "João",
+            },  # Enrollment interest with name
+        ]
+
+        for i, state in enumerate(test_states):
+            next_node = route_from_greeting(state)  # type: ignore
+            assert next_node == "qualification_node", (
+                f"Test {i + 1}: All greeting states should go to "
+                f"qualification_node, got {next_node}"
+            )

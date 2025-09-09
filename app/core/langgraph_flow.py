@@ -23,6 +23,18 @@ from app.prompts.node_prompts import (
 # Initialize OpenAI adapter (lazy initialization)
 _openai_client = None
 
+# Required qualification variables that must be collected
+QUALIFICATION_REQUIRED_VARS = [
+    "parent_name",
+    "preferred_name",
+    "child_name",
+    "child_age",
+    "program_interests",
+]
+
+# Required scheduling variables that must be collected
+SCHEDULING_REQUIRED_VARS = ["availability_preferences"]
+
 
 def get_openai_client():
     """Get or create OpenAI client instance."""
@@ -184,22 +196,154 @@ def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[st
             # Extract entities from user message and save state
             import re
 
-            user_text_lower = state.get("text", "").lower()
+            user_text = state.get("text", "")
+            user_text_lower = user_text.lower()
 
-            # Extract parent name if present
-            name_patterns = [
-                r"(?:meu nome é|me chamo|sou)\s+(?:o\s+|a\s+)?(\w+)",
-                r"(?:é\s+)?(\w+)(?:\s*,|\s*\.|\s*$)",  # Just the name as answer
+            # Extract parent name (responsible person)
+            parent_name_patterns = [
+                r"(?:meu nome é|me chamo|sou)\s+(?:o\s+|a\s+)?([a-záàâãéêíóôõúç]+(?:\s+[a-záàâãéêíóôõúç]+)*)",
             ]
+            # Only try simple name pattern if it's a direct answer (short text)
+            if len(user_text.strip()) <= 20 and not any(
+                word in user_text_lower
+                for word in ["tem", "anos", "interesse", "matemática", "português"]
+            ):
+                parent_name_patterns.append(
+                    r"^([a-záàâãéêíóôõúç]+(?:\s+[a-záàâãéêíóôõúç]+)*)$"
+                )
 
-            for pattern in name_patterns:
+            for pattern in parent_name_patterns:
                 match = re.search(pattern, user_text_lower)
-                if match and node_name in ["greeting", "qualification"]:
-                    extracted_name = match.group(1).title()
-                    if len(extracted_name) > 2:  # Basic validation
+                if (
+                    match
+                    and node_name in ["greeting", "qualification"]
+                    and not state.get("parent_name")
+                ):
+                    extracted_name = match.group(1).strip().title()
+                    if len(extracted_name) >= 3 and not extracted_name.lower() in [
+                        "sim",
+                        "não",
+                        "talvez",
+                    ]:
                         state["parent_name"] = extracted_name
+                        # If no preferred name set, use parent_name as default
+                        if not state.get("preferred_name"):
+                            state["preferred_name"] = extracted_name
                         print(f"STATE|extracted|parent_name={extracted_name}")
                         break
+
+            # Extract preferred name (different from parent name)
+            preferred_name_patterns = [
+                r"(?:me chame|prefiro|pode me chamar)\s+(?:de\s+)?(\w+(?:\s+\w+)?)",
+                r"(?:sou|é)\s+(?:o\s+|a\s+)?(\w+)(?:\s*,|\s*mas|\s*porém)",
+            ]
+            for pattern in preferred_name_patterns:
+                match = re.search(pattern, user_text_lower)
+                if match and node_name in ["greeting", "qualification"]:
+                    extracted_preferred = match.group(1).strip().title()
+                    if len(extracted_preferred) > 2:
+                        state["preferred_name"] = extracted_preferred
+                        print(f"STATE|extracted|preferred_name={extracted_preferred}")
+                        break
+
+            # Extract child name and relationship context
+            child_name_patterns = [
+                r"(?:(?:meu|minha)\s+)?(?:filho|filha|criança|menino|menina|neto|neta|"
+                r"sobrinho|sobrinha)\s+(?:se chama|é o|é a|é)\s+"
+                r"([a-záàâãéêíóôõúç]+)",
+                r"(?:o nome (?:dele|dela|da criança) é|chama)\s+"
+                r"([a-záàâãéêíóôõúç]+)",
+                r"(?:se )?chama\s+([a-záàâãéêíóôõúç]+)(?=\s+e\s+tem|\s*,|\s*$)",
+            ]
+            for pattern in child_name_patterns:
+                match = re.search(pattern, user_text_lower)
+                if (
+                    match
+                    and node_name == "qualification"
+                    and not state.get("child_name")
+                ):
+                    extracted_child = match.group(1).strip().title()
+                    if len(extracted_child) >= 2 and not extracted_child.lower() in [
+                        "tem",
+                        "anos",
+                        "ele",
+                        "ela",
+                    ]:
+                        state["child_name"] = extracted_child
+                        print(f"STATE|extracted|child_name={extracted_child}")
+                        break
+
+            # Extract child age
+            age_patterns = [
+                r"(?:tem|possui|está com|idade|anos?)\s*(\d{1,2})\s*anos?",
+                r"(\d{1,2})\s*anos?(?:\s+de idade)?",
+            ]
+            for pattern in age_patterns:
+                match = re.search(pattern, user_text_lower)
+                if (
+                    match
+                    and node_name == "qualification"
+                    and not state.get("child_age")
+                ):
+                    age = int(match.group(1))
+                    if 3 <= age <= 18:  # Kumon age range validation
+                        state["child_age"] = age
+                        print(f"STATE|extracted|child_age={age}")
+                        break
+
+            # Extract program interests (subjects)
+            program_interests = []
+            interest_patterns = [
+                r"(?:matemática|math|mat)",
+                r"(?:português|portugues|port|lingua portuguesa)",
+                r"(?:inglês|ingles|english|eng)",
+                r"(?:ambas|ambos|os dois|duas matérias|todas)",
+            ]
+
+            for i, pattern in enumerate(interest_patterns):
+                if re.search(pattern, user_text_lower):
+                    if i == 0:  # matemática
+                        program_interests.append("mathematics")
+                    elif i == 1:  # português
+                        program_interests.append("portuguese")
+                    elif i == 2:  # inglês
+                        program_interests.append("english")
+                    elif i == 3:  # ambas/todas
+                        program_interests.extend(["mathematics", "portuguese"])
+
+            if (
+                program_interests
+                and node_name == "qualification"
+                and not state.get("program_interests")
+            ):
+                # Remove duplicates and save as JSON
+                unique_interests = list(set(program_interests))
+                state["program_interests"] = unique_interests
+                print(f"STATE|extracted|program_interests={unique_interests}")
+
+            # Extract availability preferences for scheduling
+            availability_patterns = [
+                r"(?:manhã|matutino|de manhã)",
+                r"(?:tarde|vespertino|à tarde)",
+                r"(?:noite|noturno|à noite)",
+                r"(?:segunda|terça|quarta|quinta|sexta|sábado|domingo)",
+                r"(?:dias da semana|final de semana|fins de semana)",
+            ]
+
+            availability_prefs = []
+            for pattern in availability_patterns:
+                if re.search(pattern, user_text_lower):
+                    availability_prefs.append(pattern)
+
+            if (
+                availability_prefs
+                and node_name == "scheduling"
+                and not state.get("availability_preferences")
+            ):
+                state["availability_preferences"] = {
+                    "preferred_times": availability_prefs
+                }
+                print(f"STATE|extracted|availability_preferences={availability_prefs}")
 
             # Save updated state
             if phone:
@@ -236,40 +380,42 @@ def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[st
         return {"sent": "false", "response": fallback_text, "error_reason": "no_phone"}
 
 
-def route_from_greeting(state: Dict[str, Any]) -> str:
-    """Determine next node after greeting based on collected data."""
-    # Check if we have parent name
-    if state.get("parent_name"):
-        # If name collected and user expressed interest, go to qualification
-        text = state.get("text", "").lower()
-        if any(
-            word in text
-            for word in ["matrícula", "matricular", "filho", "filha", "interesse"]
-        ):
-            return "qualification_node"
-        # Otherwise end for now
-        return END
-    else:
-        # Stay in greeting to collect name
-        return "greeting_node"
+def route_from_greeting(_state: Dict[str, Any]) -> str:
+    """
+    Greeting always transitions to qualification_node.
+    The qualification_node is responsible for collecting all required data.
+    """
+    # Greeting node always transitions to qualification
+    return "qualification_node"
 
 
 def route_from_qualification(state: Dict[str, Any]) -> str:
-    """Determine next node after qualification based on collected data."""
-    # Check if we have required qualification data
-    has_child_name = bool(state.get("child_name"))
-    has_child_age = bool(state.get("child_age"))
-    has_subject = bool(state.get("subject_interest"))
+    """
+    Decide para onde ir após o nó de qualificação.
+    Verifica se todas as variáveis necessárias foram coletadas.
+    """
+    # Itera pela lista de variáveis obrigatórias
+    for var in QUALIFICATION_REQUIRED_VARS:
+        # Se qualquer variável estiver faltando no estado, continua no loop
+        if var not in state or not state[var]:
+            return "qualification_node"
 
-    if has_child_name and has_child_age and has_subject:
-        # All data collected, can move to scheduling if requested
-        text = state.get("text", "").lower()
-        if any(word in text for word in ["agendar", "visitar", "conhecer"]):
+    # Se todas as variáveis foram coletadas, avança para o próximo passo
+    return "scheduling_node"
+
+
+def route_from_scheduling(state: Dict[str, Any]) -> str:
+    """
+    Decide para onde ir após o nó de agendamento.
+    Verifica se as preferências de horário foram coletadas.
+    """
+    # Verifica se as preferências de disponibilidade foram coletadas
+    for var in SCHEDULING_REQUIRED_VARS:
+        if var not in state or not state[var]:
             return "scheduling_node"
-        return END
-    else:
-        # Stay in qualification to collect missing data
-        return "qualification_node"
+
+    # Se todas as informações de agendamento foram coletadas, finaliza
+    return END
 
 
 def build_graph():
@@ -298,14 +444,12 @@ def build_graph():
     )
 
     # Add conditional transitions
-    # Greeting can loop or go to qualification
+    # Greeting always goes to qualification
     graph.add_conditional_edges(
         "greeting_node",
         route_from_greeting,
         {
-            "greeting_node": "greeting_node",
             "qualification_node": "qualification_node",
-            END: END,
         },
     )
 
@@ -320,9 +464,18 @@ def build_graph():
         },
     )
 
-    # Information and scheduling go to END for now
+    # Scheduling can loop or end based on collected availability preferences
+    graph.add_conditional_edges(
+        "scheduling_node",
+        route_from_scheduling,
+        {
+            "scheduling_node": "scheduling_node",
+            END: END,
+        },
+    )
+
+    # Information and fallback go directly to END
     graph.add_edge("information_node", END)
-    graph.add_edge("scheduling_node", END)
     graph.add_edge("fallback_node", END)
 
     return graph.compile()
