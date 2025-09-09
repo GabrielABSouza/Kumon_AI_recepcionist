@@ -14,7 +14,7 @@ Seja breve e direta (máximo 3 linhas).
 Pergunte o nome da pessoa se ainda não souber.
 
 Exemplo de resposta esperada:
-"Olá! Eu sou a Cecília, assistente virtual do Kumon Vila A. Qual é o seu nome? Como posso ajudar?"
+"Olá! Eu sou a Cecília do Kumon Vila A. Qual é o seu nome? Como posso ajudar?"
 """,
         "user": user_text,
     }
