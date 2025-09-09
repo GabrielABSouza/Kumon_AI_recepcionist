@@ -293,16 +293,12 @@ class TestWebhookResponseContract:
         for field, expected_type in expected_types.items():
             if field in data:
                 if isinstance(expected_type, tuple):
-                    assert isinstance(
-                        data[field], expected_type
-                    ), (
+                    assert isinstance(data[field], expected_type), (
                         f"Field '{field}' has wrong type: "
                         f"expected {expected_type}, got {type(data[field])}"
                     )
                 else:
-                    assert isinstance(
-                        data[field], expected_type
-                    ), (
+                    assert isinstance(data[field], expected_type), (
                         f"Field '{field}' has wrong type: "
                         f"expected {expected_type}, got {type(data[field])}"
                     )

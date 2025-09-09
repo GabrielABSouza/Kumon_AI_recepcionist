@@ -11,6 +11,7 @@ from app.core.dedup import turn_controller
 from app.core.delivery import send_text
 from app.core.gemini_classifier import Intent, classifier
 from app.core.llm import OpenAIClient
+from app.core.state_manager import get_conversation_state, save_conversation_state
 from app.prompts.node_prompts import (
     get_fallback_prompt,
     get_greeting_prompt,
@@ -32,13 +33,48 @@ def get_openai_client():
 
 
 def classify_intent(state: Dict[str, Any]) -> str:
-    """Classify user intent and route to appropriate node."""
+    """Classify user intent and route to appropriate node with context awareness."""
     text = state.get("text", "")
+
+    # Load saved state to check context
+    phone = state.get("phone")
+    saved_state = {}
+    if phone:
+        saved_state = get_conversation_state(phone)
+
+    # Merge saved state for context
+    full_state = {**saved_state, **state}
+    has_parent_name = bool(full_state.get("parent_name"))
+
+    # Use classifier for base intent
     intent, confidence = classifier.classify(text)
+
+    # Context-aware routing adjustments
+    if not has_parent_name:
+        # If greeting intent or providing name, route to greeting
+        import re
+
+        name_patterns = [
+            r"(?:meu nome é|me chamo|sou)\s+(?:o\s+|a\s+)?(\w+)",
+            r"^(\w+)(?:\s*,|\s*\.|\s*$)",  # Just a name
+        ]
+        for pattern in name_patterns:
+            if re.search(pattern, text.lower()):
+                intent = Intent.GREETING  # Override to process name
+                break
+
+        # Initial contact should get name first
+        if intent == Intent.GREETING:
+            print(
+                f"PIPELINE|classify_complete|intent=greeting|"
+                f"confidence={confidence:.2f}|reason=need_name"
+            )
+            return "greeting_node"
 
     # Log classification
     print(
-        f"PIPELINE|classify_complete|intent={intent.value}|confidence={confidence:.2f}"
+        f"PIPELINE|classify_complete|intent={intent.value}|"
+        f"confidence={confidence:.2f}|has_name={has_parent_name}"
     )
 
     # Map intent to node name
@@ -92,9 +128,25 @@ def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[st
 
     print(f"PIPELINE|node_start|name={node_name}")
 
+    # Load saved state
+    phone = state.get("phone")
+    if phone:
+        saved_state = get_conversation_state(phone)
+        if saved_state:
+            # Merge saved state with current state (current state takes precedence)
+            state = {**saved_state, **state}
+            print(
+                f"STATE|loaded|phone={phone[-4:]}|parent_name={state.get('parent_name')}"
+            )
+
     try:
-        # Get prompt for this node
+        # Get prompt for this node - pass full state for context
         user_text = state.get("text", "")
+
+        # Enrich prompt with context if we have parent_name
+        if state.get("parent_name") and node_name != "greeting":
+            user_text = f"[Contexto: O nome do responsável é {state['parent_name']}] {user_text}"
+
         prompt = prompt_func(user_text)
 
         # Generate response with OpenAI adapter (async to sync bridge)
@@ -129,6 +181,30 @@ def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[st
             turn_controller.mark_replied(message_id)
             print(f"PIPELINE|node_sent|name={node_name}|chars={len(reply_text)}")
 
+            # Extract entities from user message and save state
+            import re
+
+            user_text_lower = state.get("text", "").lower()
+
+            # Extract parent name if present
+            name_patterns = [
+                r"(?:meu nome é|me chamo|sou)\s+(?:o\s+|a\s+)?(\w+)",
+                r"(?:é\s+)?(\w+)(?:\s*,|\s*\.|\s*$)",  # Just the name as answer
+            ]
+
+            for pattern in name_patterns:
+                match = re.search(pattern, user_text_lower)
+                if match and node_name in ["greeting", "qualification"]:
+                    extracted_name = match.group(1).title()
+                    if len(extracted_name) > 2:  # Basic validation
+                        state["parent_name"] = extracted_name
+                        print(f"STATE|extracted|parent_name={extracted_name}")
+                        break
+
+            # Save updated state
+            if phone:
+                save_conversation_state(phone, state)
+
         return {
             "sent": delivery_result.get("sent", "false"),
             "response": reply_text,
@@ -160,8 +236,44 @@ def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[st
         return {"sent": "false", "response": fallback_text, "error_reason": "no_phone"}
 
 
+def route_from_greeting(state: Dict[str, Any]) -> str:
+    """Determine next node after greeting based on collected data."""
+    # Check if we have parent name
+    if state.get("parent_name"):
+        # If name collected and user expressed interest, go to qualification
+        text = state.get("text", "").lower()
+        if any(
+            word in text
+            for word in ["matrícula", "matricular", "filho", "filha", "interesse"]
+        ):
+            return "qualification_node"
+        # Otherwise end for now
+        return END
+    else:
+        # Stay in greeting to collect name
+        return "greeting_node"
+
+
+def route_from_qualification(state: Dict[str, Any]) -> str:
+    """Determine next node after qualification based on collected data."""
+    # Check if we have required qualification data
+    has_child_name = bool(state.get("child_name"))
+    has_child_age = bool(state.get("child_age"))
+    has_subject = bool(state.get("subject_interest"))
+
+    if has_child_name and has_child_age and has_subject:
+        # All data collected, can move to scheduling if requested
+        text = state.get("text", "").lower()
+        if any(word in text for word in ["agendar", "visitar", "conhecer"]):
+            return "scheduling_node"
+        return END
+    else:
+        # Stay in qualification to collect missing data
+        return "qualification_node"
+
+
 def build_graph():
-    """Build the minimal LangGraph flow."""
+    """Build the minimal LangGraph flow with conditional transitions."""
     # Create state graph
     graph = StateGraph(dict)
 
@@ -185,9 +297,30 @@ def build_graph():
         },
     )
 
-    # All nodes go to END
-    graph.add_edge("greeting_node", END)
-    graph.add_edge("qualification_node", END)
+    # Add conditional transitions
+    # Greeting can loop or go to qualification
+    graph.add_conditional_edges(
+        "greeting_node",
+        route_from_greeting,
+        {
+            "greeting_node": "greeting_node",
+            "qualification_node": "qualification_node",
+            END: END,
+        },
+    )
+
+    # Qualification can loop or go to scheduling
+    graph.add_conditional_edges(
+        "qualification_node",
+        route_from_qualification,
+        {
+            "qualification_node": "qualification_node",
+            "scheduling_node": "scheduling_node",
+            END: END,
+        },
+    )
+
+    # Information and scheduling go to END for now
     graph.add_edge("information_node", END)
     graph.add_edge("scheduling_node", END)
     graph.add_edge("fallback_node", END)
