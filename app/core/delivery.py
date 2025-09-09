@@ -25,6 +25,19 @@ def send_text(
     """
     result = {"sent": "false", "status_code": 0, "error_reason": None}
 
+    # Validate text input
+    if not text or not text.strip():
+        print("DELIVERY|error|empty_text")
+        result["error_reason"] = "empty_text"
+        return result
+
+    # Strip and check length
+    text = text.strip()
+    if len(text) > 4096:
+        print(f"DELIVERY|error|text_too_long|length={len(text)}")
+        result["error_reason"] = "text_too_long"
+        return result
+
     try:
         # Get Evolution API config from environment
         api_url = os.getenv("EVOLUTION_API_URL", "https://evo.whatlead.com.br")
@@ -47,8 +60,14 @@ def send_text(
         url = f"{api_url}/message/sendText/{instance}"
         headers = {"apikey": api_key, "Content-Type": "application/json"}
 
-        # Evolution API expects number without +
-        payload = {"number": e164_phone.lstrip("+"), "text": text}
+        # Evolution API expects EXACT format with textMessage
+        payload = {"number": e164_phone.lstrip("+"), "textMessage": {"text": text}}
+
+        # Debug log payload (without PII)
+        if os.getenv("DEBUG_DELIVERY") == "true":
+            print(
+                f"DELIVERY|debug|payload_keys={list(payload.keys())}|text_len={len(text)}"
+            )
 
         # Send request
         response = requests.post(url, json=payload, headers=headers, timeout=5)

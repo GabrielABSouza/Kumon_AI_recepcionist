@@ -132,7 +132,7 @@ class TestOpenAIAdapterResilience:
             adapter = OpenAIClient(api_key="test_key")
 
             # Test success logging
-            result = await adapter.chat(
+            await adapter.chat(
                 model="gpt-3.5-turbo", system_prompt="Test", user_prompt="Test"
             )
 

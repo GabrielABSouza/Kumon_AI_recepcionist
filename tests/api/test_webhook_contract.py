@@ -150,7 +150,7 @@ class TestWebhookResponseContract:
                 "app.clients.evolution_api.evolution_api_client.parse_webhook_message"
             ) as mock_parse:
                 with patch(
-                    "app.clients.evolution_api.evolution_api_client.send_message"
+                    "app.clients.evolution_api.evolution_api_client.send_text_message"
                 ) as mock_send:
                     # Setup mocks
                     mock_parse.return_value = MagicMock(
@@ -166,7 +166,7 @@ class TestWebhookResponseContract:
                     )
 
                     # Simulate Evolution API delivery failure
-                    mock_send.side_effect = Exception("Evolution API returned 400")
+                    mock_send.side_effect = AsyncMock(side_effect=Exception("Evolution API returned 400"))
 
                     response = client.post(
                         "/api/v1/evolution/webhook",
@@ -201,8 +201,8 @@ class TestWebhookResponseContract:
         ]
 
         for test_case in test_cases:
-            with patch("app.core.langgraph_flow.send_message") as mock_send:
-                mock_send.return_value = {"success": True}
+            with patch("app.core.langgraph_flow.send_text") as mock_send:
+                mock_send.return_value = {"sent": "true", "status_code": 200, "error_reason": None}
 
                 try:
                     result = run(test_case)
@@ -232,8 +232,8 @@ class TestWebhookResponseContract:
 
         orchestrator = WorkflowOrchestrator()
 
-        with patch("app.workflows.workflow_orchestrator.send_message") as mock_send:
-            mock_send.return_value = {"success": True, "message_id": "123"}
+        with patch("app.workflows.workflow_orchestrator.send_text") as mock_send:
+            mock_send.return_value = {"sent": "true", "status_code": 200, "error_reason": None}
 
             # Test the execute method
             result = orchestrator.execute(
