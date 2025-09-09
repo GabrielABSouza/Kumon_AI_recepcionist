@@ -23,9 +23,20 @@ Exemplo de resposta esperada:
 def get_qualification_prompt(
     user_text: str, redis_state: dict | None = None, attempts: int = 0
 ) -> dict:
-    """Prompt for qualification responses baseado no estado Redis com controle de tentativas."""
+    """
+    ENHANCED: Intelligent prompt generation based on QUALIFICATION_REQUIRED_VARS.
+    
+    Improvements:
+    1. Identifies the FIRST missing variable in the required sequence
+    2. Generates specific prompts for each missing variable 
+    3. Prevents repetitive or out-of-order questions
+    4. Maintains existing escape hatch logic after 3+ attempts
+    """
     if redis_state is None:
         redis_state = {}
+
+    # Import required vars from langgraph_flow to ensure consistency
+    from app.core.langgraph_flow import QUALIFICATION_REQUIRED_VARS
 
     # Variáveis do estado permanente (Redis)
     parent_name = redis_state.get("parent_name", "")
@@ -36,56 +47,85 @@ def get_qualification_prompt(
     # Variável temporária (também no Redis mas tratada separadamente)
     beneficiary_type = redis_state.get("beneficiary_type")
 
-    # Determine next question based on what's missing
-    if parent_name and not beneficiary_type:
-        # Ask about beneficiary after parent name
-        system_prompt = f"""Você é Cecília, assistente virtual do Kumon Vila A.
-O responsável se chama {parent_name}.
-Agora você deve perguntar se o Kumon é para ele(a) mesmo(a) ou para outra pessoa.
-Pergunte de forma amigável: "Para você mesmo ou para outra pessoa?"
-Seja breve e direta."""
+    # === ENHANCED LOGIC: Identify first missing variable ===
+    missing_vars = []
+    for var in QUALIFICATION_REQUIRED_VARS:
+        if var not in redis_state or not redis_state[var]:
+            missing_vars.append(var)
 
-    elif beneficiary_type == "child" and not student_name:
-        # Ask for student name (only when beneficiary_type=child)
-        system_prompt = f"""Você é Cecília, assistente virtual do Kumon Vila A.
-O responsável é {parent_name} e está buscando para outra pessoa.
-Pergunte o nome da criança/pessoa de forma amigável.
-Seja breve e direta."""
+    # Log current state for debugging
+    present_vars = [var for var in QUALIFICATION_REQUIRED_VARS if var in redis_state and redis_state[var]]
+    print(f"QUALIFICATION|prompt_gen|present={present_vars}|missing={missing_vars}|attempts={attempts}")
 
-    elif student_name and not student_age:
-        # Ask for student age
+    # === INTELLIGENT PROMPT GENERATION ===
+    # Priority: attempts >= 3 triggers escape hatch FIRST, then follow sequence
+    
+    if attempts >= 3:
+        # HIGHEST PRIORITY: After multiple attempts, offer alternatives (escape hatch)
         system_prompt = f"""Você é Cecília, assistente virtual do Kumon Vila A.
-O aluno se chama {student_name}.
-Pergunte a idade de forma amigável.
-Seja breve e direta."""
+{f"Olá, {parent_name}!" if parent_name else "Olá!"} Vejo que estamos conversando há um tempo. Para agilizar nosso atendimento, posso:
 
-    elif student_age and not program_interests:
-        # Ask for program interests
+📞 Conectar você diretamente com nossa equipe: (45) 4745-2006
+📍 Te dar informações gerais sobre o Kumon Vila A 
+📋 Continuar coletando suas informações aqui mesmo
+
+Ainda preciso saber: {', '.join(missing_vars) if missing_vars else 'suas informações'}
+
+O que prefere? Digite "informações", "telefone" ou continue respondendo."""
+
+    elif not missing_vars:
+        # All required data collected - should not happen in qualification_node
+        # But handle gracefully by offering to proceed
         system_prompt = f"""Você é Cecília, assistente virtual do Kumon Vila A.
-O aluno {student_name} tem {student_age} anos.
-Pergunte qual disciplina tem interesse: Matemática ou Português.
-Seja breve e direta."""
+Perfeito! Tenho todas as informações necessárias:
+- Responsável: {parent_name}
+- Aluno: {student_name}, {student_age} anos
+- Interesse: {program_interests}
+
+Vamos agendar uma conversa para detalhar o processo? Nossos horários são de Segunda a Sexta, 14h às 19h."""
+
+    elif "parent_name" in missing_vars:
+        # First priority: parent_name (even though it's in QUALIFICATION_REQUIRED_VARS)
+        system_prompt = f"""Você é Cecília, assistente virtual do Kumon Vila A.
+Olá! Para começarmos nosso atendimento, qual é o seu nome?"""
+
+    elif parent_name and not beneficiary_type and "student_name" in missing_vars:
+        # Special case: Ask about beneficiary after parent name (temporary variable)
+        # This helps determine if student_name = parent_name (self) or different (child)
+        system_prompt = f"""Você é Cecília, assistente virtual do Kumon Vila A.
+Prazer, {parent_name}! Para personalizar nosso atendimento, o Kumon é para você mesmo(a) ou para outra pessoa?"""
+
+    elif beneficiary_type == "child" and "student_name" in missing_vars:
+        # Ask for student name when beneficiary is a child  
+        system_prompt = f"""Você é Cecília, assistente virtual do Kumon Vila A.
+Entendi, {parent_name}. Qual é o nome da criança que estudaria no Kumon?"""
+
+    elif "student_name" in missing_vars:
+        # student_name missing - first in QUALIFICATION_REQUIRED_VARS
+        system_prompt = f"""Você é Cecília, assistente virtual do Kumon Vila A.
+{f"Olá, {parent_name}!" if parent_name else "Olá!"} Para começar, qual é o nome de quem estudaria no Kumon?"""
+
+    elif "student_age" in missing_vars:
+        # Second in QUALIFICATION_REQUIRED_VARS: student_age
+        student_display = student_name or "o aluno"
+        system_prompt = f"""Você é Cecília, assistente virtual do Kumon Vila A.
+Perfeito! E qual é a idade {f"do {student_display}" if student_name else ""}? Isso me ajuda a personalizar as informações."""
+
+    elif "program_interests" in missing_vars:
+        # Third in QUALIFICATION_REQUIRED_VARS: program_interests
+        student_display = f"{student_name} ({student_age} anos)" if student_name and student_age else "o aluno"
+        system_prompt = f"""Você é Cecília, assistente virtual do Kumon Vila A.
+Ótimo! Para {student_display}, qual disciplina tem mais interesse: Matemática ou Português? 
+(Também temos programa combinado com as duas disciplinas)"""
 
     else:
-        # Default/fallback prompt with attempt-based guidance
-        if attempts >= 3:
-            # After multiple attempts, be more helpful and offer alternatives
-            system_prompt = """Você é Cecília, assistente virtual do Kumon Vila A.
-Vejo que estamos conversando há um tempo. Para agilizar, posso te fornecer informações gerais sobre o Kumon ou você pode ligar diretamente no (45) 4745-2006 para falar com nossa equipe.
-
-Para continuar, preciso saber:
-- Seu nome
-- Se é para você ou para outra pessoa
-- Nome e idade do aluno
-- Disciplina de interesse (Matemática/Português)
-
-O que prefere fazer? Continuar coletando informações ou receber informações gerais?"""
-        else:
-            # Default prompt for early attempts
-            system_prompt = """Você é Cecília, assistente virtual do Kumon Vila A.
-A pessoa está interessada em matrícula.
-Pergunte sobre as informações necessárias para qualificação.
-Seja breve e objetiva."""
+        # Default prompt for early attempts - more specific guidance
+        context_info = f"Olá, {parent_name}! " if parent_name else "Olá! "
+        missing_info = "suas informações" if not missing_vars else f": {', '.join(missing_vars)}"
+        
+        system_prompt = f"""Você é Cecília, assistente virtual do Kumon Vila A.
+{context_info}Para te ajudar da melhor forma, preciso coletar algumas informações{missing_info}.
+Pode me ajudar com isso? Seja à vontade para responder!"""
 
     return {
         "system": system_prompt,
