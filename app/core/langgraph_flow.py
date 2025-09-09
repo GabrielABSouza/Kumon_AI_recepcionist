@@ -117,7 +117,7 @@ def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[st
             turn_controller.mark_replied(message_id)
             print(f"PIPELINE|node_sent|name={node_name}|chars={len(reply_text)}")
 
-        return {"sent": success, "response": reply_text}
+        return {"sent": "true" if success else "false", "response": reply_text}
 
     except Exception as e:
         print(f"PIPELINE|node_error|name={node_name}|error={str(e)}")

@@ -2,18 +2,19 @@
 Minimal Evolution API webhook handler.
 Receives WhatsApp messages and triggers ONE_TURN flow.
 """
-from typing import Dict
+from typing import Any, Dict
 
 from fastapi import APIRouter, Request
 
 from app.core import langgraph_flow
 from app.core.dedup import turn_controller
+from app.utils.webhook_normalizer import normalize_webhook_payload
 
 router = APIRouter()
 
 
 @router.post("/webhook")
-async def webhook(request: Request) -> Dict[str, str]:
+async def webhook(request: Request) -> Dict[str, Any]:
     """
     Receive webhook from Evolution API.
     Process ONE message → ONE response → END.
@@ -28,7 +29,19 @@ async def webhook(request: Request) -> Dict[str, str]:
         # Check if it's a received message (not from me)
         if data.get("key", {}).get("fromMe", True):
             print("WEBHOOK|skip|from_me=true")
-            return {"status": "ignored", "reason": "from_me"}
+            response = {
+                "status": "ignored", 
+                "reason": "from_me",
+                "sent": "false",
+                "message_id": "unknown",
+                "turn_id": "turn_00000",
+                "trace_id": "trace_00000",
+                "intent": "fallback",
+                "confidence": 0.0,
+                "response_text": "",
+                "entities": {}
+            }
+            return normalize_webhook_payload(response)
 
         # Extract message details
         message_id = data.get("key", {}).get("id", "")
@@ -46,7 +59,19 @@ async def webhook(request: Request) -> Dict[str, str]:
         # Skip if no text
         if not text:
             print("WEBHOOK|skip|no_text")
-            return {"status": "ignored", "reason": "no_text"}
+            response = {
+                "status": "ignored", 
+                "reason": "no_text",
+                "sent": "false",
+                "message_id": message_id or "unknown",
+                "turn_id": f"turn_{message_id or '00000'}",
+                "trace_id": f"trace_{message_id or '00000'}",
+                "intent": "fallback",
+                "confidence": 0.0,
+                "response_text": "",
+                "entities": {}
+            }
+            return normalize_webhook_payload(response)
 
         # Get instance name
         instance = body.get("instance", "recepcionistakumon")
@@ -56,7 +81,18 @@ async def webhook(request: Request) -> Dict[str, str]:
         # Start turn (deduplication)
         if not turn_controller.start_turn(message_id):
             print(f"PIPELINE|turn_duplicate|message_id={message_id}")
-            return {"status": "duplicate", "message_id": message_id}
+            response = {
+                "status": "duplicate", 
+                "message_id": message_id,
+                "sent": "false",
+                "turn_id": f"turn_{message_id}",
+                "trace_id": f"trace_{message_id}",
+                "intent": "fallback",
+                "confidence": 0.0,
+                "response_text": "",
+                "entities": {}
+            }
+            return normalize_webhook_payload(response)
 
         print(f"PIPELINE|turn_start|message_id={message_id}")
 
@@ -75,12 +111,36 @@ async def webhook(request: Request) -> Dict[str, str]:
         turn_controller.end_turn(message_id)
         print(f"PIPELINE|turn_end|message_id={message_id}")
 
-        return {
+        # Build response payload
+        response = {
             "status": "processed",
             "message_id": message_id,
             "sent": result.get("sent", False),
+            "response_text": result.get("response", ""),
+            "intent": result.get("intent", "fallback"),
+            "confidence": result.get("confidence", 0.0),
+            "entities": result.get("entities", {}),
+            "turn_id": f"turn_{message_id}",
+            "trace_id": f"trace_{message_id}",
         }
+        
+        # CRITICAL: Normalize response to ensure type safety
+        normalized_response = normalize_webhook_payload(response)
+        
+        return normalized_response
 
     except Exception as e:
         print(f"WEBHOOK|error|exception={str(e)}")
-        return {"status": "error", "error": str(e)}
+        response = {
+            "status": "error", 
+            "error": str(e),
+            "sent": "false",
+            "message_id": "unknown",
+            "turn_id": "turn_error",
+            "trace_id": "trace_error",
+            "intent": "fallback",
+            "confidence": 0.0,
+            "response_text": "Desculpe, ocorreu um erro ao processar sua mensagem.",
+            "entities": {}
+        }
+        return normalize_webhook_payload(response)
