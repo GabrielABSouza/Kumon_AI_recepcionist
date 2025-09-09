@@ -465,36 +465,40 @@ class TestFlowTransitions:
     def test_qualification_node_continues_looping_when_partially_filled(self):
         """
         TDD TEST: Ensure qualification_node continues looping when state is partially filled.
-        
+
         Critical Bug Fix Test:
         This test validates that the qualification_node does NOT exit the loop prematurely
         when only some (but not all) required variables are present in the state.
-        
+
         Scenario:
-        - State contains some qualification variables (parent_name, beneficiary_type, student_name)  
+        - State contains some qualification variables (parent_name, beneficiary_type, student_name)
         - State is MISSING other required variables (student_age, program_interests)
         - Expected: route_from_qualification should return "qualification_node" to continue loop
         - Current Bug: System might be advancing to scheduling prematurely
         """
-        from app.core.langgraph_flow import QUALIFICATION_REQUIRED_VARS, route_from_qualification
-        
+        from app.core.langgraph_flow import (
+            QUALIFICATION_REQUIRED_VARS,
+            route_from_qualification,
+        )
+
         # STEP 1: Create partially filled state - this should NOT allow exit from qualification
         partial_state = {
-            "parent_name": "Maria",           # ✓ Present
-            "beneficiary_type": "child",      # ✓ Present (temporary variable)
-            "student_name": "Pedro",          # ✓ Present 
-            "qualification_attempts": 2,      # ✓ Present (within limits)
-            "phone": "5511999999999",         # ✓ Present (context)
+            "parent_name": "Maria",  # ✓ Present
+            "beneficiary_type": "child",  # ✓ Present (temporary variable)
+            "student_name": "Pedro",  # ✓ Present
+            "qualification_attempts": 2,  # ✓ Present (within limits)
+            "phone": "5511999999999",  # ✓ Present (context)
             "message_id": "MSG_PARTIAL_001",  # ✓ Present (tracking)
             # ❌ MISSING: 'student_age' and 'program_interests' - CRITICAL ISSUE
         }
-        
+
         # STEP 2: Verify our test state is actually partial (missing required vars)
         missing_vars = [
-            var for var in QUALIFICATION_REQUIRED_VARS 
+            var
+            for var in QUALIFICATION_REQUIRED_VARS
             if var not in partial_state or not partial_state[var]
         ]
-        
+
         # Ensure this test is valid - we must have missing variables to test the bug
         assert len(missing_vars) > 0, (
             f"TEST SETUP ERROR: State should be missing variables. "
@@ -502,16 +506,18 @@ class TestFlowTransitions:
             f"Missing: {missing_vars}, "
             f"State keys: {list(partial_state.keys())}"
         )
-        
+
         print(f"Testing partially filled state:")
-        print(f"  Present variables: {[k for k in QUALIFICATION_REQUIRED_VARS if k in partial_state]}")
+        print(
+            f"  Present variables: {[k for k in QUALIFICATION_REQUIRED_VARS if k in partial_state]}"
+        )
         print(f"  Missing variables: {missing_vars}")
         print(f"  Qualification attempts: {partial_state['qualification_attempts']}")
-        
+
         # STEP 3: CRITICAL TEST - Route from partial state
         # This should return "qualification_node" because data is incomplete
         next_node = route_from_qualification(partial_state)
-        
+
         # STEP 4: ASSERTION - The core test that must pass
         assert next_node == "qualification_node", (
             f"CRITICAL BUG: qualification_node exiting loop prematurely! "
@@ -519,24 +525,144 @@ class TestFlowTransitions:
             f"but got next_node='{next_node}'. "
             f"This means users won't complete qualification data collection."
         )
-        
+
         # STEP 5: Validate that the function correctly identified missing variables
         print(f"✅ SUCCESS: qualification_node correctly continues looping")
         print(f"✅ Missing variables detected: {missing_vars}")
         print(f"✅ Next node: {next_node} (correct - will collect remaining data)")
-        
+
         # STEP 6: Verify the opposite scenario - complete state should exit loop
         complete_state = partial_state.copy()
-        complete_state.update({
-            "student_age": 8,                    # ✓ Now complete
-            "program_interests": ["mathematics"]  # ✓ Now complete
-        })
-        
+        complete_state.update(
+            {
+                "student_age": 8,  # ✓ Now complete
+                "program_interests": ["mathematics"],  # ✓ Now complete
+            }
+        )
+
         next_node_complete = route_from_qualification(complete_state)
         assert next_node_complete == "scheduling_node", (
             f"CONTROL TEST FAILED: With complete data, should proceed to scheduling "
             f"but got '{next_node_complete}'"
         )
-        
+
         print(f"✅ CONTROL SUCCESS: Complete state correctly exits to scheduling")
         print(f"✅ TDD TEST PASSED: Qualification loop logic working correctly")
+
+    def test_qualification_router_receives_intact_state(self):
+        """
+        CRITICAL BUG DETECTION TEST: Ensure route_from_qualification receives intact state.
+
+        This test addresses the ROOT CAUSE identified in logs:
+        - STATE|loaded|phone=1999|parent_name=Gabriel (intact state enters node)
+        - QUALIFICATION|route_check|attempts=0|phone=nown (corrupted state at routing)
+
+        The state dictionary is being corrupted somewhere between qualification_node entry
+        and route_from_qualification call, causing infinite loops.
+        """
+        from unittest.mock import patch
+
+        from app.core.langgraph_flow import END, build_graph
+
+        # STEP 1: Define complete initial state that should be preserved
+        initial_state = {
+            "phone": "554599998888",  # CRITICAL: This becomes "nown" - the smoking gun
+            "parent_name": "Gabriel",  # CRITICAL: This should be preserved
+            "message_id": "MSG_STATE_001",  # CRITICAL: Message tracking
+            "instance": "kumon_assistant",  # CRITICAL: Instance info
+            "text": "Preciso de informações sobre matrícula",
+            "qualification_attempts": 1,  # CRITICAL: Loop tracking
+        }
+
+        # STEP 2: Build the actual graph
+        graph = build_graph()
+
+        # STEP 3: Mock the router to capture what state it actually receives
+        with patch("app.core.langgraph_flow.route_from_qualification") as mock_router:
+            # Configure mock to stop the loop immediately
+            mock_router.return_value = END
+
+            # Mock dependencies to avoid external API calls
+            with patch("app.core.langgraph_flow.get_openai_client") as mock_openai:
+                with patch("app.core.langgraph_flow.send_text") as mock_send:
+                    # Configure mocks
+                    mock_client = MagicMock()
+                    mock_client.chat.side_effect = Exception("Mock OpenAI - not called")
+                    mock_openai.return_value = mock_client
+                    mock_send.return_value = {"sent": "true", "status_code": 200}
+
+                    try:
+                        # STEP 4: Invoke the graph - this should trigger the corruption
+                        graph.invoke(initial_state)
+
+                        # STEP 5: CRITICAL ASSERTIONS - Inspect state received by router
+                        assert mock_router.called, "Router should have been called"
+
+                        # Get the actual state passed to route_from_qualification
+                        state_received_by_router = mock_router.call_args[0][0]
+
+                        print(f"DEBUG: Initial state: {initial_state}")
+                        print(
+                            f"DEBUG: State received by router: {state_received_by_router}"
+                        )
+                        print(f"DEBUG: Router call count: {mock_router.call_count}")
+
+                        # ASSERTION 1: Phone number must be preserved (this will FAIL showing the bug)
+                        assert (
+                            state_received_by_router.get("phone")
+                            == initial_state["phone"]
+                        ), (
+                            f"CRITICAL BUG: Phone corrupted in qualification_node! "
+                            f"Expected: {initial_state['phone']}, "
+                            f"Got: {state_received_by_router.get('phone')} "
+                            f"(This is the smoking gun - 'phone=nown' corruption)"
+                        )
+
+                        # ASSERTION 2: Parent name must be preserved
+                        assert (
+                            state_received_by_router.get("parent_name")
+                            == initial_state["parent_name"]
+                        ), (
+                            f"CRITICAL BUG: parent_name corrupted in qualification_node! "
+                            f"Expected: {initial_state['parent_name']}, "
+                            f"Got: {state_received_by_router.get('parent_name')}"
+                        )
+
+                        # ASSERTION 3: Message ID must be preserved (tracking integrity)
+                        assert (
+                            state_received_by_router.get("message_id")
+                            == initial_state["message_id"]
+                        ), (
+                            f"CRITICAL BUG: message_id corrupted in qualification_node! "
+                            f"Expected: {initial_state['message_id']}, "
+                            f"Got: {state_received_by_router.get('message_id')}"
+                        )
+
+                        # ASSERTION 4: Attempts should be properly managed
+                        router_attempts = state_received_by_router.get(
+                            "qualification_attempts", 0
+                        )
+                        assert (
+                            router_attempts > 0
+                        ), f"qualification_attempts should be incremented, got: {router_attempts}"
+
+                        print(
+                            "✅ SUCCESS: State integrity maintained through qualification_node"
+                        )
+
+                    except Exception as e:
+                        # If test fails due to state corruption, this is the expected behavior
+                        # We're using TDD to first write a failing test, then fix it
+                        print(f"EXPECTED FAILURE (TDD): {str(e)}")
+                        print(
+                            "This test should initially FAIL due to state corruption bug"
+                        )
+                        print("After fixing qualification_node, this test should PASS")
+
+                        # Re-raise to make test fail visibly
+                        raise AssertionError(
+                            f"STATE CORRUPTION DETECTED: {str(e)}\n"
+                            f"This confirms the bug where qualification_node corrupts state before routing.\n"
+                            f"Initial state: {initial_state}\n"
+                            f"State at router: {mock_router.call_args[0][0] if mock_router.called else 'Router not called'}"
+                        )

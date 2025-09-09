@@ -111,9 +111,11 @@ def qualification_node(state: Dict[str, Any]) -> Dict[str, Any]:
     # CRITICAL: Increment attempt counter here (where state changes are preserved)
     state = state.copy()  # Don't modify original
     state["qualification_attempts"] = state.get("qualification_attempts", 0) + 1
-    
-    print(f"QUALIFICATION|node_enter|attempts={state['qualification_attempts']}|phone={state.get('phone', 'unknown')[-4:]}")
-    
+
+    print(
+        f"QUALIFICATION|node_enter|attempts={state['qualification_attempts']}|phone={state.get('phone', 'unknown')[-4:]}"
+    )
+
     return _execute_node(state, "qualification", get_qualification_prompt)
 
 
@@ -403,12 +405,17 @@ def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[st
 
         # CRITICAL FIX: Return the complete state with metadata
         # This ensures state propagation between nodes in LangGraph
-        result_state = state.copy()  # Preserve original state
-        result_state.update({
-            "sent": delivery_result.get("sent", "false"),
-            "response": reply_text,
-            "error_reason": delivery_result.get("error_reason"),
-        })
+        # USE THE MODIFIED STATE (not original) to preserve qualification_attempts increment
+        result_state = (
+            state.copy()
+        )  # Use the MODIFIED state (with incremented attempts)
+        result_state.update(
+            {
+                "sent": delivery_result.get("sent", "false"),
+                "response": reply_text,
+                "error_reason": delivery_result.get("error_reason"),
+            }
+        )
         return result_state
 
     except Exception as e:
@@ -428,21 +435,23 @@ def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[st
             ):  # Only mark replied if we have message_id and sent
                 turn_controller.mark_replied(message_id)
             # CRITICAL FIX: Return complete state even in error cases
-            result_state = state.copy()
-            result_state.update({
-                "sent": delivery_result.get("sent", "false"),
-                "response": fallback_text,
-                "error_reason": delivery_result.get("error_reason"),
-            })
+            # USE THE MODIFIED STATE to preserve qualification_attempts increment
+            result_state = state.copy()  # Use modified state with incremented attempts
+            result_state.update(
+                {
+                    "sent": delivery_result.get("sent", "false"),
+                    "response": fallback_text,
+                    "error_reason": delivery_result.get("error_reason"),
+                }
+            )
             return result_state
 
         # CRITICAL FIX: Return complete state even when no phone
-        result_state = state.copy()
-        result_state.update({
-            "sent": "false", 
-            "response": fallback_text, 
-            "error_reason": "no_phone"
-        })
+        # USE THE MODIFIED STATE to preserve qualification_attempts increment
+        result_state = state.copy()  # Use modified state with incremented attempts
+        result_state.update(
+            {"sent": "false", "response": fallback_text, "error_reason": "no_phone"}
+        )
         return result_state
 
 
@@ -497,7 +506,7 @@ def route_from_qualification(state: Dict[str, Any]) -> str:
 def route_from_information(state: Dict[str, Any]) -> str:
     """
     Context-aware routing from information_node.
-    
+
     Intelligence: Instead of always ending conversation,
     check if user has incomplete qualification and offer to continue.
     """
@@ -506,26 +515,30 @@ def route_from_information(state: Dict[str, Any]) -> str:
     for var in QUALIFICATION_REQUIRED_VARS:
         if var not in state or not state[var]:
             missing_qualification_vars.append(var)
-    
+
     # If qualification is complete, can proceed to scheduling
     if not missing_qualification_vars:
         print(f"INFORMATION|qualification_complete|next=scheduling")
         return "scheduling_node"
-    
+
     # If user has qualification context (parent_name) but incomplete data
     if state.get("parent_name") and missing_qualification_vars:
         attempts = state.get("qualification_attempts", 0)
-        
+
         # If user hasn't hit the escape hatch limit, continue qualification
         if attempts < 4:
-            print(f"INFORMATION|continue_qualification|missing={len(missing_qualification_vars)}|attempts={attempts}")
+            print(
+                f"INFORMATION|continue_qualification|missing={len(missing_qualification_vars)}|attempts={attempts}"
+            )
             return "qualification_node"
         else:
             # User hit escape hatch but might want to continue
             # For now, end conversation, but could offer options here
-            print(f"INFORMATION|post_escape_hatch|missing={len(missing_qualification_vars)}|end=true")
+            print(
+                f"INFORMATION|post_escape_hatch|missing={len(missing_qualification_vars)}|end=true"
+            )
             return END
-    
+
     # No qualification context - end conversation
     print(f"INFORMATION|no_qualification_context|end=true")
     return END
@@ -608,11 +621,11 @@ def build_graph():
         route_from_information,  # New function - will be created
         {
             "qualification_node": "qualification_node",  # Continue qualification if incomplete
-            "scheduling_node": "scheduling_node",        # Go to scheduling if qualification complete
-            END: END,                                     # End if no context to continue
+            "scheduling_node": "scheduling_node",  # Go to scheduling if qualification complete
+            END: END,  # End if no context to continue
         },
     )
-    
+
     # Fallback still goes directly to END
     graph.add_edge("fallback_node", END)
 

@@ -33,7 +33,6 @@ class TestWebhookAttributeError:
 
                 import asyncio
 
-
                 async def test_request():
                     # Create mock request
                     class MockRequest:
@@ -94,7 +93,6 @@ class TestWebhookAttributeError:
 
                 import asyncio
 
-
                 async def test_request():
                     # Create mock request
                     class MockRequest:
@@ -154,7 +152,6 @@ class TestWebhookAttributeError:
                 }
 
                 import asyncio
-
 
                 async def test_request():
                     # Create mock request
