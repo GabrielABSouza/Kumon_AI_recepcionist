@@ -24,11 +24,11 @@ from app.prompts.node_prompts import (
 _openai_client = None
 
 # Required qualification variables that must be collected
+# Variáveis permanentes obrigatórias para qualificação (sem beneficiary_type que é temporária)
 QUALIFICATION_REQUIRED_VARS = [
     "parent_name",
-    "preferred_name",
-    "child_name",
-    "child_age",
+    "student_name", 
+    "student_age",
     "program_interests",
 ]
 
@@ -159,7 +159,11 @@ def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[st
         if state.get("parent_name") and node_name != "greeting":
             user_text = f"[Contexto: O nome do responsável é {state['parent_name']}] {user_text}"
 
-        prompt = prompt_func(user_text)
+        # Pass state to qualification prompt for dynamic prompting
+        if node_name == "qualification":
+            prompt = prompt_func(user_text, redis_state=state)
+        else:
+            prompt = prompt_func(user_text)
 
         # Generate response with OpenAI adapter (async to sync bridge)
         loop = asyncio.new_event_loop()
@@ -246,8 +250,29 @@ def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[st
                         print(f"STATE|extracted|preferred_name={extracted_preferred}")
                         break
 
-            # Extract child name and relationship context
-            child_name_patterns = [
+            # Extract beneficiary_type (self or child)
+            beneficiary_patterns = [
+                r"(?:para mim|para eu|para mim mesmo|para mim mesma|meu|eu mesmo|eu mesma)",
+                r"(?:para (?:o\s+|a\s+)?(?:meu|minha)\s+(?:filho|filha|criança|neto|neta|sobrinho|sobrinha))",
+                r"(?:para outra pessoa|para (?:outro|outra)|para (?:ele|ela))",
+            ]
+            
+            for i, pattern in enumerate(beneficiary_patterns):
+                if re.search(pattern, user_text_lower) and node_name == "qualification" and not state.get("beneficiary_type"):
+                    if i == 0:  # self patterns
+                        state["beneficiary_type"] = "self"
+                        # Auto-fill student_name with parent_name when beneficiary is self
+                        if state.get("parent_name"):
+                            state["student_name"] = state["parent_name"]
+                            print(f"STATE|extracted|student_name={state['parent_name']} (auto-filled)")
+                        print("STATE|extracted|beneficiary_type=self")
+                    else:  # child/other patterns  
+                        state["beneficiary_type"] = "child"
+                        print("STATE|extracted|beneficiary_type=child")
+                    break
+
+            # Extract student name (child/person name when beneficiary_type=child)
+            student_name_patterns = [
                 r"(?:(?:meu|minha)\s+)?(?:filho|filha|criança|menino|menina|neto|neta|"
                 r"sobrinho|sobrinha)\s+(?:se chama|é o|é a|é)\s+"
                 r"([a-záàâãéêíóôõúç]+)",
@@ -255,25 +280,25 @@ def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[st
                 r"([a-záàâãéêíóôõúç]+)",
                 r"(?:se )?chama\s+([a-záàâãéêíóôõúç]+)(?=\s+e\s+tem|\s*,|\s*$)",
             ]
-            for pattern in child_name_patterns:
+            for pattern in student_name_patterns:
                 match = re.search(pattern, user_text_lower)
                 if (
                     match
                     and node_name == "qualification"
-                    and not state.get("child_name")
+                    and not state.get("student_name")
                 ):
-                    extracted_child = match.group(1).strip().title()
-                    if len(extracted_child) >= 2 and not extracted_child.lower() in [
+                    extracted_student = match.group(1).strip().title()
+                    if len(extracted_student) >= 2 and not extracted_student.lower() in [
                         "tem",
                         "anos",
                         "ele",
                         "ela",
                     ]:
-                        state["child_name"] = extracted_child
-                        print(f"STATE|extracted|child_name={extracted_child}")
+                        state["student_name"] = extracted_student
+                        print(f"STATE|extracted|student_name={extracted_student}")
                         break
 
-            # Extract child age
+            # Extract student age
             age_patterns = [
                 r"(?:tem|possui|está com|idade|anos?)\s*(\d{1,2})\s*anos?",
                 r"(\d{1,2})\s*anos?(?:\s+de idade)?",
@@ -283,12 +308,12 @@ def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[st
                 if (
                     match
                     and node_name == "qualification"
-                    and not state.get("child_age")
+                    and not state.get("student_age")
                 ):
                     age = int(match.group(1))
                     if 3 <= age <= 18:  # Kumon age range validation
-                        state["child_age"] = age
-                        print(f"STATE|extracted|child_age={age}")
+                        state["student_age"] = age
+                        print(f"STATE|extracted|student_age={age}")
                         break
 
             # Extract program interests (subjects)
