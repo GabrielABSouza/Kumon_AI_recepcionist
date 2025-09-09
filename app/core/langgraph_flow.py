@@ -57,7 +57,32 @@ def classify_intent(state: Dict[str, Any]) -> str:
     full_state = {**saved_state, **state}
     has_parent_name = bool(full_state.get("parent_name"))
 
-    # Use classifier for base intent
+    # INTELLIGENT ENTRY POINT: Check if conversation is in progress
+    # If we have partial qualification data, continue from where we left off
+    if saved_state:
+        missing_vars = [
+            var
+            for var in QUALIFICATION_REQUIRED_VARS
+            if var not in saved_state or not saved_state[var]
+        ]
+
+        # If we have some data but not all, continue qualification
+        if has_parent_name and missing_vars:
+            print(
+                f"PIPELINE|classify_complete|intent=qualification|"
+                f"confidence=1.0|reason=continue_qualification|missing={len(missing_vars)}"
+            )
+            return "qualification_node"
+
+        # If all qualification data is complete, proceed to next stage
+        if has_parent_name and not missing_vars:
+            print(
+                f"PIPELINE|classify_complete|intent=scheduling|"
+                f"confidence=1.0|reason=qualification_complete"
+            )
+            return "scheduling_node"
+
+    # Use classifier for base intent (new conversations only)
     intent, confidence = classifier.classify(text)
 
     # Context-aware routing adjustments
@@ -492,11 +517,12 @@ def route_from_qualification(state: Dict[str, Any]) -> str:
         # Log the incomplete qualification for human follow-up
         return "information_node"
 
-    # Data still missing - continue qualification but with attempt tracking
+    # Data still missing - STOP AND WAIT for user response (conversational behavior)
+    # The qualification question has been asked, now we wait for user input
     print(
-        f"QUALIFICATION|continue|missing_vars={missing_vars}|attempts={qualification_attempts}"
+        f"QUALIFICATION|stop_and_wait|missing_vars={missing_vars}|attempts={qualification_attempts}"
     )
-    return "qualification_node"
+    return END
 
 
 def route_from_information(state: Dict[str, Any]) -> str:
