@@ -6,7 +6,6 @@ import json
 import os
 from unittest.mock import Mock, patch
 
-
 from app.core.delivery import send_text
 
 

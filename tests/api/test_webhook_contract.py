@@ -166,7 +166,9 @@ class TestWebhookResponseContract:
                     )
 
                     # Simulate Evolution API delivery failure
-                    mock_send.side_effect = AsyncMock(side_effect=Exception("Evolution API returned 400"))
+                    mock_send.side_effect = AsyncMock(
+                        side_effect=Exception("Evolution API returned 400")
+                    )
 
                     response = client.post(
                         "/api/v1/evolution/webhook",
@@ -202,7 +204,11 @@ class TestWebhookResponseContract:
 
         for test_case in test_cases:
             with patch("app.core.langgraph_flow.send_text") as mock_send:
-                mock_send.return_value = {"sent": "true", "status_code": 200, "error_reason": None}
+                mock_send.return_value = {
+                    "sent": "true",
+                    "status_code": 200,
+                    "error_reason": None,
+                }
 
                 try:
                     result = run(test_case)
@@ -233,7 +239,11 @@ class TestWebhookResponseContract:
         orchestrator = WorkflowOrchestrator()
 
         with patch("app.workflows.workflow_orchestrator.send_text") as mock_send:
-            mock_send.return_value = {"sent": "true", "status_code": 200, "error_reason": None}
+            mock_send.return_value = {
+                "sent": "true",
+                "status_code": 200,
+                "error_reason": None,
+            }
 
             # Test the execute method
             result = orchestrator.execute(
@@ -285,11 +295,17 @@ class TestWebhookResponseContract:
                 if isinstance(expected_type, tuple):
                     assert isinstance(
                         data[field], expected_type
-                    ), f"Field '{field}' has wrong type: expected {expected_type}, got {type(data[field])}"
+                    ), (
+                        f"Field '{field}' has wrong type: "
+                        f"expected {expected_type}, got {type(data[field])}"
+                    )
                 else:
                     assert isinstance(
                         data[field], expected_type
-                    ), f"Field '{field}' has wrong type: expected {expected_type}, got {type(data[field])}"
+                    ), (
+                        f"Field '{field}' has wrong type: "
+                        f"expected {expected_type}, got {type(data[field])}"
+                    )
 
                 # Special validation for 'sent' field
                 if field == "sent" and data[field] is not None:
