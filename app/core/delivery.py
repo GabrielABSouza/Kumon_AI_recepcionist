@@ -74,9 +74,25 @@ def send_text(
 
         result["status_code"] = response.status_code
 
-        if response.status_code == 200:
-            print(f"DELIVERY|sent|phone=****{e164_phone[-4:]}|chars={len(text)}")
+        # Accept any 2xx as success
+        if 200 <= response.status_code < 300:
+            # Try to extract messageId/queueId from response
+            provider_id = ""
+            try:
+                if response.status_code != 204:  # 204 has no content
+                    resp_body = response.json()
+                    provider_id = resp_body.get("messageId", "") or resp_body.get(
+                        "queueId", ""
+                    )
+            except Exception:
+                pass  # Ignore JSON parse errors for 2xx
+
+            print(
+                f"DELIVERY|ok|status={response.status_code}|id={provider_id}|chars={len(text)}"
+            )
             result["sent"] = "true"
+            result["provider_status"] = str(response.status_code)
+            result["provider_id"] = provider_id
             return result
         elif response.status_code == 400:
             # Parse error from response body
