@@ -25,40 +25,50 @@ class TestGreetingNode:
             with patch("app.core.langgraph_flow.get_openai_client") as mock_openai:
                 with patch("app.core.langgraph_flow.send_text") as mock_send:
                     with patch(
-                        "app.core.langgraph_flow.save_conversation_state"
-                    ) as mock_save:
-                        # Setup mocks
-                        mock_turn.has_replied.return_value = False
-                        mock_send.return_value = {"sent": "true", "status_code": 200}
+                        "app.core.langgraph_flow.get_conversation_state"
+                    ) as mock_get_state:
+                        with patch(
+                            "app.core.langgraph_flow.save_conversation_state"
+                        ) as mock_save:
+                            # Setup mocks
+                            mock_get_state.return_value = {}  # No existing state
+                            mock_turn.has_replied.return_value = False
+                            mock_send.return_value = {
+                                "sent": "true",
+                                "status_code": 200,
+                            }
 
-                        # Mock OpenAI response
-                        mock_client = MagicMock()
-                        mock_client.chat.return_value = (
-                            "Prazer em conhecê-la, Maria! Como posso ajudar?"
-                        )
-                        mock_openai.return_value = mock_client
+                            # Mock OpenAI response (async)
+                            mock_client = MagicMock()
 
-                        # Execute greeting node
-                        _execute_node(state, "greeting", get_greeting_prompt)
+                            # Create async mock that returns a coroutine
+                            async def mock_chat():
+                                return "Prazer em conhecê-la, Maria! Como posso ajudar?"
 
-                        # ASSERTION: Check that parent_name was extracted
-                        # The save_conversation_state should be called with state
-                        assert (
-                            mock_save.called
-                        ), "State should be saved after extraction"
+                            mock_client.chat = mock_chat
+                            mock_openai.return_value = mock_client
 
-                        # Get the state that was saved
-                        saved_state = mock_save.call_args[0][
-                            1
-                        ]  # Second argument is the state dict
+                            # Execute greeting node
+                            _execute_node(state, "greeting", get_greeting_prompt)
 
-                        # Verify parent_name was extracted
-                        assert (
-                            "parent_name" in saved_state
-                        ), "parent_name should be in saved state"
-                        assert (
-                            saved_state["parent_name"] == "Maria"
-                        ), f"Expected 'Maria', got {saved_state.get('parent_name')}"
+                            # ASSERTION: Check that parent_name was extracted
+                            # The save_conversation_state should be called with state
+                            assert (
+                                mock_save.called
+                            ), "State should be saved after extraction"
+
+                            # Get the state that was saved
+                            saved_state = mock_save.call_args[0][
+                                1
+                            ]  # Second argument is the state dict
+
+                            # Verify parent_name was extracted
+                            assert (
+                                "parent_name" in saved_state
+                            ), "parent_name should be in saved state"
+                            assert (
+                                saved_state["parent_name"] == "Maria"
+                            ), f"Expected 'Maria', got {saved_state.get('parent_name')}"
 
     def test_greeting_extracts_name_from_simple_answer(self):
         """Test extraction when user just answers with their name."""
@@ -73,24 +83,36 @@ class TestGreetingNode:
             with patch("app.core.langgraph_flow.get_openai_client") as mock_openai:
                 with patch("app.core.langgraph_flow.send_text") as mock_send:
                     with patch(
-                        "app.core.langgraph_flow.save_conversation_state"
-                    ) as mock_save:
-                        # Setup mocks
-                        mock_turn.has_replied.return_value = False
-                        mock_send.return_value = {"sent": "true", "status_code": 200}
+                        "app.core.langgraph_flow.get_conversation_state"
+                    ) as mock_get_state:
+                        with patch(
+                            "app.core.langgraph_flow.save_conversation_state"
+                        ) as mock_save:
+                            # Setup mocks
+                            mock_get_state.return_value = {}  # No existing state
+                            mock_turn.has_replied.return_value = False
+                            mock_send.return_value = {
+                                "sent": "true",
+                                "status_code": 200,
+                            }
 
-                        mock_client = MagicMock()
-                        mock_client.chat.return_value = "Olá João!"
-                        mock_openai.return_value = mock_client
+                            mock_client = MagicMock()
 
-                        # Execute
-                        _execute_node(state, "greeting", get_greeting_prompt)
+                            # Create async mock that returns a coroutine
+                            async def mock_chat():
+                                return "Olá João!"
 
-                        # Check saved state
-                        saved_state = mock_save.call_args[0][1]
-                        assert (
-                            saved_state.get("parent_name") == "João"
-                        ), "Should extract 'João' from simple answer"
+                            mock_client.chat = mock_chat
+                            mock_openai.return_value = mock_client
+
+                            # Execute
+                            _execute_node(state, "greeting", get_greeting_prompt)
+
+                            # Check saved state
+                            saved_state = mock_save.call_args[0][1]
+                            assert (
+                                saved_state.get("parent_name") == "João"
+                            ), "Should extract 'João' from simple answer"
 
     def test_greeting_preserves_existing_state(self):
         """Test that greeting node preserves other state fields."""
@@ -106,24 +128,36 @@ class TestGreetingNode:
             with patch("app.core.langgraph_flow.get_openai_client") as mock_openai:
                 with patch("app.core.langgraph_flow.send_text") as mock_send:
                     with patch(
-                        "app.core.langgraph_flow.save_conversation_state"
-                    ) as mock_save:
-                        # Setup mocks
-                        mock_turn.has_replied.return_value = False
-                        mock_send.return_value = {"sent": "true", "status_code": 200}
+                        "app.core.langgraph_flow.get_conversation_state"
+                    ) as mock_get_state:
+                        with patch(
+                            "app.core.langgraph_flow.save_conversation_state"
+                        ) as mock_save:
+                            # Setup mocks
+                            mock_get_state.return_value = {}  # No existing state
+                            mock_turn.has_replied.return_value = False
+                            mock_send.return_value = {
+                                "sent": "true",
+                                "status_code": 200,
+                            }
 
-                        mock_client = MagicMock()
-                        mock_client.chat.return_value = "Olá Ana!"
-                        mock_openai.return_value = mock_client
+                            mock_client = MagicMock()
 
-                        # Execute
-                        _execute_node(state, "greeting", get_greeting_prompt)
+                            # Create async mock that returns a coroutine
+                            async def mock_chat():
+                                return "Olá Ana!"
 
-                        # Check that custom field is preserved
-                        saved_state = mock_save.call_args[0][1]
-                        assert (
-                            saved_state.get("custom_field") == "should_be_preserved"
-                        ), "Custom fields should be preserved"
-                        assert (
-                            saved_state.get("parent_name") == "Ana"
-                        ), "Name should be extracted"
+                            mock_client.chat = mock_chat
+                            mock_openai.return_value = mock_client
+
+                            # Execute
+                            _execute_node(state, "greeting", get_greeting_prompt)
+
+                            # Check that custom field is preserved
+                            saved_state = mock_save.call_args[0][1]
+                            assert (
+                                saved_state.get("custom_field") == "should_be_preserved"
+                            ), "Custom fields should be preserved"
+                            assert (
+                                saved_state.get("parent_name") == "Ana"
+                            ), "Name should be extracted"
