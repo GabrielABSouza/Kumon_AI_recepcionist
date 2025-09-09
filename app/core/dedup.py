@@ -27,10 +27,11 @@ class TurnController:
     def start_turn(self, message_id: str) -> bool:
         """
         Start a new turn if not already started.
-        Returns True if turn started, False if already exists.
+        Returns True if turn started, False if already exists or already processed.
         """
         self._cleanup_expired()
 
+        # Block if message already exists (either processing or already replied)
         if message_id in self._turns:
             return False
 
@@ -47,8 +48,15 @@ class TurnController:
             self._turns[message_id]["replied"] = True
 
     def end_turn(self, message_id: str):
-        """End turn and cleanup."""
-        self._turns.pop(message_id, None)
+        """
+        End turn but keep the record for deduplication.
+        The record will be cleaned up by TTL, not immediately removed.
+        """
+        # Don't remove the record - let TTL handle cleanup
+        # This ensures duplicate messages are blocked even after processing
+        if message_id in self._turns:
+            # Mark processing as complete but keep record for deduplication
+            self._turns[message_id]["ended_at"] = time.time()
 
 
 # Global instance for simplicity

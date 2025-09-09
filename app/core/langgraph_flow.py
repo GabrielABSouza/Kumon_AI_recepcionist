@@ -7,7 +7,6 @@ from typing import Any, Dict
 
 from langgraph.graph import END, StateGraph
 
-from app.core.dedup import turn_controller
 from app.core.delivery import send_text
 from app.core.gemini_classifier import Intent, classifier
 from app.core.llm import OpenAIClient
@@ -141,10 +140,9 @@ def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[st
         print(f"PIPELINE|node_error|name={node_name}|error=no_message_id")
         return {"sent": "false"}
 
-    # Check if already replied
-    if turn_controller.has_replied(message_id):
-        print(f"PIPELINE|node_skip|name={node_name}|already_replied=true")
-        return {"sent": "false"}
+    # REMOVED: turn_controller check moved to webhook level
+    # Individual nodes no longer need to check if already replied
+    # The webhook entry point handles all deduplication logic
 
     print(f"PIPELINE|node_start|name={node_name}")
 
@@ -214,8 +212,8 @@ def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[st
         sent_success = delivery_result.get("sent") == "true"
 
         if sent_success:
-            # Mark as replied
-            turn_controller.mark_replied(message_id)
+            # REMOVED: mark_replied moved to workflow level (not per node)
+            # Only the final workflow completion should mark as replied
             print(f"PIPELINE|node_sent|name={node_name}|chars={len(reply_text)}")
 
             # Extract entities from user message and save state
@@ -430,10 +428,8 @@ def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[st
         if phone:  # Only send if we have a phone number
             instance = state.get("instance", "recepcionistakumon")
             delivery_result = send_text(phone, fallback_text, instance)
-            if (
-                message_id and delivery_result.get("sent") == "true"
-            ):  # Only mark replied if we have message_id and sent
-                turn_controller.mark_replied(message_id)
+            # REMOVED: mark_replied logic moved to workflow level
+            # Error handling no longer marks individual nodes as replied
             # CRITICAL FIX: Return complete state even in error cases
             # USE THE MODIFIED STATE to preserve qualification_attempts increment
             result_state = state.copy()  # Use modified state with incremented attempts

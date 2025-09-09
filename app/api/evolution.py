@@ -135,6 +135,12 @@ async def webhook(request: Request) -> Dict[str, Any]:
         # Run the ONE_TURN flow
         result = langgraph_flow.run(state)
 
+        # Mark as replied if any message was sent during the flow
+        # This centralized approach prevents multi-node flows from being interrupted
+        if result.get("sent") == "true":
+            turn_controller.mark_replied(message_id)
+            print(f"PIPELINE|turn_replied|message_id={message_id}")
+
         # End turn
         turn_controller.end_turn(message_id)
         print(f"PIPELINE|turn_end|message_id={message_id}")
