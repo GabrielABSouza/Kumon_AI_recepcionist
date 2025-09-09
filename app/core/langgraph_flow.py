@@ -3,6 +3,7 @@ Minimal LangGraph flow: Entry → [Single Node] → End
 Each node handles its intent and sends a response.
 """
 import asyncio
+import copy
 from typing import Any, Dict
 
 from langgraph.graph import END, StateGraph
@@ -15,10 +16,10 @@ from app.prompts.node_prompts import (
     get_blended_information_prompt,
     get_fallback_prompt,
     get_greeting_prompt,
-    get_information_prompt,
     get_qualification_prompt,
     get_scheduling_prompt,
 )
+from app.utils.formatters import safe_phone_display
 
 # Initialize OpenAI adapter (lazy initialization)
 _openai_client = None
@@ -152,18 +153,18 @@ def _get_next_qualification_question(state: Dict[str, Any]) -> str:
     for var in QUALIFICATION_REQUIRED_VARS:
         if not state.get(var):
             missing_vars.append(var)
-    
+
     # If no variables missing, no qualification question needed
     if not missing_vars:
         return ""
-    
+
     # Get first missing variable and generate appropriate question
     first_missing = missing_vars[0]
     parent_name = state.get("parent_name", "")
-    
+
     # Personalize with parent name if available
     name_prefix = f"{parent_name}, " if parent_name else ""
-    
+
     if first_missing == "parent_name":
         return "A propósito, qual é o seu nome?"
     elif first_missing == "student_name":
@@ -176,7 +177,7 @@ def _get_next_qualification_question(state: Dict[str, Any]) -> str:
             return f"A propósito, {name_prefix}qual é a idade da criança?"
     elif first_missing == "program_interests":
         return f"A propósito, {name_prefix}você tem interesse em algum programa específico? Matemática, Português ou ambos?"
-    
+
     # Fallback
     return f"A propósito, {name_prefix}posso coletar mais algumas informações para personalizar nosso atendimento?"
 
@@ -189,11 +190,11 @@ def greeting_node(state: Dict[str, Any]) -> Dict[str, Any]:
 def qualification_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """Handle qualification intent with attempt tracking."""
     # CRITICAL: Increment attempt counter here (where state changes are preserved)
-    state = state.copy()  # Don't modify original
+    state = copy.deepcopy(state)  # Deep copy to prevent state corruption
     state["qualification_attempts"] = state.get("qualification_attempts", 0) + 1
 
     print(
-        f"QUALIFICATION|node_enter|attempts={state['qualification_attempts']}|phone={state.get('phone', 'unknown')[-4:]}"
+        f"QUALIFICATION|node_enter|attempts={state['qualification_attempts']}|phone={safe_phone_display(state.get('phone'))}"
     )
 
     return _execute_node(state, "qualification", get_qualification_prompt)
@@ -214,7 +215,9 @@ def fallback_node(state: Dict[str, Any]) -> Dict[str, Any]:
     return _execute_node(state, "fallback", get_fallback_prompt)
 
 
-def _execute_blended_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[str, Any]:
+def _execute_blended_node(
+    state: Dict[str, Any], node_name: str, prompt_func
+) -> Dict[str, Any]:
     """Execute a blended node that combines informative response with qualification question."""
     message_id = state.get("message_id")
     if not message_id:
@@ -226,34 +229,36 @@ def _execute_blended_node(state: Dict[str, Any], node_name: str, prompt_func) ->
     saved_state = {}
     if phone:
         saved_state = get_conversation_state(phone)
-    
+
     # Merge state for complete context
     full_state = {**saved_state, **state}
 
     # Determine next qualification question based on missing variables
     next_qualification_question = _get_next_qualification_question(full_state)
-    
+
     print(f"PIPELINE|node_start|name={node_name}")
 
     try:
         # Build blended prompt with information request + next qualification question
-        prompt = prompt_func(state.get("text", ""), full_state, next_qualification_question)
-        
+        prompt = prompt_func(
+            state.get("text", ""), full_state, next_qualification_question
+        )
+
         # Generate response
         client = get_openai_client()
         response_text = client.chat(prompt["system"], prompt["user"])
-        
+
         # Send message
         result = send_text(
             instance=state.get("instance", ""),
             number=state.get("phone", ""),
             text=response_text,
         )
-        
+
         # Save updated state (if any new data was collected)
         if phone:
             save_conversation_state(phone, full_state)
-        
+
         return {
             **state,
             "sent": result.get("sent", "false"),
@@ -265,7 +270,7 @@ def _execute_blended_node(state: Dict[str, Any], node_name: str, prompt_func) ->
         print(f"PIPELINE|node_error|name={node_name}|error={str(e)}")
         # Fallback message
         fallback_text = "Desculpe, estou com dificuldades técnicas. Por favor, entre em contato pelo telefone (11) 4745-2006."
-        
+
         try:
             result = send_text(
                 instance=state.get("instance", ""),
@@ -559,9 +564,9 @@ def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[st
         # CRITICAL FIX: Return the complete state with metadata
         # This ensures state propagation between nodes in LangGraph
         # USE THE MODIFIED STATE (not original) to preserve qualification_attempts increment
-        result_state = (
-            state.copy()
-        )  # Use the MODIFIED state (with incremented attempts)
+        result_state = copy.deepcopy(
+            state
+        )  # Deep copy the MODIFIED state (with incremented attempts)
         result_state.update(
             {
                 "sent": delivery_result.get("sent", "false"),
@@ -587,7 +592,9 @@ def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[st
             # Error handling no longer marks individual nodes as replied
             # CRITICAL FIX: Return complete state even in error cases
             # USE THE MODIFIED STATE to preserve qualification_attempts increment
-            result_state = state.copy()  # Use modified state with incremented attempts
+            result_state = copy.deepcopy(
+                state
+            )  # Deep copy modified state with incremented attempts
             result_state.update(
                 {
                     "sent": delivery_result.get("sent", "false"),
@@ -599,7 +606,9 @@ def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[st
 
         # CRITICAL FIX: Return complete state even when no phone
         # USE THE MODIFIED STATE to preserve qualification_attempts increment
-        result_state = state.copy()  # Use modified state with incremented attempts
+        result_state = copy.deepcopy(
+            state
+        )  # Deep copy modified state with incremented attempts
         result_state.update(
             {"sent": "false", "response": fallback_text, "error_reason": "no_phone"}
         )
@@ -624,7 +633,7 @@ def route_from_qualification(state: Dict[str, Any]) -> str:
     qualification_attempts = state.get("qualification_attempts", 0)
 
     print(
-        f"QUALIFICATION|route_check|attempts={qualification_attempts}|phone={state.get('phone', 'unknown')[-4:]}"
+        f"QUALIFICATION|route_check|attempts={qualification_attempts}|phone={safe_phone_display(state.get('phone'))}"
     )
 
     # Check if all required variables are collected

@@ -161,10 +161,12 @@ Responda de forma clara e objetiva.""",
     }
 
 
-def get_blended_information_prompt(user_text: str, state: dict, next_qualification_question: str) -> dict:
+def get_blended_information_prompt(
+    user_text: str, state: dict, next_qualification_question: str
+) -> dict:
     """
     Prompt for blended information + qualification responses.
-    
+
     Creates intelligent responses that answer the user's information request
     and seamlessly incorporate the next qualification question when needed.
     """
@@ -173,7 +175,7 @@ def get_blended_information_prompt(user_text: str, state: dict, next_qualificati
     student_name = state.get("student_name", "")
     student_age = state.get("student_age", "")
     program_interests = state.get("program_interests", "")
-    
+
     # Create system prompt with blended instruction
     system_prompt = """Você é Cecília, assistente virtual do Kumon Vila A. Sua missão é ser prestativa e eficiente.
 
