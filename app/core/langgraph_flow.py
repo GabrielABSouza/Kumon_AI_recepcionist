@@ -12,6 +12,7 @@ from app.core.gemini_classifier import Intent, classifier
 from app.core.llm import OpenAIClient
 from app.core.state_manager import get_conversation_state, save_conversation_state
 from app.prompts.node_prompts import (
+    get_blended_information_prompt,
     get_fallback_prompt,
     get_greeting_prompt,
     get_information_prompt,
@@ -144,6 +145,42 @@ def _get_conversation_history(phone: str) -> list:
         return []
 
 
+def _get_next_qualification_question(state: Dict[str, Any]) -> str:
+    """Determine the next qualification question based on missing data."""
+    # Check which qualification variables are missing
+    missing_vars = []
+    for var in QUALIFICATION_REQUIRED_VARS:
+        if not state.get(var):
+            missing_vars.append(var)
+    
+    # If no variables missing, no qualification question needed
+    if not missing_vars:
+        return ""
+    
+    # Get first missing variable and generate appropriate question
+    first_missing = missing_vars[0]
+    parent_name = state.get("parent_name", "")
+    
+    # Personalize with parent name if available
+    name_prefix = f"{parent_name}, " if parent_name else ""
+    
+    if first_missing == "parent_name":
+        return "A propósito, qual é o seu nome?"
+    elif first_missing == "student_name":
+        return f"A propósito, {name_prefix}qual é o nome da criança para quem será o curso?"
+    elif first_missing == "student_age":
+        student_name = state.get("student_name", "")
+        if student_name:
+            return f"A propósito, {name_prefix}qual é a idade do {student_name}?"
+        else:
+            return f"A propósito, {name_prefix}qual é a idade da criança?"
+    elif first_missing == "program_interests":
+        return f"A propósito, {name_prefix}você tem interesse em algum programa específico? Matemática, Português ou ambos?"
+    
+    # Fallback
+    return f"A propósito, {name_prefix}posso coletar mais algumas informações para personalizar nosso atendimento?"
+
+
 def greeting_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """Handle greeting intent."""
     return _execute_node(state, "greeting", get_greeting_prompt)
@@ -163,8 +200,8 @@ def qualification_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def information_node(state: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle information intent."""
-    return _execute_node(state, "information", get_information_prompt)
+    """Handle information intent with contextual qualification awareness."""
+    return _execute_blended_node(state, "information", get_blended_information_prompt)
 
 
 def scheduling_node(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -175,6 +212,80 @@ def scheduling_node(state: Dict[str, Any]) -> Dict[str, Any]:
 def fallback_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """Handle fallback for unrecognized intents."""
     return _execute_node(state, "fallback", get_fallback_prompt)
+
+
+def _execute_blended_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[str, Any]:
+    """Execute a blended node that combines informative response with qualification question."""
+    message_id = state.get("message_id")
+    if not message_id:
+        print(f"PIPELINE|node_error|name={node_name}|error=no_message_id")
+        return {"sent": "false"}
+
+    # Load conversation state for context
+    phone = state.get("phone")
+    saved_state = {}
+    if phone:
+        saved_state = get_conversation_state(phone)
+    
+    # Merge state for complete context
+    full_state = {**saved_state, **state}
+
+    # Determine next qualification question based on missing variables
+    next_qualification_question = _get_next_qualification_question(full_state)
+    
+    print(f"PIPELINE|node_start|name={node_name}")
+
+    try:
+        # Build blended prompt with information request + next qualification question
+        prompt = prompt_func(state.get("text", ""), full_state, next_qualification_question)
+        
+        # Generate response
+        client = get_openai_client()
+        response_text = client.chat(prompt["system"], prompt["user"])
+        
+        # Send message
+        result = send_text(
+            instance=state.get("instance", ""),
+            number=state.get("phone", ""),
+            text=response_text,
+        )
+        
+        # Save updated state (if any new data was collected)
+        if phone:
+            save_conversation_state(phone, full_state)
+        
+        return {
+            **state,
+            "sent": result.get("sent", "false"),
+            "response": response_text,
+            "error_reason": result.get("error_reason"),
+        }
+
+    except Exception as e:
+        print(f"PIPELINE|node_error|name={node_name}|error={str(e)}")
+        # Fallback message
+        fallback_text = "Desculpe, estou com dificuldades técnicas. Por favor, entre em contato pelo telefone (11) 4745-2006."
+        
+        try:
+            result = send_text(
+                instance=state.get("instance", ""),
+                number=state.get("phone", ""),
+                text=fallback_text,
+            )
+            return {
+                **state,
+                "sent": result.get("sent", "false"),
+                "response": fallback_text,
+                "error_reason": str(e),
+            }
+        except Exception as send_error:
+            print(f"DELIVERY|error|{send_error}")
+            return {
+                **state,
+                "sent": "false",
+                "response": fallback_text,
+                "error_reason": f"{str(e)} | {str(send_error)}",
+            }
 
 
 def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[str, Any]:

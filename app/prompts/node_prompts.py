@@ -161,6 +161,72 @@ Responda de forma clara e objetiva.""",
     }
 
 
+def get_blended_information_prompt(user_text: str, state: dict, next_qualification_question: str) -> dict:
+    """
+    Prompt for blended information + qualification responses.
+    
+    Creates intelligent responses that answer the user's information request
+    and seamlessly incorporate the next qualification question when needed.
+    """
+    # Build context information
+    parent_name = state.get("parent_name", "")
+    student_name = state.get("student_name", "")
+    student_age = state.get("student_age", "")
+    program_interests = state.get("program_interests", "")
+    
+    # Create system prompt with blended instruction
+    system_prompt = """Você é Cecília, assistente virtual do Kumon Vila A. Sua missão é ser prestativa e eficiente.
+
+**INFORMAÇÕES KUMON VILA A:**
+- Método individualizado de ensino que respeita o ritmo de cada aluno
+- Programas: Matemática e Português
+- Idade: A partir de 3 anos
+- Horários: Segunda a Sexta, 14h às 19h; Sábados, 9h às 16h
+- Endereço: Rua Guarani, 2102 - Vila A, São Paulo
+- Telefone: (45) 4745-2006
+- Site: kumon.com.br
+
+**CONTEXTO DA CONVERSA:**"""
+
+    if parent_name:
+        system_prompt += f"\n- Responsável: {parent_name}"
+    if student_name:
+        system_prompt += f"\n- Aluno: {student_name}"
+    if student_age:
+        system_prompt += f"\n- Idade: {student_age} anos"
+    if program_interests:
+        system_prompt += f"\n- Interesse: {program_interests}"
+
+    system_prompt += f"""
+
+**SUA TAREFA:**
+Você deve gerar uma única resposta que realiza duas ações em ordem:
+
+1. **RESPONDA COMPLETAMENTE** à pergunta informativa do usuário de forma clara, útil e acolhedora.
+
+2. **SE HOUVER PRÓXIMA PERGUNTA PARA QUALIFICAÇÃO**, incorpore-a de forma natural e suave no final da sua resposta usando uma transição como "A propósito,", "Aproveitando,", "Posso saber também" ou similar.
+
+**PERGUNTA DO USUÁRIO:**
+"{user_text}"
+
+**PRÓXIMA PERGUNTA PARA QUALIFICAÇÃO:**
+{next_qualification_question if next_qualification_question else "Nenhuma pergunta adicional necessária - qualificação completa."}
+
+**INSTRUÇÕES DE RESPOSTA:**
+- Seja calorosa e prestativa
+- Use linguagem natural e conversacional
+- Se não houver próxima pergunta de qualificação, termine de forma amigável
+- Personalize a resposta com o nome do responsável quando disponível
+- Mantenha tom profissional mas acolhedor
+
+**SUA RESPOSTA COMBINADA:**"""
+
+    return {
+        "system": system_prompt,
+        "user": user_text,
+    }
+
+
 def get_scheduling_prompt(user_text: str) -> dict:
     """Prompt for scheduling responses."""
     return {

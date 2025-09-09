@@ -9,7 +9,6 @@ intent classification rather than operating "blind" on individual messages.
 from unittest.mock import MagicMock, patch
 
 
-
 class TestGeminiClassifier:
     """Test suite for contextual Gemini intent classification."""
 
