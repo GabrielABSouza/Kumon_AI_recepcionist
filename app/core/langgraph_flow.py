@@ -27,7 +27,7 @@ _openai_client = None
 # Variáveis permanentes obrigatórias para qualificação (sem beneficiary_type que é temporária)
 QUALIFICATION_REQUIRED_VARS = [
     "parent_name",
-    "student_name", 
+    "student_name",
     "student_age",
     "program_interests",
 ]
@@ -159,9 +159,22 @@ def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[st
         if state.get("parent_name") and node_name != "greeting":
             user_text = f"[Contexto: O nome do responsável é {state['parent_name']}] {user_text}"
 
-        # Pass state to qualification prompt for dynamic prompting
+        # Pass state to qualification prompt for dynamic prompting with attempt tracking
         if node_name == "qualification":
-            prompt = prompt_func(user_text, redis_state=state)
+            # Enhanced qualification with attempt awareness
+            qualification_attempts = state.get("qualification_attempts", 0)
+            missing_vars = [
+                var
+                for var in QUALIFICATION_REQUIRED_VARS
+                if var not in state or not state[var]
+            ]
+
+            print(
+                f"QUALIFICATION|node_exec|attempts={qualification_attempts}|missing={len(missing_vars)}"
+            )
+            prompt = prompt_func(
+                user_text, redis_state=state, attempts=qualification_attempts
+            )
         else:
             prompt = prompt_func(user_text)
 
@@ -256,17 +269,23 @@ def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[st
                 r"(?:para (?:o\s+|a\s+)?(?:meu|minha)\s+(?:filho|filha|criança|neto|neta|sobrinho|sobrinha))",
                 r"(?:para outra pessoa|para (?:outro|outra)|para (?:ele|ela))",
             ]
-            
+
             for i, pattern in enumerate(beneficiary_patterns):
-                if re.search(pattern, user_text_lower) and node_name == "qualification" and not state.get("beneficiary_type"):
+                if (
+                    re.search(pattern, user_text_lower)
+                    and node_name == "qualification"
+                    and not state.get("beneficiary_type")
+                ):
                     if i == 0:  # self patterns
                         state["beneficiary_type"] = "self"
                         # Auto-fill student_name with parent_name when beneficiary is self
                         if state.get("parent_name"):
                             state["student_name"] = state["parent_name"]
-                            print(f"STATE|extracted|student_name={state['parent_name']} (auto-filled)")
+                            print(
+                                f"STATE|extracted|student_name={state['parent_name']} (auto-filled)"
+                            )
                         print("STATE|extracted|beneficiary_type=self")
-                    else:  # child/other patterns  
+                    else:  # child/other patterns
                         state["beneficiary_type"] = "child"
                         print("STATE|extracted|beneficiary_type=child")
                     break
@@ -288,7 +307,9 @@ def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[st
                     and not state.get("student_name")
                 ):
                     extracted_student = match.group(1).strip().title()
-                    if len(extracted_student) >= 2 and not extracted_student.lower() in [
+                    if len(
+                        extracted_student
+                    ) >= 2 and not extracted_student.lower() in [
                         "tem",
                         "anos",
                         "ele",
@@ -405,7 +426,7 @@ def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[st
         return {"sent": "false", "response": fallback_text, "error_reason": "no_phone"}
 
 
-def route_from_greeting(_state: Dict[str, Any]) -> str:
+def route_from_greeting(state: Dict[str, Any]) -> str:
     """
     Greeting always transitions to qualification_node.
     The qualification_node is responsible for collecting all required data.
@@ -417,16 +438,41 @@ def route_from_greeting(_state: Dict[str, Any]) -> str:
 def route_from_qualification(state: Dict[str, Any]) -> str:
     """
     Decide para onde ir após o nó de qualificação.
-    Verifica se todas as variáveis necessárias foram coletadas.
+    Implementa state machine com proteção contra loops infinitos.
     """
-    # Itera pela lista de variáveis obrigatórias
-    for var in QUALIFICATION_REQUIRED_VARS:
-        # Se qualquer variável estiver faltando no estado, continua no loop
-        if var not in state or not state[var]:
-            return "qualification_node"
+    # ANTI-INFINITE LOOP PROTECTION: Track qualification attempts
+    qualification_attempts = state.get("qualification_attempts", 0) + 1
+    state["qualification_attempts"] = qualification_attempts
 
-    # Se todas as variáveis foram coletadas, avança para o próximo passo
-    return "scheduling_node"
+    print(
+        f"QUALIFICATION|route_check|attempts={qualification_attempts}|phone={state.get('phone', 'unknown')[-4:]}"
+    )
+
+    # Check if all required variables are collected
+    missing_vars = []
+    for var in QUALIFICATION_REQUIRED_VARS:
+        if var not in state or not state[var]:
+            missing_vars.append(var)
+
+    if not missing_vars:
+        # All data collected - proceed to scheduling
+        print(f"QUALIFICATION|complete|all_data_collected|next=scheduling")
+        return "scheduling_node"
+
+    # INFINITE LOOP PREVENTION: After 4 failed attempts, route to information_node
+    # This provides escape hatch and allows user to get general info instead
+    if qualification_attempts >= 4:
+        print(
+            f"QUALIFICATION|max_attempts_reached|missing_vars={missing_vars}|next=information"
+        )
+        # Log the incomplete qualification for human follow-up
+        return "information_node"
+
+    # Data still missing - continue qualification but with attempt tracking
+    print(
+        f"QUALIFICATION|continue|missing_vars={missing_vars}|attempts={qualification_attempts}"
+    )
+    return "qualification_node"
 
 
 def route_from_scheduling(state: Dict[str, Any]) -> str:

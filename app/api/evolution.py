@@ -23,11 +23,31 @@ async def webhook(request: Request) -> Dict[str, Any]:
         # Parse webhook payload
         body = await request.json()
 
-        # Extract message data
+        # Extract message data with type safety
         data = body.get("data", {})
 
+        # Ensure data is a dict, handle Evolution API sending lists
+        if not isinstance(data, dict):
+            print(f"WEBHOOK|skip|data_type={type(data).__name__}")
+            response = {
+                "status": "ignored",
+                "reason": "invalid_data_type",
+                "sent": "false",
+                "message_id": "unknown",
+                "turn_id": "turn_00000",
+                "trace_id": "trace_00000",
+                "intent": "fallback",
+                "confidence": 0.0,
+                "response_text": "",
+                "entities": {},
+            }
+            return normalize_webhook_payload(response)
+
         # Check if it's a received message (not from me)
-        if data.get("key", {}).get("fromMe", True):
+        key = data.get("key", {})
+        if not isinstance(key, dict):
+            key = {}
+        if key.get("fromMe", True):
             print("WEBHOOK|skip|from_me=true")
             response = {
                 "status": "ignored",
@@ -43,18 +63,26 @@ async def webhook(request: Request) -> Dict[str, Any]:
             }
             return normalize_webhook_payload(response)
 
-        # Extract message details
-        message_id = data.get("key", {}).get("id", "")
-        remote_jid = data.get("key", {}).get("remoteJid", "")
+        # Extract message details with type safety
+        message_id = key.get("id", "")
+        remote_jid = key.get("remoteJid", "")
         phone = remote_jid.split("@")[0] if "@" in remote_jid else remote_jid
 
-        # Get message text
+        # Get message text with type safety
         message = data.get("message", {})
-        text = (
-            message.get("conversation")
-            or message.get("extendedTextMessage", {}).get("text")
-            or ""
-        ).strip()
+        if not isinstance(message, dict):
+            message = {}
+
+        # Extract text content safely
+        text = ""
+        if isinstance(message.get("conversation"), str):
+            text = message.get("conversation")
+        elif isinstance(message.get("extendedTextMessage"), dict):
+            extended = message.get("extendedTextMessage", {})
+            if isinstance(extended.get("text"), str):
+                text = extended.get("text")
+
+        text = text.strip()
 
         # Skip if no text
         if not text:
