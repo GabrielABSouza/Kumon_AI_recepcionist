@@ -354,6 +354,14 @@ from app.core.unified_service_resolver import unified_service_resolver
 async def startup_event():
     """Application startup validation and initialization"""
     app_logger.info("🚀 Kumon AI Receptionist API v2.0 starting up...")
+    
+    # 🔍 AUTÓPSIA: Selo de versão para rastrear código em execução
+    try:
+        import subprocess
+        commit_hash = subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD']).decode('utf-8').strip()
+        app_logger.warning(f"✅✅✅ APPLICATION STARTED - CODE VERSION: {commit_hash} ✅✅✅")
+    except Exception as e:
+        app_logger.error(f"🚨🚨🚨 COULD NOT DETERMINE GIT COMMIT HASH: {e} 🚨🚨🚨")
 
     # CRITICAL: Lazy workflow initialization with graceful degradation
     workflow = None
