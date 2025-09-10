@@ -256,33 +256,36 @@ def qualification_node(state: Dict[str, Any]) -> Dict[str, Any]:
     if phone:
         # Load current state from Redis
         saved_state = get_conversation_state(phone)
-        
+
         # Check if parent_name is missing
         if not saved_state.get("parent_name"):
             user_text = state.get("text", "")
             if user_text:
                 # Extract parent_name from user message using regex patterns
                 import re
+
                 parent_name_patterns = [
                     r"meu nome é (\w+)",
                     r"me chamo (\w+)",
                     r"sou (\w+)",
                     r"eu sou (\w+)",
-                    r"^(\w+)$",  # Single word response
+                    r"^(?!(?:Olá|olá|Oi|oi|Bom|bom|Boa|boa|Hey|hey|Eai|eai|E aí|e aí)$)(\w+)$",  # Single word response excluding greetings
                 ]
-                
+
                 extracted_name = None
                 for pattern in parent_name_patterns:
                     match = re.search(pattern, user_text.lower())
                     if match:
                         extracted_name = match.group(1).capitalize()
                         break
-                
+
                 if extracted_name:
                     # Save extracted parent_name to Redis state
                     updated_state = {**saved_state, "parent_name": extracted_name}
                     save_conversation_state(phone, updated_state)
-                    print(f"STATE|extracted|phone={safe_phone_display(phone)}|parent_name={extracted_name}")
+                    print(
+                        f"STATE|extracted|phone={safe_phone_display(phone)}|parent_name={extracted_name}"
+                    )
 
     return _execute_node(state, "qualification", get_qualification_prompt)
 
