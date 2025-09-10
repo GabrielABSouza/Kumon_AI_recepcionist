@@ -152,12 +152,14 @@ class GeminiClassifier:
         # Extract context information
         conversation_history = self._format_conversation_history(context)
         collected_vars, missing_vars = self._format_qualification_state(context)
+        greeting_sent = context.get("greeting_sent", False)
 
         # Fill template
         return template.format(
             conversation_history=conversation_history,
             collected_vars=collected_vars,
             missing_vars=missing_vars,
+            greeting_sent=greeting_sent,
             user_message=text,
         )
 

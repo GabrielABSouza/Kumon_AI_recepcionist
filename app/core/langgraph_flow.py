@@ -46,89 +46,148 @@ def get_openai_client():
 
 
 def classify_intent(state: Dict[str, Any]) -> str:
-    """Classify user intent and route to appropriate node with context awareness."""
-    text = state.get("text", "")
+    """
+    Business Logic Router: Check conversation state for continuation rules.
 
-    # Load saved state to check context
-    phone = state.get("phone")
-    saved_state = {}
-    if phone:
-        saved_state = get_conversation_state(phone)
+    This function implements the "Rules First" principle - it only checks
+    business logic for conversation continuation, never does AI classification.
+
+    Returns:
+        str: Node name if a business rule applies (e.g., "qualification_node")
+        None: If no business rules apply (defer to AI classification)
+    """
+    try:
+        # Load saved state to check business context
+        phone = state.get("phone")
+        saved_state = {}
+        if phone:
+            saved_state = get_conversation_state(phone)
+
+        # No saved state = new conversation = no business rules apply
+        if not saved_state:
+            return None
+    except Exception:
+        # If business logic fails, return None to defer to AI
+        return None
 
     # Merge saved state for context
     full_state = {**saved_state, **state}
     has_parent_name = bool(full_state.get("parent_name"))
 
-    # INTELLIGENT ENTRY POINT: Check if conversation is in progress
-    # If we have partial qualification data, continue from where we left off
-    if saved_state:
-        missing_vars = [
-            var
-            for var in QUALIFICATION_REQUIRED_VARS
-            if var not in saved_state or not saved_state[var]
-        ]
+    # BUSINESS RULE 1: Post-greeting continuation
+    # If we sent a greeting, the next message should be qualification
+    if full_state.get("greeting_sent") and not has_parent_name:
+        print(
+            f"PIPELINE|classify_complete|intent=qualification|"
+            f"confidence=1.0|reason=post_greeting_response"
+        )
+        return "qualification_node"
 
-        # If we have some data but not all, continue qualification
-        if has_parent_name and missing_vars:
+    # BUSINESS RULE 2: Qualification continuation
+    # If we have partial qualification data, continue collecting
+    missing_vars = [
+        var
+        for var in QUALIFICATION_REQUIRED_VARS
+        if var not in saved_state or not saved_state[var]
+    ]
+
+    if has_parent_name and missing_vars:
+        print(
+            f"PIPELINE|classify_complete|intent=qualification|"
+            f"confidence=1.0|reason=continue_qualification|missing={len(missing_vars)}"
+        )
+        return "qualification_node"
+
+    # BUSINESS RULE 3: Qualification complete → Scheduling
+    # If all qualification data is complete, proceed to scheduling
+    if has_parent_name and not missing_vars:
+        print(
+            f"PIPELINE|classify_complete|intent=scheduling|"
+            f"confidence=1.0|reason=qualification_complete"
+        )
+        return "scheduling_node"
+
+    # No business rules apply - defer to AI classification
+    return None
+
+
+def master_router(state: Dict[str, Any]) -> str:
+    """
+    Master Router: Implements "Rules First, AI After" orchestration principle.
+
+    This is the single entry point for all routing decisions. It follows the principle:
+    1. Check business rules first (classify_intent)
+    2. If no business rules apply, use AI classification (GeminiClassifier)
+
+    This eliminates the responsibility duplication between business logic and AI.
+
+    Returns:
+        str: Node name to route to (e.g., "greeting_node", "qualification_node")
+    """
+    phone = safe_phone_display(state.get("phone"))
+    text = state.get("text", "")
+
+    print(f"PIPELINE|master_router_start|phone={phone}|text_len={len(text)}")
+
+    try:
+        # STEP 1: Rules First - Check business logic for conversation continuation
+        business_decision = classify_intent(state)
+
+        if business_decision is not None:
+            # Business rule applied - use it directly
             print(
-                f"PIPELINE|classify_complete|intent=qualification|"
-                f"confidence=1.0|reason=continue_qualification|missing={len(missing_vars)}"
+                f"PIPELINE|master_router_business_rule|decision={business_decision}|phone={phone}"
             )
-            return "qualification_node"
+            return business_decision
 
-        # If all qualification data is complete, proceed to next stage
-        if has_parent_name and not missing_vars:
+        # STEP 2: AI After - No business rules apply, use AI classification
+        print(f"PIPELINE|master_router_ai_fallback|phone={phone}|text='{text[:50]}...'")
+
+        # Prepare context for AI classification if available
+        conversation_context = {}
+        try:
+            if phone:
+                saved_state = get_conversation_state(phone)
+                if saved_state:
+                    conversation_context = {
+                        "greeting_sent": saved_state.get("greeting_sent", False),
+                        "conversation_history": _get_conversation_history(phone),
+                        "parent_name": saved_state.get("parent_name"),
+                        "student_name": saved_state.get("student_name"),
+                        "student_age": saved_state.get("student_age"),
+                        "program_interests": saved_state.get("program_interests"),
+                    }
+        except Exception as context_error:
             print(
-                f"PIPELINE|classify_complete|intent=scheduling|"
-                f"confidence=1.0|reason=qualification_complete"
+                f"PIPELINE|master_router_context_error|error={str(context_error)}|phone={phone}"
             )
-            return "scheduling_node"
+            # Continue with empty context
 
-    # Use classifier with contextual information for intelligent classification
-    context = {
-        "conversation_history": _get_conversation_history(phone),
-        **full_state,  # Include all state variables for context
-    }
-    intent, confidence = classifier.classify(text, context=context)
+        # Call AI classifier with context
+        intent, confidence = classifier.classify(text, conversation_context)
 
-    # Context-aware routing adjustments
-    if not has_parent_name:
-        # If greeting intent or providing name, route to greeting
-        import re
+        # Map AI intent to node names
+        intent_to_node = {
+            Intent.GREETING: "greeting_node",
+            Intent.QUALIFICATION: "qualification_node",
+            Intent.INFORMATION: "information_node",
+            Intent.SCHEDULING: "scheduling_node",
+            Intent.FALLBACK: "fallback_node",
+        }
 
-        name_patterns = [
-            r"(?:meu nome é|me chamo|sou)\s+(?:o\s+|a\s+)?(\w+)",
-            r"^(\w+)(?:\s*,|\s*\.|\s*$)",  # Just a name
-        ]
-        for pattern in name_patterns:
-            if re.search(pattern, text.lower()):
-                intent = Intent.GREETING  # Override to process name
-                break
+        ai_decision = intent_to_node.get(intent, "fallback_node")
 
-        # Initial contact should get name first
-        if intent == Intent.GREETING:
-            print(
-                f"PIPELINE|classify_complete|intent=greeting|"
-                f"confidence={confidence:.2f}|reason=need_name"
-            )
-            return "greeting_node"
+        print(
+            f"PIPELINE|master_router_ai_complete|decision={ai_decision}|intent={intent.value}|confidence={confidence:.2f}|phone={phone}"
+        )
 
-    # Log classification
-    print(
-        f"PIPELINE|classify_complete|intent={intent.value}|"
-        f"confidence={confidence:.2f}|has_name={has_parent_name}"
-    )
+        return ai_decision
 
-    # Map intent to node name
-    node_map = {
-        Intent.GREETING: "greeting_node",
-        Intent.QUALIFICATION: "qualification_node",
-        Intent.INFORMATION: "information_node",
-        Intent.SCHEDULING: "scheduling_node",
-        Intent.FALLBACK: "fallback_node",
-    }
-
-    return node_map.get(intent, "fallback_node")
+    except Exception as e:
+        # Graceful fallback on any error
+        print(f"PIPELINE|master_router_error|error={str(e)}|phone={phone}")
+        print(f"PIPELINE|master_router_fallback|decision=fallback_node|phone={phone}")
+        return "fallback_node"
 
 
 def _get_conversation_history(phone: str) -> list:
@@ -183,8 +242,13 @@ def _get_next_qualification_question(state: Dict[str, Any]) -> str:
 
 
 def greeting_node(state: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle greeting intent."""
-    return _execute_node(state, "greeting", get_greeting_prompt)
+    """Handle greeting intent and set flag for next turn routing."""
+    result = _execute_node(state, "greeting", get_greeting_prompt)
+
+    # Set flag to indicate greeting was sent (for next turn routing)
+    result["greeting_sent"] = True
+
+    return result
 
 
 def qualification_node(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -617,11 +681,11 @@ def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[st
 
 def route_from_greeting(state: Dict[str, Any]) -> str:
     """
-    Greeting always transitions to qualification_node.
-    The qualification_node is responsible for collecting all required data.
+    Greeting always ends the current turn to wait for user response.
+    The next turn will be routed by Gemini classifier based on context.
     """
-    # Greeting node always transitions to qualification
-    return "qualification_node"
+    # End the current turn after greeting (turn-based conversation)
+    return END
 
 
 def route_from_qualification(state: Dict[str, Any]) -> str:
@@ -731,10 +795,10 @@ def build_graph():
     graph.add_node("scheduling_node", scheduling_node)
     graph.add_node("fallback_node", fallback_node)
 
-    # Set conditional entry point based on classification
+    # Set conditional entry point using master router (Rules First, AI After)
     # For langgraph 0.0.26, we need to use set_conditional_entry_point
     graph.set_conditional_entry_point(
-        classify_intent,
+        master_router,
         {
             "greeting_node": "greeting_node",
             "qualification_node": "qualification_node",
@@ -745,12 +809,12 @@ def build_graph():
     )
 
     # Add conditional transitions
-    # Greeting always goes to qualification
+    # Greeting ends the flow (turn-based conversation)
     graph.add_conditional_edges(
         "greeting_node",
         route_from_greeting,
         {
-            "qualification_node": "qualification_node",
+            END: END,  # Greeting always ends the current turn
         },
     )
 
