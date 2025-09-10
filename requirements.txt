@@ -5,10 +5,21 @@ python-dotenv==1.0.0
 requests==2.31.0
 aiofiles==23.2.1
 pydantic-settings==2.0.3
+email-validator==2.1.0
+
+# HTTP client
+httpx==0.25.2
 
 # AI/ML dependencies
 openai>=1.0.0
 google-generativeai==0.3.2
+numpy==1.24.3
+
+# Google APIs
+google-auth==2.23.4
+google-auth-oauthlib==1.1.0
+google-auth-httplib2==0.2.0
+google-api-python-client==2.108.0
 
 # Database
 asyncpg==0.29.0
