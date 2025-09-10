@@ -2,12 +2,12 @@
   {
     "user_question": "Qual o valor da mensalidade?",
     "next_qualification_question": "O Kumon é para você mesmo ou para outra pessoa?",
-    "ideal_response": "A mensalidade é R$ 375,00 por disciplina. Oferecemos descontos para quem se matricula em mais de uma disciplina.\n\nPara personalizar ainda mais nossa conversa, posso saber se o Kumon é para você mesmo ou para outra pessoa?"
+    "ideal_response": "A mensalidade é R$375,00 por disciplina. Nesse valor está incluso o material didático, portanto não há custo adicional"
   },
   {
     "user_question": "Vocês atendem crianças pequenas?",
     "next_qualification_question": "Qual é o nome da criança?",
-    "ideal_response": "Sim! O método Kumon é ideal para crianças pequenas. Atendemos a partir dos 3 anos de idade, sempre respeitando o ritmo individual de cada criança. O material é desenvolvido especialmente para essa faixa etária.\n\nPara eu te ajudar melhor, qual é o nome da criança?"
+    "ideal_response": "Sim! O método Kumon é ideal para crianças pequenas. Atendemos a partir dos 2 anos de idade, sempre respeitando o ritmo individual de cada criança. O material é desenvolvido especialmente para essa faixa etária.\n\nPara eu te ajudar melhor, qual é o nome da criança?"
   },
   {
     "user_question": "Como funciona o método?",
@@ -27,6 +27,6 @@
   {
     "user_question": "O que está incluso na mensalidade?",
     "next_qualification_question": "Qual disciplina tem mais interesse: Matemática ou Português?",
-    "ideal_response": "A mensalidade inclui todo o material didático personalizado, orientação pedagógica individualizada, acompanhamento do progresso e suporte contínuo da nossa equipe. Não há custos adicionais com livros ou materiais extras.\n\nPara te dar informações mais específicas, qual disciplina tem mais interesse: Matemática ou Português?"
+    "ideal_response": "A mensalidade inclui todo o material didático personalizado, orientação pedagógica individualizada, acompanhamento do progresso e suporte contínuo da nossa equipe. Não há custos adicionais com livros ou materiais extras.\n\nPara te dar informações mais específicas, qual disciplina tem mais interesse: Matemática, Português ou Inglês?"
   }
 ]
