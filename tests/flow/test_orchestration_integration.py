@@ -8,8 +8,7 @@ classify_intent (business logic) and GeminiClassifier (AI classification).
 
 from unittest.mock import patch
 
-
-from app.core.gemini_classifier import Intent
+# Intent enum removed - now using string-based intents
 from app.core.langgraph_flow import build_graph
 
 
@@ -49,7 +48,12 @@ class TestOrchestrationIntegration:
             }
 
             # AI would classify this as something different (e.g., fallback)
-            mock_classifier.classify.return_value = (Intent.FALLBACK, 0.6)
+            mock_classifier.classify.return_value = {
+                "primary_intent": "fallback",
+                "secondary_intent": None,
+                "entities": {},
+                "confidence": 0.6,
+            }
             mock_send.return_value = {"sent": "true", "status_code": 200}
 
             # STEP 3: Execute graph (should use business rule, not AI)
@@ -101,7 +105,12 @@ class TestOrchestrationIntegration:
             mock_get_state.return_value = {}
 
             # AI should classify this as greeting
-            mock_classifier.classify.return_value = (Intent.GREETING, 0.9)
+            mock_classifier.classify.return_value = {
+                "primary_intent": "greeting",
+                "secondary_intent": None,
+                "entities": {},
+                "confidence": 0.9,
+            }
             mock_send.return_value = {"sent": "true", "status_code": 200}
 
             # STEP 3: Execute graph (should use AI classification)
@@ -273,7 +282,12 @@ class TestOrchestrationIntegration:
             mock_get_state.side_effect = Exception("Database connection failed")
 
             # AI should classify as fallback
-            mock_classifier.classify.return_value = (Intent.GREETING, 0.85)
+            mock_classifier.classify.return_value = {
+                "primary_intent": "greeting",
+                "secondary_intent": None,
+                "entities": {},
+                "confidence": 0.85,
+            }
             mock_send.return_value = {"sent": "true", "status_code": 200}
 
             # STEP 3: Execute graph (should gracefully fallback to AI)
@@ -329,7 +343,12 @@ class TestOrchestrationIntegration:
             # Slow AI response (should not be called)
             def slow_ai_classify(*args, **kwargs):
                 time.sleep(0.1)  # Simulate AI latency
-                return (Intent.QUALIFICATION, 0.9)
+                return {
+                    "primary_intent": "qualification",
+                    "secondary_intent": None,
+                    "entities": {},
+                    "confidence": 0.9,
+                }
 
             mock_classifier.classify.side_effect = slow_ai_classify
             mock_send.return_value = {"sent": "true", "status_code": 200}

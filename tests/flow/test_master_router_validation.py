@@ -7,7 +7,7 @@ principle and that responsibility duplication has been eliminated.
 
 from unittest.mock import patch
 
-from app.core.gemini_classifier import Intent
+# Intent enum removed - now using string-based intents
 from app.core.langgraph_flow import classify_intent, master_router
 
 
@@ -74,7 +74,12 @@ class TestMasterRouterValidation:
             mock_get_state.return_value = {}
 
             # AI should classify as greeting
-            mock_classifier.classify.return_value = (Intent.GREETING, 0.9)
+            mock_classifier.classify.return_value = {
+                "primary_intent": "greeting",
+                "secondary_intent": None,
+                "entities": {},
+                "confidence": 0.9,
+            }
 
             # Call master router
             result = master_router(state_new_conversation)
@@ -147,7 +152,12 @@ class TestMasterRouterValidation:
             mock_get_state.side_effect = Exception("Database error")
 
             # AI should still work as fallback
-            mock_classifier.classify.return_value = (Intent.FALLBACK, 0.5)
+            mock_classifier.classify.return_value = {
+                "primary_intent": "fallback",
+                "secondary_intent": None,
+                "entities": {},
+                "confidence": 0.5,
+            }
 
             # Call master router
             result = master_router(state)
@@ -192,7 +202,12 @@ class TestMasterRouterValidation:
                 {"greeting_sent": True},  # First call - business rule applies
                 {},  # Second call - no business rules
             ]
-            mock_classifier.classify.return_value = (Intent.GREETING, 0.9)
+            mock_classifier.classify.return_value = {
+                "primary_intent": "greeting",
+                "secondary_intent": None,
+                "entities": {},
+                "confidence": 0.9,
+            }
 
             # STEP 1: Call classify_intent (should use business logic only)
             business_result = classify_intent(state_business)
@@ -272,7 +287,12 @@ class TestMasterRouterValidation:
             mock_get_history.return_value = (
                 mock_conversation_history  # But we have history for context
             )
-            mock_classifier.classify.return_value = (Intent.QUALIFICATION, 0.95)
+            mock_classifier.classify.return_value = {
+                "primary_intent": "qualification",
+                "secondary_intent": None,
+                "entities": {},
+                "confidence": 0.95,
+            }
 
             # STEP 4: Call master router (this will FAIL until implemented)
             result = master_router(state_for_ai_classification)

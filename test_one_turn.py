@@ -53,19 +53,24 @@ def test_classifier():
     """Testa o classificador Gemini."""
     print("\n3. Testando Classificador Gemini...")
     try:
-        from app.core.gemini_classifier import Intent, classifier
+        from app.core.gemini_classifier import classifier
 
         # Teste com diferentes mensagens
         test_messages = [
-            ("Olá, bom dia!", Intent.GREETING),
-            ("Quero matricular meu filho", Intent.QUALIFICATION),
-            ("Como funciona o método Kumon?", Intent.INFORMATION),
-            ("Posso agendar uma visita?", Intent.SCHEDULING),
+            ("Olá, bom dia!", "greeting"),
+            ("Quero matricular meu filho", "qualification"),
+            ("Como funciona o método Kumon?", "information"),
+            ("Posso agendar uma visita?", "scheduling"),
         ]
 
         for msg, _expected_intent in test_messages:
-            intent, confidence = classifier.classify(msg)
-            print(f"   '{msg[:30]}...' → {intent.value} ({confidence:.2f})")
+            nlu_result = classifier.classify(msg)
+            primary_intent = nlu_result.get("primary_intent", "fallback")
+            confidence = nlu_result.get("confidence", 0.0)
+            entities_count = len(nlu_result.get("entities", {}))
+            print(
+                f"   '{msg[:30]}...' → {primary_intent} ({confidence:.2f}) +{entities_count} entities"
+            )
 
         print("✅ Classificador OK")
 

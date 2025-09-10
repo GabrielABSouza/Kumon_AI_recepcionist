@@ -9,7 +9,7 @@ from typing import Any, Dict
 from langgraph.graph import END, StateGraph
 
 from app.core.delivery import send_text
-from app.core.gemini_classifier import Intent, classifier
+from app.core.gemini_classifier import classifier
 from app.core.llm import OpenAIClient
 from app.core.state_manager import (
     get_conversation_history,
@@ -168,22 +168,28 @@ def master_router(state: Dict[str, Any]) -> str:
             )
             # Continue with empty context
 
-        # Call AI classifier with context
-        intent, confidence = classifier.classify(text, context=conversation_context)
+        # Call AI classifier with context - NEW STRUCTURED FORMAT
+        nlu_result = classifier.classify(text, context=conversation_context)
 
-        # Map AI intent to node names
+        # Extract primary intent and confidence from structured NLU response
+        primary_intent = nlu_result.get("primary_intent", "fallback")
+        confidence = nlu_result.get("confidence", 0.0)
+        secondary_intent = nlu_result.get("secondary_intent")
+        entities = nlu_result.get("entities", {})
+
+        # Map primary intent string to node names
         intent_to_node = {
-            Intent.GREETING: "greeting_node",
-            Intent.QUALIFICATION: "qualification_node",
-            Intent.INFORMATION: "information_node",
-            Intent.SCHEDULING: "scheduling_node",
-            Intent.FALLBACK: "fallback_node",
+            "greeting": "greeting_node",
+            "qualification": "qualification_node",
+            "information": "information_node",
+            "scheduling": "scheduling_node",
+            "fallback": "fallback_node",
         }
+        ai_decision = intent_to_node.get(primary_intent, "fallback_node")
 
-        ai_decision = intent_to_node.get(intent, "fallback_node")
-
+        # Enhanced logging with structured NLU details
         print(
-            f"PIPELINE|master_router_ai_complete|decision={ai_decision}|intent={intent.value}|confidence={confidence:.2f}|phone={phone}"
+            f"PIPELINE|master_router_ai_complete|decision={ai_decision}|primary_intent={primary_intent}|secondary_intent={secondary_intent}|confidence={confidence:.2f}|entities={len(entities)}|phone={phone}"
         )
 
         return ai_decision

@@ -1,26 +1,14 @@
 """
-Minimal intent classifier using Gemini Flash.
-Maps user message to one of the predefined intents.
+Comprehensive NLU (Natural Language Understanding) engine using Gemini Flash.
+Returns structured output with primary/secondary intents and extracted entities.
 """
 import os
-from enum import Enum
-from typing import Tuple
 
 import google.generativeai as genai
 
 
-class Intent(Enum):
-    """Supported intents for the system."""
-
-    GREETING = "greeting"
-    QUALIFICATION = "qualification"
-    INFORMATION = "information"
-    SCHEDULING = "scheduling"
-    FALLBACK = "fallback"
-
-
 class GeminiClassifier:
-    """Simple intent classifier using Gemini Flash."""
+    """Comprehensive NLU engine using Gemini Flash for structured intent classification."""
 
     def __init__(self):
         # Configure Gemini
@@ -163,18 +151,7 @@ class GeminiClassifier:
                 "confidence": 0.5,
             }
 
-    def _simple_classify(self, text: str) -> Tuple[Intent, float]:
-        """Legacy simple classification - kept for backward compatibility."""
-        structured = self._simple_classify_structured(text)
-        intent_map = {
-            "greeting": Intent.GREETING,
-            "qualification": Intent.QUALIFICATION,
-            "information": Intent.INFORMATION,
-            "scheduling": Intent.SCHEDULING,
-            "fallback": Intent.FALLBACK,
-        }
-        intent = intent_map.get(structured["primary_intent"], Intent.FALLBACK)
-        return intent, structured["confidence"]
+    # Legacy _simple_classify() method removed - all code now uses structured format
 
     def _build_prompt(self, text: str) -> str:
         """Build classification prompt from template."""
@@ -259,30 +236,7 @@ class GeminiClassifier:
 }}"""
         return prompt
 
-    def _parse_response(self, response: str) -> Tuple[Intent, float]:
-        """Parse Gemini response into intent and confidence."""
-        try:
-            parts = response.split("|")
-            if len(parts) != 2:
-                return Intent.FALLBACK, 0.0
-
-            intent_str = parts[0].strip()
-            confidence = float(parts[1].strip())
-
-            # Map to Intent enum
-            intent_map = {
-                "greeting": Intent.GREETING,
-                "qualification": Intent.QUALIFICATION,
-                "information": Intent.INFORMATION,
-                "scheduling": Intent.SCHEDULING,
-                "fallback": Intent.FALLBACK,
-            }
-
-            intent = intent_map.get(intent_str, Intent.FALLBACK)
-            return intent, confidence
-
-        except Exception:
-            return Intent.FALLBACK, 0.0
+    # Legacy _parse_response() method removed - replaced by _parse_structured_response()
 
     def _parse_structured_response(self, response: str) -> dict:
         """Parse Gemini JSON response into structured dict with robust error handling."""

@@ -11,7 +11,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from app.core.gemini_classifier import GeminiClassifier, Intent
+from app.core.gemini_classifier import GeminiClassifier
 
 
 class TestGeminiFullContext:
@@ -226,27 +226,38 @@ class TestGeminiFullContext:
             mock_model = Mock()
             mock_model_class.return_value = mock_model
 
-            # Mock Gemini response
+            # Mock Gemini response - structured JSON format
             mock_response = Mock()
-            mock_response.text = "qualification|0.9"
+            mock_response.text = """
+            {
+                "primary_intent": "qualification",
+                "secondary_intent": null,
+                "entities": {"beneficiary_type": "child", "student_name": "Gabriel"},
+                "confidence": 0.9
+            }
+            """
             mock_model.generate_content.return_value = mock_response
 
             classifier = GeminiClassifier()
 
             try:
                 # Should accept context parameter without error
-                intent, confidence = classifier.classify("Gabriel", context=context)
+                nlu_result = classifier.classify("Gabriel", context=context)
 
-                # Should return valid results
+                # Should return valid structured results
                 assert isinstance(
-                    intent, Intent
-                ), f"Expected Intent enum, got {type(intent)}"
+                    nlu_result, dict
+                ), f"Expected dict, got {type(nlu_result)}"
+
+                primary_intent = nlu_result.get("primary_intent")
+                confidence = nlu_result.get("confidence", 0.0)
+
                 assert isinstance(
                     confidence, float
                 ), f"Expected float confidence, got {type(confidence)}"
                 assert (
-                    intent == Intent.QUALIFICATION
-                ), f"Expected QUALIFICATION, got {intent}"
+                    primary_intent == "qualification"
+                ), f"Expected qualification, got {primary_intent}"
                 assert confidence == 0.9, f"Expected 0.9 confidence, got {confidence}"
 
                 print("✅ Context parameter accepted by classify method")
@@ -269,17 +280,29 @@ class TestGeminiFullContext:
             mock_model = Mock()
             mock_model_class.return_value = mock_model
 
-            # Mock Gemini response
+            # Mock Gemini response - structured JSON format
             mock_response = Mock()
-            mock_response.text = "greeting|0.85"
+            mock_response.text = """
+            {
+                "primary_intent": "greeting",
+                "secondary_intent": null,
+                "entities": {},
+                "confidence": 0.85
+            }
+            """
             mock_model.generate_content.return_value = mock_response
 
             classifier = GeminiClassifier()
 
             # Should work without context parameter (backwards compatibility)
-            intent, confidence = classifier.classify("oi, boa tarde")
+            nlu_result = classifier.classify("oi, boa tarde")
 
-            assert intent == Intent.GREETING, f"Expected GREETING, got {intent}"
+            primary_intent = nlu_result.get("primary_intent")
+            confidence = nlu_result.get("confidence", 0.0)
+
+            assert (
+                primary_intent == "greeting"
+            ), f"Expected greeting, got {primary_intent}"
             assert confidence == 0.85, f"Expected 0.85 confidence, got {confidence}"
 
             print("✅ Backwards compatibility maintained (no context)")

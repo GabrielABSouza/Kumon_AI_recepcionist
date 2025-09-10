@@ -7,8 +7,7 @@ to the qualification_node based on the greeting_sent flag.
 
 from unittest.mock import Mock, patch
 
-
-from app.core.gemini_classifier import GeminiClassifier, Intent
+from app.core.gemini_classifier import GeminiClassifier
 
 
 class TestGeminiContextualRouting:
@@ -64,16 +63,18 @@ class TestGeminiContextualRouting:
                 print(f"\nTesting user response: '{user_response}'")
 
                 # STEP 5: Classify with context
-                intent, confidence = classifier.classify(
-                    user_response, context_after_greeting
-                )
+                nlu_result = classifier.classify(user_response, context_after_greeting)
+
+                # Extract structured data
+                intent = nlu_result.get("primary_intent")
+                confidence = nlu_result.get("confidence", 0.0)
 
                 # STEP 6: CRITICAL ASSERTIONS
 
                 # ASSERTION 1: Intent must be QUALIFICATION
-                assert intent == Intent.QUALIFICATION, (
-                    f"CRITICAL BUG: Expected QUALIFICATION for name response '{user_response}' "
-                    f"with greeting_sent=True, but got {intent.value}"
+                assert intent == "qualification", (
+                    f"CRITICAL BUG: Expected qualification for name response '{user_response}' "
+                    f"with greeting_sent=True, but got {intent}"
                 )
 
                 # ASSERTION 2: Confidence should be high (≥0.9)
@@ -160,12 +161,16 @@ class TestGeminiContextualRouting:
                 print(f"\nTesting context {i+1}: {context}")
 
                 # STEP 3: Classify without greeting_sent=True
-                intent, confidence = classifier.classify(greeting_message, context)
+                nlu_result = classifier.classify(greeting_message, context)
+
+                # Extract structured data
+                intent = nlu_result.get("primary_intent")
+                confidence = nlu_result.get("confidence", 0.0)
 
                 # STEP 4: ASSERTIONS - Should work normally
-                assert intent == Intent.GREETING, (
-                    f"Expected GREETING for normal greeting without greeting_sent=True, "
-                    f"but got {intent.value}"
+                assert intent == "greeting", (
+                    f"Expected greeting for normal greeting without greeting_sent=True, "
+                    f"but got {intent}"
                 )
 
                 assert (
@@ -192,13 +197,17 @@ class TestGeminiContextualRouting:
 
             # STEP 3: Test fallback classification
             context = {"greeting_sent": True}
-            intent, confidence = classifier.classify("Gabriel", context)
+            nlu_result = classifier.classify("Gabriel", context)
+
+            # Extract structured data
+            intent = nlu_result.get("primary_intent")
+            nlu_result.get("confidence", 0.0)
 
             # STEP 4: Should use simple classification as fallback
             # Simple classifier doesn't know about contextual rules,
             # so it will classify "Gabriel" as fallback
             assert (
-                intent == Intent.FALLBACK
-            ), f"Simple classifier should return FALLBACK for 'Gabriel', got {intent.value}"
+                intent == "fallback"
+            ), f"Simple classifier should return fallback for 'Gabriel', got {intent}"
 
             print("✅ Fallback classification works when Gemini is disabled")
