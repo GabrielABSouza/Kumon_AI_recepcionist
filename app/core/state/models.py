@@ -2,21 +2,27 @@
 CeciliaState - Optimized State Definition for LangGraph Kumon Assistant
 
 Solução otimizada seguindo rigorosamente state_solving.md:
-- Separação clara de responsabilidades 
+- Separação clara de responsabilidades
 - Apenas 12 campos core obrigatórios
 - Subsistemas opcionais com total=False
 - Performance e manutenibilidade melhoradas
 """
 
-from typing import TypedDict, List, Optional, Dict, Any, Annotated
-from enum import Enum
 from datetime import datetime, timezone
-from dataclasses import dataclass
-from langgraph.graph import add_messages
+from enum import Enum
+from typing import Annotated, Any, Dict, List, Optional, TypedDict
+
+try:
+    from langgraph.graph import add_messages
+except ImportError:
+    # Fallback for older LangGraph versions
+    def add_messages(x, y):
+        return x + y
 
 
 class ConversationStage(str, Enum):
     """Estados principais da conversa"""
+
     UNSET = "unset"  # Estado inicial neutro antes do StageResolver
     GREETING = "greeting"
     QUALIFICATION = "qualification"
@@ -30,24 +36,25 @@ class ConversationStage(str, Enum):
 
 class ConversationStep(str, Enum):
     """Passos específicos dentro de cada estágio"""
+
     # Initial state
     NONE = "none"  # Estado inicial neutro antes do StageResolver
-    
+
     # Greeting steps
     WELCOME = "welcome"
     INITIAL_RESPONSE = "initial_response"
     PARENT_NAME_COLLECTION = "parent_name_collection"
     CHILD_NAME_COLLECTION = "child_name_collection"
-    
-    # Qualification steps  
+
+    # Qualification steps
     CHILD_AGE_INQUIRY = "child_age_inquiry"
     CURRENT_SCHOOL_GRADE = "current_school_grade"
-    
+
     # Information gathering steps
     METHODOLOGY_EXPLANATION = "methodology_explanation"
     PROGRAM_DETAILS = "program_details"
     PROGRAM_EXPLANATION = "program_explanation"
-    
+
     # Scheduling steps
     AVAILABILITY_CHECK = "availability_check"
     APPOINTMENT_SUGGESTION = "appointment_suggestion"
@@ -56,10 +63,10 @@ class ConversationStep(str, Enum):
     EMAIL_COLLECTION = "email_collection"
     EVENT_CREATION = "event_creation"
     SLOT_PRESENTATION = "slot_presentation"
-    
+
     # Validation steps
     CONTACT_CONFIRMATION = "contact_confirmation"
-    
+
     # Final steps
     APPOINTMENT_CONFIRMED = "appointment_confirmed"
     FINAL_CONFIRMATION = "final_confirmation"
@@ -69,29 +76,31 @@ class ConversationStep(str, Enum):
 
 class CollectedData(TypedDict, total=False):
     """Dados coletados pelo agente durante o fluxo"""
+
     # Saudação
     parent_name: str
-    child_name: str  
+    child_name: str
     is_for_self: bool
-    
+
     # Qualificação
     student_age: int
     education_level: str
-    
+
     # Information Gathering
     programs_of_interest: List[str]
-    
+
     # Scheduling
     date_preferences: Dict[str, Any]
     available_slots: List[Dict[str, Any]]
     selected_slot: Dict[str, Any]
-    
+
     # Confirmation
     contact_email: str
 
 
 class ConversationMetrics(TypedDict):
     """Métricas para failure detection e recovery"""
+
     failed_attempts: int
     consecutive_confusion: int
     same_question_count: int
@@ -103,37 +112,40 @@ class ConversationMetrics(TypedDict):
 
 class DataValidation(TypedDict):
     """Sistema de validação e tracking"""
-    extraction_attempts: Dict[str, int]      # {"student_age": 1, "contact_email": 2}
-    pending_confirmations: List[str]         # ["contact_email"] - aguardando confirmação
-    validation_history: List[Dict[str, Any]] # Para auditoria
-    last_extraction_error: Optional[str]    # Para debugging
+
+    extraction_attempts: Dict[str, int]  # {"student_age": 1, "contact_email": 2}
+    pending_confirmations: List[str]  # ["contact_email"] - aguardando confirmação
+    validation_history: List[Dict[str, Any]]  # Para auditoria
+    last_extraction_error: Optional[str]  # Para debugging
 
 
 class DecisionTrail(TypedDict):
     """Auditoria de decisões para debugging"""
-    last_decisions: List[Dict[str, Any]]     # Histórico de transições
-    edge_function_calls: List[str]          # Funções de roteamento chamadas
-    validation_failures: List[Dict[str, Any]] # Falhas de validação
+
+    last_decisions: List[Dict[str, Any]]  # Histórico de transições
+    edge_function_calls: List[str]  # Funções de roteamento chamadas
+    validation_failures: List[Dict[str, Any]]  # Falhas de validação
 
 
 class ErrorRecoveryState(TypedDict):
     """Sistema de tratamento de erros e recovery"""
+
     # Critical delivery errors
     critical_delivery_failure: bool
     critical_error: Optional[str]
     requires_manual_intervention: bool
-    
+
     # Delivery errors
     delivery_failed: bool
     delivery_fallback_used: bool
     last_delivery_error: Optional[Dict[str, Any]]
     emergency_response_sent: bool
-    
+
     # Validation errors
     validation_failed: bool
     validation_error: Optional[str]
     validation_failed_count: int
-    
+
     # Recovery metadata
     recovery_attempts: int
     last_recovery_attempt: Optional[str]
@@ -143,44 +155,49 @@ class ErrorRecoveryState(TypedDict):
 
 class CeciliaState(TypedDict):
     """Estado principal otimizado do LangGraph"""
-    
+
     # IDENTIFICAÇÃO (automática do WhatsApp)
     phone_number: str
     conversation_id: str
     session_id: str
     channel: str
     instance: str  # WhatsApp instance name (e.g., "kumon_assistant")
-    
+
     # CONTROLE DE FLUXO (gerenciado pelo sistema)
     current_stage: ConversationStage
     current_step: ConversationStep
     messages: Annotated[List[Dict[str, Any]], add_messages]
     last_user_message: str
-    
+
     # DADOS COLETADOS (seguindo o fluxo definido)
     collected_data: CollectedData
-    
+
     # SISTEMA DE VALIDAÇÃO
     data_validation: DataValidation
-    
+
     # MÉTRICAS E AUDITORIA
     conversation_metrics: ConversationMetrics
     decision_trail: DecisionTrail
-    
+
     # SISTEMA DE ERRO E RECOVERY
     error_recovery: ErrorRecoveryState
 
 
 # ========== STATE UTILITIES ==========
-def create_initial_cecilia_state(phone_number: str, user_message: str = "", channel: str = "whatsapp", instance: str = "") -> CeciliaState:
+def create_initial_cecilia_state(
+    phone_number: str,
+    user_message: str = "",
+    channel: str = "whatsapp",
+    instance: str = "",
+) -> CeciliaState:
     """
     Create initial CeciliaState following state_solving.md
-    
+
     Apenas 12 campos core obrigatórios, subsistemas inicializados vazios
     """
     now = datetime.now(timezone.utc)
     conversation_id = f"conv_{phone_number}_{now.strftime('%Y%m%d_%H%M%S')}"
-    
+
     return CeciliaState(
         # IDENTIFICAÇÃO
         phone_number=phone_number,
@@ -188,24 +205,24 @@ def create_initial_cecilia_state(phone_number: str, user_message: str = "", chan
         session_id=conversation_id,  # Usar conversation_id como session_id
         channel=channel,
         instance=instance,  # WhatsApp instance from webhook
-        
         # CONTROLE DE FLUXO (inicial neutro - StageResolver define o contexto)
         current_stage=ConversationStage.UNSET,
         current_step=ConversationStep.NONE,
-        messages=[{"role": "user", "content": user_message, "timestamp": now.isoformat()}] if user_message else [],
+        messages=[
+            {"role": "user", "content": user_message, "timestamp": now.isoformat()}
+        ]
+        if user_message
+        else [],
         last_user_message=user_message,
-        
         # DADOS COLETADOS (vazio inicialmente)
         collected_data=CollectedData(),
-        
         # SISTEMA DE VALIDAÇÃO (inicializado)
         data_validation=DataValidation(
             extraction_attempts={},
             pending_confirmations=[],
             validation_history=[],
-            last_extraction_error=None
+            last_extraction_error=None,
         ),
-        
         # MÉTRICAS (inicializadas)
         conversation_metrics=ConversationMetrics(
             failed_attempts=0,
@@ -214,16 +231,12 @@ def create_initial_cecilia_state(phone_number: str, user_message: str = "", chan
             message_count=1 if user_message else 0,
             created_at=now,
             last_successful_collection=None,
-            problematic_fields=[]
+            problematic_fields=[],
         ),
-        
         # AUDITORIA (inicializada)
         decision_trail=DecisionTrail(
-            last_decisions=[],
-            edge_function_calls=[],
-            validation_failures=[]
+            last_decisions=[], edge_function_calls=[], validation_failures=[]
         ),
-        
         # ERROR RECOVERY (inicializado)
         error_recovery=ErrorRecoveryState(
             critical_delivery_failure=False,
@@ -239,8 +252,8 @@ def create_initial_cecilia_state(phone_number: str, user_message: str = "", chan
             recovery_attempts=0,
             last_recovery_attempt=None,
             recovery_strategy=None,
-            error_history=[]
-        )
+            error_history=[],
+        ),
     )
 
 
@@ -263,40 +276,41 @@ def increment_metric(state: CeciliaState, metric_name: str, amount: int = 1) -> 
 
 def add_decision_to_trail(state: CeciliaState, decision: Dict[str, Any]) -> None:
     """Helper para adicionar decisão ao trail"""
-    state["decision_trail"]["last_decisions"].append({
-        **decision,
-        "timestamp": datetime.now(timezone.utc).isoformat()
-    })
-    
+    state["decision_trail"]["last_decisions"].append(
+        {**decision, "timestamp": datetime.now(timezone.utc).isoformat()}
+    )
+
     # Manter apenas últimas 10 decisões
     if len(state["decision_trail"]["last_decisions"]) > 10:
-        state["decision_trail"]["last_decisions"] = state["decision_trail"]["last_decisions"][-10:]
+        state["decision_trail"]["last_decisions"] = state["decision_trail"][
+            "last_decisions"
+        ][-10:]
 
 
 def add_validation_failure(state: CeciliaState, failure: Dict[str, Any]) -> None:
     """Helper para registrar falha de validação"""
-    state["decision_trail"]["validation_failures"].append({
-        **failure,
-        "timestamp": datetime.now(timezone.utc).isoformat()
-    })
-    
+    state["decision_trail"]["validation_failures"].append(
+        {**failure, "timestamp": datetime.now(timezone.utc).isoformat()}
+    )
+
     # Manter apenas últimas 5 falhas
     if len(state["decision_trail"]["validation_failures"]) > 5:
-        state["decision_trail"]["validation_failures"] = state["decision_trail"]["validation_failures"][-5:]
+        state["decision_trail"]["validation_failures"] = state["decision_trail"][
+            "validation_failures"
+        ][-5:]
 
 
 def add_error_to_recovery(state: CeciliaState, error: Dict[str, Any]) -> None:
     """Helper para adicionar erro ao sistema de recovery"""
-    error_entry = {
-        **error,
-        "timestamp": datetime.now(timezone.utc).isoformat()
-    }
-    
+    error_entry = {**error, "timestamp": datetime.now(timezone.utc).isoformat()}
+
     state["error_recovery"]["error_history"].append(error_entry)
-    
+
     # Manter apenas últimos 10 erros
     if len(state["error_recovery"]["error_history"]) > 10:
-        state["error_recovery"]["error_history"] = state["error_recovery"]["error_history"][-10:]
+        state["error_recovery"]["error_history"] = state["error_recovery"][
+            "error_history"
+        ][-10:]
 
 
 def set_error_recovery_field(state: CeciliaState, field_name: str, value: Any) -> None:
@@ -305,26 +319,31 @@ def set_error_recovery_field(state: CeciliaState, field_name: str, value: Any) -
         state["error_recovery"][field_name] = value
     else:
         # Add to error history if field doesn't exist
-        add_error_to_recovery(state, {
-            "type": "unknown_error_field",
-            "field_name": field_name,
-            "value": str(value)
-        })
+        add_error_to_recovery(
+            state,
+            {
+                "type": "unknown_error_field",
+                "field_name": field_name,
+                "value": str(value),
+            },
+        )
 
 
 def increment_recovery_attempts(state: CeciliaState) -> None:
     """Helper para incrementar tentativas de recovery"""
     state["error_recovery"]["recovery_attempts"] += 1
-    state["error_recovery"]["last_recovery_attempt"] = datetime.now(timezone.utc).isoformat()
+    state["error_recovery"]["last_recovery_attempt"] = datetime.now(
+        timezone.utc
+    ).isoformat()
 
 
 def safe_update_state(state: CeciliaState, updates: Dict[str, Any]) -> None:
     """
     Safely update CeciliaState without converting to dict
-    
+
     CRITICAL: This preserves TypedDict structure. Using .update() converts
     CeciliaState to plain dict and breaks attribute access in LangGraph nodes.
-    
+
     Args:
         state: The CeciliaState to update (modified in place)
         updates: Dictionary of updates to apply
