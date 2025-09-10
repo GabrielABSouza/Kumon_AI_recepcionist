@@ -115,15 +115,29 @@ def classify_intent(state: Dict[str, Any]) -> str:
     return None
 
 
+def map_intent_to_node(intent: str) -> str:
+    """Map intent string to corresponding node name."""
+    intent_to_node = {
+        "greeting": "greeting_node",
+        "qualification": "qualification_node",
+        "information": "information_node",
+        "scheduling": "scheduling_node",
+        "fallback": "fallback_node",
+        "help": "fallback_node",  # Help routes to fallback for now
+    }
+    return intent_to_node.get(intent, "fallback_node")
+
+
 def master_router(state: Dict[str, Any]) -> str:
     """
-    Master Router: Implements "Rules First, AI After" orchestration principle.
+    Master Router: Implements Flexible Intent Prioritization.
 
-    This is the single entry point for all routing decisions. It follows the principle:
-    1. Check business rules first (classify_intent)
-    2. If no business rules apply, use AI classification (GeminiClassifier)
-
-    This eliminates the responsibility duplication between business logic and AI.
+    New Architecture: Prioritizes explicit user intent over rigid continuation rules.
+    Hierarchy:
+    1. Get AI analysis first (always)
+    2. Honor explicit interruption intents (information, scheduling, help)
+    3. Apply continuation rules only if no explicit intent
+    4. Use AI classification for new flows
 
     Returns:
         str: Node name to route to (e.g., "greeting_node", "qualification_node")
@@ -134,20 +148,7 @@ def master_router(state: Dict[str, Any]) -> str:
     print(f"PIPELINE|master_router_start|phone={phone}|text_len={len(text)}")
 
     try:
-        # STEP 1: Rules First - Check business logic for conversation continuation
-        business_decision = classify_intent(state)
-
-        if business_decision is not None:
-            # Business rule applied - use it directly
-            print(
-                f"PIPELINE|master_router_business_rule|decision={business_decision}|phone={phone}"
-            )
-            return business_decision
-
-        # STEP 2: AI After - No business rules apply, use AI classification
-        print(f"PIPELINE|master_router_ai_fallback|phone={phone}|text='{text[:50]}...'")
-
-        # Prepare context for AI classification if available
+        # Prepare context for AI classification
         conversation_context = None
         try:
             if phone:
@@ -168,28 +169,40 @@ def master_router(state: Dict[str, Any]) -> str:
             )
             # Continue with empty context
 
-        # Call AI classifier with context - NEW STRUCTURED FORMAT
+        # STEP A: Get AI analysis first (always)
         nlu_result = classifier.classify(text, context=conversation_context)
 
-        # Extract primary intent and confidence from structured NLU response
+        # Extract structured NLU data
         primary_intent = nlu_result.get("primary_intent", "fallback")
         confidence = nlu_result.get("confidence", 0.0)
         secondary_intent = nlu_result.get("secondary_intent")
-        entities = nlu_result.get("entities", {})
+        nlu_result.get("entities", {})
 
-        # Map primary intent string to node names
-        intent_to_node = {
-            "greeting": "greeting_node",
-            "qualification": "qualification_node",
-            "information": "information_node",
-            "scheduling": "scheduling_node",
-            "fallback": "fallback_node",
-        }
-        ai_decision = intent_to_node.get(primary_intent, "fallback_node")
-
-        # Enhanced logging with structured NLU details
         print(
-            f"PIPELINE|master_router_ai_complete|decision={ai_decision}|primary_intent={primary_intent}|secondary_intent={secondary_intent}|confidence={confidence:.2f}|entities={len(entities)}|phone={phone}"
+            f"PIPELINE|ai_analysis|intent={primary_intent}|confidence={confidence:.2f}|secondary={secondary_intent}|phone={phone}"
+        )
+
+        # STEP B: Priority 1 - Honor Explicit Interruption Intents
+        interrupt_intents = ["information", "scheduling", "help"]
+        if primary_intent in interrupt_intents:
+            decision = map_intent_to_node(primary_intent)
+            print(
+                f"PIPELINE|explicit_intent_honored|decision={decision}|intent={primary_intent}|phone={phone}"
+            )
+            return decision
+
+        # STEP C: Priority 2 - Check for Continuation Rules (only if no explicit intent)
+        continuation_decision = classify_intent(state)
+        if continuation_decision is not None:
+            print(
+                f"PIPELINE|continuation_applied|decision={continuation_decision}|phone={phone}"
+            )
+            return continuation_decision
+
+        # STEP D: Priority 3 - Use AI Intent for New Flows
+        ai_decision = map_intent_to_node(primary_intent)
+        print(
+            f"PIPELINE|new_flow_started|decision={ai_decision}|intent={primary_intent}|confidence={confidence:.2f}|phone={phone}"
         )
 
         return ai_decision
