@@ -7,7 +7,6 @@ in the correct sequence without skipping or failing intermediate steps.
 CRITICAL: These tests follow the exact conversation flow and ensure the state
 machine transitions work correctly for variable collection.
 """
-from unittest.mock import patch
 
 import pytest
 
@@ -108,33 +107,29 @@ class TestQualificationSequentialLogic:
         empty_state["current_stage"] = ConversationStage.QUALIFICATION
         empty_state["current_step"] = ConversationStep.PARENT_NAME_COLLECTION
 
-        # Mock the prompt manager to return a parent name prompt
-        with patch("app.core.nodes.qualification.prompt_manager") as mock_prompt:
-            mock_prompt.get_prompt.return_value = "Qual é o seu nome?"
+        # ACT: Call qualification node (simplified - no mocking needed)
+        result = await qualification_node(empty_state)
 
-            # ACT: Call qualification node
-            result = await qualification_node(empty_state)
+        # ASSERT: Should store response in state and return updated state
+        assert isinstance(
+            result, dict
+        ), "qualification_node should return updated state"
 
-            # ASSERT: Should store response in state and return updated state
-            assert isinstance(
-                result, dict
-            ), "qualification_node should return updated state"
+        # The response should be stored in last_bot_response
+        response_text = result.get("last_bot_response", "")
 
-            # The response should be stored in last_bot_response
-            response_text = result.get("last_bot_response", "")
+        # Should contain parent name inquiry keywords
+        assert any(
+            keyword in response_text.lower()
+            for keyword in [
+                "nome",
+                "seu nome",
+                "como posso chamá",
+                "como você se chama",
+            ]
+        ), f"Response should ask for parent name, got: {response_text}"
 
-            # Should contain parent name inquiry keywords
-            assert any(
-                keyword in response_text.lower()
-                for keyword in [
-                    "nome",
-                    "seu nome",
-                    "como posso chamá",
-                    "como você se chama",
-                ]
-            ), f"Response should ask for parent name, got: {response_text}"
-
-            print("✅ TEST 2.1 SUCCESS: Asks for parent_name when qualification starts")
+        print("✅ TEST 2.1 SUCCESS: Asks for parent_name when qualification starts")
 
     @pytest.mark.asyncio
     async def test_asks_for_beneficiary_type_after_parent_name_is_collected(
@@ -151,37 +146,31 @@ class TestQualificationSequentialLogic:
         # ARRANGE: State with parent_name already collected
         state_with_parent_name["last_user_message"] = "Maria Silva"
 
-        # Mock the prompt manager
-        with patch("app.core.nodes.qualification.prompt_manager") as mock_prompt:
-            mock_prompt.get_prompt.return_value = (
-                "O Kumon é para você mesmo ou para outra pessoa?"
-            )
+        # ACT: Call qualification node (simplified - no mocking needed)
+        result = await qualification_node(state_with_parent_name)
 
-            # ACT: Call qualification node
-            result = await qualification_node(state_with_parent_name)
+        # ASSERT: Should ask for beneficiary type
+        assert isinstance(
+            result, dict
+        ), "qualification_node should return updated state"
+        response_text = result.get("last_bot_response", "")
 
-            # ASSERT: Should ask for beneficiary type
-            assert isinstance(
-                result, dict
-            ), "qualification_node should return updated state"
-            response_text = result.get("last_bot_response", "")
+        # Should contain beneficiary type inquiry
+        beneficiary_keywords = [
+            "para você mesmo",
+            "para outra pessoa",
+            "para quem é",
+            "é para você",
+            "para si mesmo",
+            "beneficiário",
+        ]
+        assert any(
+            keyword in response_text.lower() for keyword in beneficiary_keywords
+        ), f"Response should ask for beneficiary type, got: {response_text}"
 
-            # Should contain beneficiary type inquiry
-            beneficiary_keywords = [
-                "para você mesmo",
-                "para outra pessoa",
-                "para quem é",
-                "é para você",
-                "para si mesmo",
-                "beneficiário",
-            ]
-            assert any(
-                keyword in response_text.lower() for keyword in beneficiary_keywords
-            ), f"Response should ask for beneficiary type, got: {response_text}"
-
-            print(
-                "✅ TEST 2.2 SUCCESS: Asks for beneficiary_type after parent_name collected"
-            )
+        print(
+            "✅ TEST 2.2 SUCCESS: Asks for beneficiary_type after parent_name collected"
+        )
 
     @pytest.mark.asyncio
     async def test_asks_for_student_name_when_beneficiary_is_child(
@@ -196,33 +185,228 @@ class TestQualificationSequentialLogic:
         # ARRANGE: State with parent and beneficiary type collected
         state_with_parent_and_beneficiary["last_user_message"] = "para meu filho"
 
-        # Mock the prompt manager
-        with patch("app.core.nodes.qualification.prompt_manager") as mock_prompt:
-            mock_prompt.get_prompt.return_value = "Qual é o nome da criança?"
+        # ACT: Call qualification node (simplified - no mocking needed)
+        result = await qualification_node(state_with_parent_and_beneficiary)
 
-            # ACT: Call qualification node
-            result = await qualification_node(state_with_parent_and_beneficiary)
+        # ASSERT: Should ask for student name
+        assert isinstance(
+            result, dict
+        ), "qualification_node should return updated state"
+        response_text = result.get("last_bot_response", "")
 
-            # ASSERT: Should ask for student name
-            assert isinstance(
-                result, dict
-            ), "qualification_node should return updated state"
-            response_text = result.get("last_bot_response", "")
+        # Should contain student name inquiry
+        student_name_keywords = [
+            "nome da criança",
+            "nome do seu filho",
+            "como se chama",
+            "qual o nome",
+            "nome dele",
+            "nome dela",
+        ]
+        assert any(
+            keyword in response_text.lower() for keyword in student_name_keywords
+        ), f"Response should ask for student name, got: {response_text}"
 
-            # Should contain student name inquiry
-            student_name_keywords = [
-                "nome da criança",
-                "nome do seu filho",
-                "como se chama",
-                "qual o nome",
-                "nome dele",
-                "nome dela",
-            ]
-            assert any(
-                keyword in response_text.lower() for keyword in student_name_keywords
-            ), f"Response should ask for student name, got: {response_text}"
+        print("✅ TEST 2.3 SUCCESS: Asks for student_name when beneficiary is child")
 
-            print("✅ TEST 2.3 SUCCESS: Asks for student_name when beneficiary is child")
+    @pytest.mark.asyncio
+    async def test_qualification_node_collects_all_variables_sequentially(
+        self, empty_state
+    ):
+        """
+        🧪 COMPREHENSIVE INTEGRATION TEST: End-to-end sequential variable collection.
+
+        This is the master test that defines the expected behavior from start to finish.
+        It simulates a complete conversation flow and validates each turn.
+
+        SCENARIO: Complete qualification conversation with realistic user inputs
+        EXPECTED: Node collects all variables in correct sequence with appropriate responses
+        """
+        # Setup initial state for qualification
+        current_state = empty_state.copy()
+        current_state["current_stage"] = ConversationStage.QUALIFICATION
+        current_state["current_step"] = ConversationStep.PARENT_NAME_COLLECTION
+
+        # ========== TURNO 1: Collect parent_name ==========
+        print("🧪 TURNO 1: Testing parent_name collection")
+        current_state["last_user_message"] = "Meu nome é Gabriel"
+
+        result = await qualification_node(current_state)
+
+        # ASSERT 1: parent_name should be collected
+        assert (
+            "parent_name" in result["collected_data"]
+        ), "parent_name should be extracted"
+        assert (
+            result["collected_data"]["parent_name"] == "Gabriel"
+        ), f"Expected 'Gabriel', got {result['collected_data']['parent_name']}"
+
+        # ASSERT 1.1: Should ask for beneficiary_type next
+        response = result.get("last_bot_response", "")
+        beneficiary_keywords = [
+            "para você mesmo",
+            "para outra pessoa",
+            "é para você",
+            "beneficiário",
+        ]
+        assert any(
+            keyword in response.lower() for keyword in beneficiary_keywords
+        ), f"Should ask about beneficiary, got: {response}"
+
+        current_state = result
+        print(
+            "✅ TURNO 1 SUCCESS: parent_name='Gabriel' collected, asking for beneficiary_type"
+        )
+
+        # ========== TURNO 2: Collect beneficiary_type ==========
+        print("🧪 TURNO 2: Testing beneficiary_type collection")
+        current_state["last_user_message"] = "é para meu filho"
+
+        result = await qualification_node(current_state)
+
+        # ASSERT 2: beneficiary_type should be collected
+        assert (
+            "beneficiary_type" in result["collected_data"]
+        ), "beneficiary_type should be extracted"
+        assert (
+            result["collected_data"]["beneficiary_type"] == "child"
+        ), f"Expected 'child', got {result['collected_data']['beneficiary_type']}"
+
+        # ASSERT 2.1: Should ask for student_name next
+        response = result.get("last_bot_response", "")
+        student_keywords = [
+            "nome da criança",
+            "nome do seu filho",
+            "como se chama",
+            "qual o nome",
+        ]
+        assert any(
+            keyword in response.lower() for keyword in student_keywords
+        ), f"Should ask for student name, got: {response}"
+
+        current_state = result
+        print(
+            "✅ TURNO 2 SUCCESS: beneficiary_type='child' collected, asking for student_name"
+        )
+
+        # ========== TURNO 3: Collect student_name ==========
+        print("🧪 TURNO 3: Testing student_name collection")
+        current_state["last_user_message"] = "O nome dele é Pedro"
+
+        result = await qualification_node(current_state)
+
+        # ASSERT 3: student_name should be collected
+        assert (
+            "student_name" in result["collected_data"]
+        ), "student_name should be extracted"
+        assert (
+            result["collected_data"]["student_name"] == "Pedro"
+        ), f"Expected 'Pedro', got {result['collected_data']['student_name']}"
+
+        # ASSERT 3.1: Should ask for student_age next
+        response = result.get("last_bot_response", "")
+        age_keywords = ["quantos anos", "idade", "anos tem", "qual a idade"]
+        assert any(
+            keyword in response.lower() for keyword in age_keywords
+        ), f"Should ask for age, got: {response}"
+
+        current_state = result
+        print(
+            "✅ TURNO 3 SUCCESS: student_name='Pedro' collected, asking for student_age"
+        )
+
+        # ========== TURNO 4: Collect student_age ==========
+        print("🧪 TURNO 4: Testing student_age collection")
+        current_state["last_user_message"] = "Ele tem 8 anos"
+
+        result = await qualification_node(current_state)
+
+        # ASSERT 4: student_age should be collected
+        assert (
+            "student_age" in result["collected_data"]
+        ), "student_age should be extracted"
+        assert (
+            result["collected_data"]["student_age"] == 8
+        ), f"Expected 8, got {result['collected_data']['student_age']}"
+
+        # ASSERT 4.1: Should ask for program_interests next
+        response = result.get("last_bot_response", "")
+        interest_keywords = [
+            "qual matéria",
+            "gostaria de estudar",
+            "matemática",
+            "português",
+            "inglês",
+        ]
+        assert any(
+            keyword in response.lower() for keyword in interest_keywords
+        ), f"Should ask for interests, got: {response}"
+
+        current_state = result
+        print(
+            "✅ TURNO 4 SUCCESS: student_age=8 collected, asking for program_interests"
+        )
+
+        # ========== TURNO 5: Collect program_interests (FINAL) ==========
+        print("🧪 TURNO 5: Testing program_interests collection and completion")
+        current_state["last_user_message"] = "Matemática e português"
+
+        result = await qualification_node(current_state)
+
+        # ASSERT 5: program_interests should be collected
+        assert (
+            "program_interests" in result["collected_data"]
+        ), "program_interests should be extracted"
+        interests = result["collected_data"]["program_interests"]
+        assert isinstance(
+            interests, list
+        ), f"interests should be a list, got {type(interests)}"
+        assert (
+            "Matemática" in interests
+        ), f"Should contain 'Matemática', got {interests}"
+        assert "Português" in interests, f"Should contain 'Português', got {interests}"
+
+        # ASSERT 5.1: Should complete qualification and transition to next stage
+        assert (
+            result["current_stage"] == ConversationStage.INFORMATION_GATHERING
+        ), f"Should transition to INFORMATION_GATHERING, got {result['current_stage']}"
+
+        # ASSERT 5.2: Should generate summary response
+        response = result.get("last_bot_response", "")
+        summary_keywords = [
+            "perfeito",
+            "resumo",
+            "gabriel",
+            "pedro",
+            "8 anos",
+            "matemática",
+            "português",
+        ]
+        assert any(
+            keyword in response.lower() for keyword in summary_keywords
+        ), f"Should generate summary, got: {response}"
+
+        print("✅ TURNO 5 SUCCESS: program_interests collected, qualification COMPLETE!")
+
+        # ========== FINAL VALIDATION ==========
+        final_data = result["collected_data"]
+        expected_data = {
+            "parent_name": "Gabriel",
+            "beneficiary_type": "child",
+            "student_name": "Pedro",
+            "student_age": 8,
+            "program_interests": ["Matemática", "Português"],
+        }
+
+        for key, expected_value in expected_data.items():
+            assert key in final_data, f"Missing required field: {key}"
+            assert (
+                final_data[key] == expected_value
+            ), f"Field {key}: expected {expected_value}, got {final_data[key]}"
+
+        print(
+            "🎯 INTEGRATION TEST SUCCESS: Complete qualification flow working correctly!"
+        )
 
     @pytest.mark.asyncio
     async def test_qualification_node_follows_sequence_logic(self, empty_state):
