@@ -12,9 +12,9 @@ from app.core.delivery import send_text
 from app.core.gemini_classifier import Intent, classifier
 from app.core.llm import OpenAIClient
 from app.core.state_manager import (
-    get_conversation_state, 
     get_conversation_history,
-    save_conversation_state
+    get_conversation_state,
+    save_conversation_state,
 )
 from app.prompts.node_prompts import (
     get_blended_information_prompt,
@@ -155,12 +155,12 @@ def master_router(state: Dict[str, Any]) -> str:
                 saved_state = get_conversation_state(phone)
                 # Collect conversation history
                 conversation_history = get_conversation_history(phone, limit=4)
-                
+
                 if saved_state or conversation_history:
                     # Use new context format: {'state': {...}, 'history': [...]}
                     conversation_context = {
-                        'state': saved_state or {},
-                        'history': conversation_history
+                        "state": saved_state or {},
+                        "history": conversation_history,
                     }
         except Exception as context_error:
             print(
@@ -193,8 +193,6 @@ def master_router(state: Dict[str, Any]) -> str:
         print(f"PIPELINE|master_router_error|error={str(e)}|phone={phone}")
         print(f"PIPELINE|master_router_fallback|decision=fallback_node|phone={phone}")
         return "fallback_node"
-
-
 
 
 def _get_next_qualification_question(state: Dict[str, Any]) -> str:
@@ -252,6 +250,39 @@ def qualification_node(state: Dict[str, Any]) -> Dict[str, Any]:
     print(
         f"QUALIFICATION|node_enter|attempts={state['qualification_attempts']}|phone={safe_phone_display(state.get('phone'))}"
     )
+
+    # LOCAL EXTRACTION: Check if parent_name is missing and extract from user message
+    phone = state.get("phone")
+    if phone:
+        # Load current state from Redis
+        saved_state = get_conversation_state(phone)
+        
+        # Check if parent_name is missing
+        if not saved_state.get("parent_name"):
+            user_text = state.get("text", "")
+            if user_text:
+                # Extract parent_name from user message using regex patterns
+                import re
+                parent_name_patterns = [
+                    r"meu nome é (\w+)",
+                    r"me chamo (\w+)",
+                    r"sou (\w+)",
+                    r"eu sou (\w+)",
+                    r"^(\w+)$",  # Single word response
+                ]
+                
+                extracted_name = None
+                for pattern in parent_name_patterns:
+                    match = re.search(pattern, user_text.lower())
+                    if match:
+                        extracted_name = match.group(1).capitalize()
+                        break
+                
+                if extracted_name:
+                    # Save extracted parent_name to Redis state
+                    updated_state = {**saved_state, "parent_name": extracted_name}
+                    save_conversation_state(phone, updated_state)
+                    print(f"STATE|extracted|phone={safe_phone_display(phone)}|parent_name={extracted_name}")
 
     return _execute_node(state, "qualification", get_qualification_prompt)
 
@@ -432,186 +463,12 @@ def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[st
             # Only the final workflow completion should mark as replied
             print(f"PIPELINE|node_sent|name={node_name}|chars={len(reply_text)}")
 
-            # Extract entities from user message and save state
-            import re
+            # REMOVED: Global entity extraction logic moved to qualification_node
+            # Entity extraction should be contextual and localized to specific nodes
+            # that need specific information, not a global process that runs for all messages
 
-            user_text = state.get("text", "")
-            user_text_lower = user_text.lower()
-
-            # Extract parent name (responsible person)
-            parent_name_patterns = [
-                r"(?:meu nome é|me chamo|sou)\s+(?:o\s+|a\s+)?([a-záàâãéêíóôõúç]+(?:\s+[a-záàâãéêíóôõúç]+)*)",
-            ]
-            # Only try simple name pattern if it's a direct answer (short text)
-            if len(user_text.strip()) <= 20 and not any(
-                word in user_text_lower
-                for word in ["tem", "anos", "interesse", "matemática", "português"]
-            ):
-                parent_name_patterns.append(
-                    r"^([a-záàâãéêíóôõúç]+(?:\s+[a-záàâãéêíóôõúç]+)*)$"
-                )
-
-            for pattern in parent_name_patterns:
-                match = re.search(pattern, user_text_lower)
-                if (
-                    match
-                    and node_name in ["greeting", "qualification"]
-                    and not state.get("parent_name")
-                ):
-                    extracted_name = match.group(1).strip().title()
-                    if len(extracted_name) >= 3 and not extracted_name.lower() in [
-                        "sim",
-                        "não",
-                        "talvez",
-                    ]:
-                        state["parent_name"] = extracted_name
-                        # If no preferred name set, use parent_name as default
-                        if not state.get("preferred_name"):
-                            state["preferred_name"] = extracted_name
-                        print(f"STATE|extracted|parent_name={extracted_name}")
-                        break
-
-            # Extract preferred name (different from parent name)
-            preferred_name_patterns = [
-                r"(?:me chame|prefiro|pode me chamar)\s+(?:de\s+)?(\w+(?:\s+\w+)?)",
-                r"(?:sou|é)\s+(?:o\s+|a\s+)?(\w+)(?:\s*,|\s*mas|\s*porém)",
-            ]
-            for pattern in preferred_name_patterns:
-                match = re.search(pattern, user_text_lower)
-                if match and node_name in ["greeting", "qualification"]:
-                    extracted_preferred = match.group(1).strip().title()
-                    if len(extracted_preferred) > 2:
-                        state["preferred_name"] = extracted_preferred
-                        print(f"STATE|extracted|preferred_name={extracted_preferred}")
-                        break
-
-            # Extract beneficiary_type (self or child)
-            beneficiary_patterns = [
-                r"(?:para mim|para eu|para mim mesmo|para mim mesma|meu|eu mesmo|eu mesma)",
-                r"(?:para (?:o\s+|a\s+)?(?:meu|minha)\s+(?:filho|filha|criança|neto|neta|sobrinho|sobrinha))",
-                r"(?:para outra pessoa|para (?:outro|outra)|para (?:ele|ela))",
-            ]
-
-            for i, pattern in enumerate(beneficiary_patterns):
-                if (
-                    re.search(pattern, user_text_lower)
-                    and node_name == "qualification"
-                    and not state.get("beneficiary_type")
-                ):
-                    if i == 0:  # self patterns
-                        state["beneficiary_type"] = "self"
-                        # Auto-fill student_name with parent_name when beneficiary is self
-                        if state.get("parent_name"):
-                            state["student_name"] = state["parent_name"]
-                            print(
-                                f"STATE|extracted|student_name={state['parent_name']} (auto-filled)"
-                            )
-                        print("STATE|extracted|beneficiary_type=self")
-                    else:  # child/other patterns
-                        state["beneficiary_type"] = "child"
-                        print("STATE|extracted|beneficiary_type=child")
-                    break
-
-            # Extract student name (child/person name when beneficiary_type=child)
-            student_name_patterns = [
-                r"(?:(?:meu|minha)\s+)?(?:filho|filha|criança|menino|menina|neto|neta|"
-                r"sobrinho|sobrinha)\s+(?:se chama|é o|é a|é)\s+"
-                r"([a-záàâãéêíóôõúç]+)",
-                r"(?:o nome (?:dele|dela|da criança) é|chama)\s+"
-                r"([a-záàâãéêíóôõúç]+)",
-                r"(?:se )?chama\s+([a-záàâãéêíóôõúç]+)(?=\s+e\s+tem|\s*,|\s*$)",
-            ]
-            for pattern in student_name_patterns:
-                match = re.search(pattern, user_text_lower)
-                if (
-                    match
-                    and node_name == "qualification"
-                    and not state.get("student_name")
-                ):
-                    extracted_student = match.group(1).strip().title()
-                    if len(
-                        extracted_student
-                    ) >= 2 and not extracted_student.lower() in [
-                        "tem",
-                        "anos",
-                        "ele",
-                        "ela",
-                    ]:
-                        state["student_name"] = extracted_student
-                        print(f"STATE|extracted|student_name={extracted_student}")
-                        break
-
-            # Extract student age
-            age_patterns = [
-                r"(?:tem|possui|está com|idade|anos?)\s*(\d{1,2})\s*anos?",
-                r"(\d{1,2})\s*anos?(?:\s+de idade)?",
-            ]
-            for pattern in age_patterns:
-                match = re.search(pattern, user_text_lower)
-                if (
-                    match
-                    and node_name == "qualification"
-                    and not state.get("student_age")
-                ):
-                    age = int(match.group(1))
-                    if 3 <= age <= 18:  # Kumon age range validation
-                        state["student_age"] = age
-                        print(f"STATE|extracted|student_age={age}")
-                        break
-
-            # Extract program interests (subjects)
-            program_interests = []
-            interest_patterns = [
-                r"(?:matemática|math|mat)",
-                r"(?:português|portugues|port|lingua portuguesa)",
-                r"(?:inglês|ingles|english|eng)",
-                r"(?:ambas|ambos|os dois|duas matérias|todas)",
-            ]
-
-            for i, pattern in enumerate(interest_patterns):
-                if re.search(pattern, user_text_lower):
-                    if i == 0:  # matemática
-                        program_interests.append("mathematics")
-                    elif i == 1:  # português
-                        program_interests.append("portuguese")
-                    elif i == 2:  # inglês
-                        program_interests.append("english")
-                    elif i == 3:  # ambas/todas
-                        program_interests.extend(["mathematics", "portuguese"])
-
-            if (
-                program_interests
-                and node_name == "qualification"
-                and not state.get("program_interests")
-            ):
-                # Remove duplicates and save as JSON
-                unique_interests = list(set(program_interests))
-                state["program_interests"] = unique_interests
-                print(f"STATE|extracted|program_interests={unique_interests}")
-
-            # Extract availability preferences for scheduling
-            availability_patterns = [
-                r"(?:manhã|matutino|de manhã)",
-                r"(?:tarde|vespertino|à tarde)",
-                r"(?:noite|noturno|à noite)",
-                r"(?:segunda|terça|quarta|quinta|sexta|sábado|domingo)",
-                r"(?:dias da semana|final de semana|fins de semana)",
-            ]
-
-            availability_prefs = []
-            for pattern in availability_patterns:
-                if re.search(pattern, user_text_lower):
-                    availability_prefs.append(pattern)
-
-            if (
-                availability_prefs
-                and node_name == "scheduling"
-                and not state.get("availability_preferences")
-            ):
-                state["availability_preferences"] = {
-                    "preferred_times": availability_prefs
-                }
-                print(f"STATE|extracted|availability_preferences={availability_prefs}")
+            # REMOVED: All global entity extraction logic moved to qualification_node
+            # Each node should handle its own specific extraction needs locally
 
             # Save updated state
             if phone:
