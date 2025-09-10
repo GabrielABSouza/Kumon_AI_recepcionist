@@ -11,13 +11,13 @@ from langgraph.graph import END, StateGraph
 from app.core.delivery import send_text
 from app.core.gemini_classifier import classifier
 from app.core.llm import OpenAIClient
+from app.core.nodes.information import information_node as intelligent_information_node
 from app.core.state_manager import (
     get_conversation_history,
     get_conversation_state,
     save_conversation_state,
 )
 from app.prompts.node_prompts import (
-    get_blended_information_prompt,
     get_fallback_prompt,
     get_greeting_prompt,
     get_qualification_prompt,
@@ -214,42 +214,6 @@ def master_router(state: Dict[str, Any]) -> str:
         return "fallback_node"
 
 
-def _get_next_qualification_question(state: Dict[str, Any]) -> str:
-    """Determine the next qualification question based on missing data."""
-    # Check which qualification variables are missing
-    missing_vars = []
-    for var in QUALIFICATION_REQUIRED_VARS:
-        if not state.get(var):
-            missing_vars.append(var)
-
-    # If no variables missing, no qualification question needed
-    if not missing_vars:
-        return ""
-
-    # Get first missing variable and generate appropriate question
-    first_missing = missing_vars[0]
-    parent_name = state.get("parent_name", "")
-
-    # Personalize with parent name if available
-    name_prefix = f"{parent_name}, " if parent_name else ""
-
-    if first_missing == "parent_name":
-        return "A propósito, qual é o seu nome?"
-    elif first_missing == "student_name":
-        return f"A propósito, {name_prefix}qual é o nome da criança para quem será o curso?"
-    elif first_missing == "student_age":
-        student_name = state.get("student_name", "")
-        if student_name:
-            return f"A propósito, {name_prefix}qual é a idade do {student_name}?"
-        else:
-            return f"A propósito, {name_prefix}qual é a idade da criança?"
-    elif first_missing == "program_interests":
-        return f"A propósito, {name_prefix}você tem interesse em algum programa específico? Matemática, Português ou ambos?"
-
-    # Fallback
-    return f"A propósito, {name_prefix}posso coletar mais algumas informações para personalizar nosso atendimento?"
-
-
 def greeting_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """Handle greeting intent and set flag for next turn routing."""
     result = _execute_node(state, "greeting", get_greeting_prompt)
@@ -266,7 +230,7 @@ def greeting_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def qualification_node(state: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle qualification intent with attempt tracking."""
+    """Handle qualification intent with attempt tracking and NLU entity consumption."""
     # CRITICAL: Increment attempt counter here (where state changes are preserved)
     state = copy.deepcopy(state)  # Deep copy to prevent state corruption
     state["qualification_attempts"] = state.get("qualification_attempts", 0) + 1
@@ -275,13 +239,41 @@ def qualification_node(state: Dict[str, Any]) -> Dict[str, Any]:
         f"QUALIFICATION|node_enter|attempts={state['qualification_attempts']}|phone={safe_phone_display(state.get('phone'))}"
     )
 
-    # LOCAL EXTRACTION: Check if parent_name is missing and extract from user message
+    # NEW: Consume pre-extracted entities from NLU result
     phone = state.get("phone")
     if phone:
         # Load current state from Redis
         saved_state = get_conversation_state(phone)
 
-        # Check if parent_name is missing
+        # Check for pre-extracted entities from GeminiClassifier NLU
+        nlu_result = state.get("nlu_result", {})
+        if nlu_result and "entities" in nlu_result:
+            entities_consumed = []
+            updated_state = dict(saved_state)  # Start with current saved state
+
+            for key, value in nlu_result["entities"].items():
+                # Only consume entities that are qualification variables and not already set
+                if key in QUALIFICATION_REQUIRED_VARS and not saved_state.get(key):
+                    updated_state[key] = value
+                    entities_consumed.append(f"{key}={value}")
+                    print(
+                        f"NLU_ENTITY|consumed|phone={safe_phone_display(phone)}|{key}={value}"
+                    )
+
+            # Save updated state with consumed entities if any were processed
+            if entities_consumed:
+                save_conversation_state(phone, updated_state)
+                print(
+                    f"NLU_ENTITY|saved|phone={safe_phone_display(phone)}|entities={len(entities_consumed)}|consumed={', '.join(entities_consumed)}"
+                )
+
+    # LEGACY EXTRACTION: Check if parent_name is missing and extract from user message
+    # Note: This is now secondary to NLU entity consumption but kept for backward compatibility
+    if phone:
+        # Reload state after potential NLU entity consumption
+        saved_state = get_conversation_state(phone)
+
+        # Check if parent_name is missing after NLU consumption
         if not saved_state.get("parent_name"):
             user_text = state.get("text", "")
             if user_text:
@@ -314,9 +306,72 @@ def qualification_node(state: Dict[str, Any]) -> Dict[str, Any]:
     return _execute_node(state, "qualification", get_qualification_prompt)
 
 
-def information_node(state: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle information intent with contextual qualification awareness."""
-    return _execute_blended_node(state, "information", get_blended_information_prompt)
+async def information_node(state: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle information intent using intelligent node with few-shot learning."""
+    try:
+        # Import and convert state to CeciliaState
+        from app.core.state.models import (
+            CeciliaState,
+            ConversationStage,
+            ConversationStep,
+        )
+
+        # Load conversation state for proper context
+        phone = state.get("phone")
+        saved_state = {}
+        if phone:
+            saved_state = get_conversation_state(phone)
+
+        # Create CeciliaState object with proper conversion
+        cecil_state = CeciliaState(
+            phone_number=phone or "",
+            last_user_message=state.get("text", ""),
+            current_stage=ConversationStage.INFORMATION_GATHERING,
+            current_step=ConversationStep.PROGRAM_DETAILS,
+            conversation_metrics={"message_count": 0, "failed_attempts": 0},
+            collected_data=saved_state or {},
+        )
+
+        # Call the intelligent information node
+        result = await intelligent_information_node(cecil_state)
+
+        # Convert back to dict format expected by langgraph
+        if isinstance(result, dict):
+            return {**state, **result}
+        else:
+            # Handle CeciliaState result
+            return {
+                **state,
+                "sent": "true",
+                "response": getattr(result, "last_bot_response", ""),
+            }
+
+    except Exception as e:
+        print(f"PIPELINE|information_node_error|{str(e)}")
+        # Fallback to simple response
+        fallback_text = (
+            "Desculpe, estou com dificuldades técnicas. Como posso ajudá-lo?"
+        )
+
+        try:
+            delivery_result = send_text(
+                state.get("phone", ""),
+                fallback_text,
+                state.get("instance", "recepcionistakumon"),
+            )
+            return {
+                **state,
+                "sent": delivery_result.get("sent", "false"),
+                "response": fallback_text,
+                "error_reason": str(e),
+            }
+        except Exception as send_error:
+            return {
+                **state,
+                "sent": "false",
+                "response": fallback_text,
+                "error_reason": f"{str(e)} | {str(send_error)}",
+            }
 
 
 def scheduling_node(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -329,82 +384,6 @@ def fallback_node(state: Dict[str, Any]) -> Dict[str, Any]:
     return _execute_node(state, "fallback", get_fallback_prompt)
 
 
-def _execute_blended_node(
-    state: Dict[str, Any], node_name: str, prompt_func
-) -> Dict[str, Any]:
-    """Execute a blended node that combines informative response with qualification question."""
-    message_id = state.get("message_id")
-    if not message_id:
-        print(f"PIPELINE|node_error|name={node_name}|error=no_message_id")
-        return {"sent": "false"}
-
-    # Load conversation state for context
-    phone = state.get("phone")
-    saved_state = {}
-    if phone:
-        saved_state = get_conversation_state(phone)
-
-    # Merge state for complete context
-    full_state = {**saved_state, **state}
-
-    # Determine next qualification question based on missing variables
-    next_qualification_question = _get_next_qualification_question(full_state)
-
-    print(f"PIPELINE|node_start|name={node_name}")
-
-    try:
-        # Build blended prompt with information request + next qualification question
-        prompt = prompt_func(
-            state.get("text", ""), full_state, next_qualification_question
-        )
-
-        # Generate response
-        client = get_openai_client()
-        response_text = client.chat(prompt["system"], prompt["user"])
-
-        # Send message
-        result = send_text(
-            instance=state.get("instance", ""),
-            number=state.get("phone", ""),
-            text=response_text,
-        )
-
-        # CRITICAL FIX: Remove automatic state saving from _execute_node
-        # Only specific nodes (like qualification_node) should save state
-        # This prevents contamination from Redis data in new conversations
-
-        return {
-            **state,
-            "sent": result.get("sent", "false"),
-            "response": response_text,
-            "error_reason": result.get("error_reason"),
-        }
-
-    except Exception as e:
-        print(f"PIPELINE|node_error|name={node_name}|error={str(e)}")
-        # Fallback message
-        fallback_text = "Desculpe, estou com dificuldades técnicas. Por favor, entre em contato pelo telefone (11) 4745-2006."
-
-        try:
-            result = send_text(
-                instance=state.get("instance", ""),
-                number=state.get("phone", ""),
-                text=fallback_text,
-            )
-            return {
-                **state,
-                "sent": result.get("sent", "false"),
-                "response": fallback_text,
-                "error_reason": str(e),
-            }
-        except Exception as send_error:
-            print(f"DELIVERY|error|{send_error}")
-            return {
-                **state,
-                "sent": "false",
-                "response": fallback_text,
-                "error_reason": f"{str(e)} | {str(send_error)}",
-            }
 
 
 def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[str, Any]:
