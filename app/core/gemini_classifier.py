@@ -152,7 +152,14 @@ class GeminiClassifier:
         # Extract context information
         conversation_history = self._format_conversation_history(context)
         collected_vars, missing_vars = self._format_qualification_state(context)
-        greeting_sent = context.get("greeting_sent", False)
+        
+        # Support both old format (direct) and new format (nested)
+        if 'state' in context:
+            # New format: {'state': {...}, 'history': [...]}
+            greeting_sent = context.get("state", {}).get("greeting_sent", False)
+        else:
+            # Old format: greeting_sent directly in context
+            greeting_sent = context.get("greeting_sent", False)
 
         # Fill template
         return template.format(
@@ -165,7 +172,13 @@ class GeminiClassifier:
 
     def _format_conversation_history(self, context: dict) -> str:
         """Format conversation history for prompt."""
-        history = context.get("conversation_history", [])
+        # Support both old format (direct) and new format (nested)
+        if 'history' in context:
+            # New format: {'state': {...}, 'history': [...]}
+            history = context.get("history", [])
+        else:
+            # Old format: {'conversation_history': [...]}
+            history = context.get("conversation_history", [])
 
         if not history:
             return "Nenhum histórico anterior (conversa iniciando)"
@@ -188,10 +201,18 @@ class GeminiClassifier:
 
     def _format_qualification_state(self, context: dict) -> tuple[str, str]:
         """Format current qualification state for prompt."""
+        # Support both old format (direct) and new format (nested)
+        if 'state' in context:
+            # New format: {'state': {...}, 'history': [...]}
+            state_data = context.get("state", {})
+        else:
+            # Old format: state variables directly in context
+            state_data = context
+            
         # Standard qualification variables
         qualification_vars = [
             "parent_name",
-            "student_name",
+            "student_name", 
             "student_age",
             "program_interests",
         ]
@@ -200,8 +221,10 @@ class GeminiClassifier:
         missing = []
 
         for var in qualification_vars:
-            if context.get(var):
-                collected.append(var)
+            value = state_data.get(var)
+            if value:
+                # Include both variable name and value for better context
+                collected.append(f"{var}={value}")
             else:
                 missing.append(var)
 

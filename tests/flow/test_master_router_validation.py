@@ -221,3 +221,106 @@ class TestMasterRouterValidation:
             print("   - master_router: Orchestrates Rules First, AI After ✅")
             print("   - GeminiClassifier: AI classification only ✅")
             print("   - Architecture: Clean separation of concerns ✅")
+    
+    def test_master_router_passes_full_context_to_classifier(self):
+        """
+        TDD STEP 3.1: Test that master router passes full context to GeminiClassifier.
+        
+        This test validates that the master router correctly collects conversation 
+        state and history, then passes the complete context to the GeminiClassifier
+        in the new format: {'state': {...}, 'history': [...]}.
+        
+        This test will FAIL until we implement the context integration.
+        """
+        # STEP 1: Set up test scenario where AI classification is needed
+        state_for_ai_classification = {
+            "phone": "5511999999999", 
+            "text": "ele tem 8 anos"  # Ambiguous message needing context
+        }
+        
+        # STEP 2: Mock the state and history that should be collected
+        mock_conversation_state = {
+            "greeting_sent": True,
+            "parent_name": "Gabriel",
+            "student_name": "João", 
+            "student_age": None,
+            "program_interests": None,
+        }
+        
+        mock_conversation_history = [
+            {"role": "assistant", "content": "Olá! Eu sou a Cecília do Kumon. Qual é o seu nome?"},
+            {"role": "user", "content": "meu nome é Gabriel"},
+            {"role": "assistant", "content": "Olá Gabriel! Qual é o nome da criança?"},
+            {"role": "user", "content": "meu filho João"},
+        ]
+        
+        with patch("app.core.langgraph_flow.get_conversation_state") as mock_get_state, \
+             patch("app.core.langgraph_flow.get_conversation_history") as mock_get_history, \
+             patch("app.core.langgraph_flow.classifier") as mock_classifier:
+            
+            # STEP 3: Mock the return values - simulate NEW conversation scenario
+            # For NEW conversation, get_conversation_state returns {} (no business rules)
+            # But we can still have history from previous sessions that ended
+            mock_get_state.return_value = {}  # No active state = no business rules apply
+            mock_get_history.return_value = mock_conversation_history  # But we have history for context
+            mock_classifier.classify.return_value = (Intent.QUALIFICATION, 0.95)
+            
+            # STEP 4: Call master router (this will FAIL until implemented)
+            result = master_router(state_for_ai_classification)
+            
+            # STEP 5: CRITICAL ASSERTIONS - Validate context collection and passing
+            
+            # ASSERTION 1: Should call get_conversation_state to collect state
+            # Note: get_conversation_state is called twice:
+            # 1. In classify_intent (for business rules)
+            # 2. In master_router (for AI context)
+            assert mock_get_state.call_count == 2, f"Expected 2 calls to get_conversation_state, got {mock_get_state.call_count}"
+            mock_get_state.assert_any_call("5511999999999")  # Check that our phone was called
+            
+            # ASSERTION 2: Should call get_conversation_history to collect history
+            # Note: Phone number is formatted by safe_phone_display to "9999"
+            mock_get_history.assert_called_once_with("9999", limit=4)
+            
+            # ASSERTION 3: Should pass full context to classifier in new format
+            expected_context = {
+                'state': {},  # Empty state for new conversation
+                'history': mock_conversation_history
+            }
+            mock_classifier.classify.assert_called_once_with(
+                "ele tem 8 anos", 
+                context=expected_context
+            )
+            
+            # ASSERTION 4: Should return correct routing based on AI classification
+            assert result == "qualification_node", f"Expected qualification_node, got {result}"
+            
+            print("✅ TDD STEP 3.1: Master router context integration test structure created")
+            print(f"   Validated: State collection, history collection, context passing")
+            print(f"   Expected context format: {{'state': {{...}}, 'history': [...]}}")
+            
+        # STEP 6: Test that context is only collected when AI is needed
+        state_with_business_rule = {
+            "phone": "5511888888888",
+            "text": "test"
+        }
+        
+        with patch("app.core.langgraph_flow.get_conversation_state") as mock_get_state2, \
+             patch("app.core.langgraph_flow.get_conversation_history") as mock_get_history2, \
+             patch("app.core.langgraph_flow.classifier") as mock_classifier2:
+            
+            # Business rule applies (greeting_sent=True)
+            mock_get_state2.return_value = {"greeting_sent": True}
+            
+            result = master_router(state_with_business_rule)
+            
+            # ASSERTION 5: Should NOT collect history when business rules apply
+            assert not mock_get_history2.called, \
+                "Should not collect history when business rules apply (efficiency)"
+            
+            # ASSERTION 6: Should NOT call classifier when business rules apply
+            assert not mock_classifier2.classify.called, \
+                "Should not call classifier when business rules apply (Rules First)"
+            
+            print("✅ TDD STEP 3.1: Context collection optimization validated")
+            print("   - History only collected when AI classification needed ✅")
+            print("   - Maintains Rules First, AI After principle ✅")

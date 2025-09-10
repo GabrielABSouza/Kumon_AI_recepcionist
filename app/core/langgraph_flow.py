@@ -11,7 +11,11 @@ from langgraph.graph import END, StateGraph
 from app.core.delivery import send_text
 from app.core.gemini_classifier import Intent, classifier
 from app.core.llm import OpenAIClient
-from app.core.state_manager import get_conversation_state, save_conversation_state
+from app.core.state_manager import (
+    get_conversation_state, 
+    get_conversation_history,
+    save_conversation_state
+)
 from app.prompts.node_prompts import (
     get_blended_information_prompt,
     get_fallback_prompt,
@@ -144,18 +148,19 @@ def master_router(state: Dict[str, Any]) -> str:
         print(f"PIPELINE|master_router_ai_fallback|phone={phone}|text='{text[:50]}...'")
 
         # Prepare context for AI classification if available
-        conversation_context = {}
+        conversation_context = None
         try:
             if phone:
+                # Collect conversation state
                 saved_state = get_conversation_state(phone)
-                if saved_state:
+                # Collect conversation history
+                conversation_history = get_conversation_history(phone, limit=4)
+                
+                if saved_state or conversation_history:
+                    # Use new context format: {'state': {...}, 'history': [...]}
                     conversation_context = {
-                        "greeting_sent": saved_state.get("greeting_sent", False),
-                        "conversation_history": _get_conversation_history(phone),
-                        "parent_name": saved_state.get("parent_name"),
-                        "student_name": saved_state.get("student_name"),
-                        "student_age": saved_state.get("student_age"),
-                        "program_interests": saved_state.get("program_interests"),
+                        'state': saved_state or {},
+                        'history': conversation_history
                     }
         except Exception as context_error:
             print(
@@ -164,7 +169,7 @@ def master_router(state: Dict[str, Any]) -> str:
             # Continue with empty context
 
         # Call AI classifier with context
-        intent, confidence = classifier.classify(text, conversation_context)
+        intent, confidence = classifier.classify(text, context=conversation_context)
 
         # Map AI intent to node names
         intent_to_node = {
@@ -190,19 +195,6 @@ def master_router(state: Dict[str, Any]) -> str:
         return "fallback_node"
 
 
-def _get_conversation_history(phone: str) -> list:
-    """Get recent conversation history for context."""
-    if not phone:
-        return []
-
-    try:
-        # This is a placeholder - in a real system you'd query message history from Redis/DB
-        # For now, return empty list since we don't have message persistence
-        # TODO: Implement actual conversation history retrieval
-        return []
-    except Exception as e:
-        print(f"Error retrieving conversation history: {e}")
-        return []
 
 
 def _get_next_qualification_question(state: Dict[str, Any]) -> str:
