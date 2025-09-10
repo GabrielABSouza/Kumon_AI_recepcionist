@@ -31,9 +31,15 @@ try:
 except Exception as e:
     logger.error(f"❌ Failed to apply Railway fixes: {e}")
     # Continue startup even if Railway fixes fail - application should be resilient
-    logger.warning("⚠️ Continuing startup without Railway fixes - some features may be limited")
+    logger.warning(
+        "⚠️ Continuing startup without Railway fixes - some features may be limited"
+    )
 
 import asyncio
+
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 # Temporarily disable alerts until monitoring dependencies are resolved
 # from app.api.v1 import alerts
@@ -44,13 +50,10 @@ import asyncio
 # Temporarily disable workflows until cryptography is installed
 # from app.api.v1 import workflows, llm_service, config
 from app.api import embeddings, evolution
-from app.api.v1 import conversation, health, units, whatsapp
+from app.api.v1 import conversation, health, units
 from app.core.config import settings
 from app.core.logger import app_logger
 from app.services.cache_manager import cache_manager
-# Lazy initialization - workflow created in startup event
-# from app.workflows.development_workflow import development_workflow_manager  # File missing
-# from app.workflows.maintainability_engine import maintainability_engine  # File missing
 
 # Temporarily disable monitoring imports until dependencies are installed
 # from app.monitoring.performance_middleware import PerformanceMiddleware
@@ -70,9 +73,11 @@ from app.services.cache_manager import cache_manager
 # Temporarily disable security features until cryptography is installed
 # from app.security.audit_logger import audit_logger, AuditEventType, AuditSeverity, AuditOutcome
 from app.workflows.workflow_orchestrator import workflow_orchestrator
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+
+# Lazy initialization - workflow created in startup event
+# from app.workflows.development_workflow import development_workflow_manager  # File missing
+# from app.workflows.maintainability_engine import maintainability_engine  # File missing
+
 
 # Temporarily disable performance integration service until dependencies are resolved
 # from app.services.performance_integration_service import performance_integration
@@ -104,7 +109,9 @@ def get_cors_origins():
             base_origins.append(settings.FRONTEND_URL)
             app_logger.info(f"Added FRONTEND_URL to CORS: {settings.FRONTEND_URL}")
         else:
-            app_logger.warning(f"Invalid FRONTEND_URL ignored (not HTTPS): {settings.FRONTEND_URL}")
+            app_logger.warning(
+                f"Invalid FRONTEND_URL ignored (not HTTPS): {settings.FRONTEND_URL}"
+            )
 
     # Remove None values and log final configuration
     origins = [origin for origin in base_origins if origin is not None]
@@ -118,7 +125,13 @@ app.add_middleware(
     allow_origins=get_cors_origins(),
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization", "Accept", "Origin", "X-Requested-With"],
+    allow_headers=[
+        "Content-Type",
+        "Authorization",
+        "Accept",
+        "Origin",
+        "X-Requested-With",
+    ],
 )
 
 # Temporarily disable Security Middleware until cryptography is installed
@@ -164,9 +177,12 @@ app.add_middleware(
 # Global exception handler
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request, exc):
-    app_logger.error(f"HTTP error: {exc.detail}", extra={"status_code": exc.status_code})
+    app_logger.error(
+        f"HTTP error: {exc.detail}", extra={"status_code": exc.status_code}
+    )
     return JSONResponse(
-        status_code=exc.status_code, content={"error": exc.detail, "status_code": exc.status_code}
+        status_code=exc.status_code,
+        content={"error": exc.detail, "status_code": exc.status_code},
     )
 
 
@@ -192,7 +208,9 @@ app.include_router(health.router, prefix="/api/v1", tags=["health"])
 # Comprehensive health monitoring endpoints (Wave 5)
 from app.api.v1 import health_comprehensive
 
-app.include_router(health_comprehensive.router, prefix="/api/v1", tags=["health-monitoring"])
+app.include_router(
+    health_comprehensive.router, prefix="/api/v1", tags=["health-monitoring"]
+)
 
 # Conversation flow management endpoints
 app.include_router(conversation.router, prefix="/api/v1", tags=["conversation"])
@@ -354,7 +372,7 @@ from app.core.unified_service_resolver import unified_service_resolver
 async def startup_event():
     """Application startup validation and initialization"""
     app_logger.info("🚀 Kumon AI Receptionist API v2.0 starting up...")
-    
+
     # Optional: Version tracking for deployment monitoring
     # try:
     #     import subprocess
@@ -368,24 +386,33 @@ async def startup_event():
     try:
         app_logger.info("🔄 Initializing Cecilia Workflow (lazy pattern)...")
         from app.core.compat_imports import get_cecilia_workflow
+
         # Initialize workflow (lazy loading)
         workflow = get_cecilia_workflow()
         app_logger.info("✅ Cecilia workflow created successfully")
     except ModuleNotFoundError as e:
         app_logger.error(f"❌ Module not found for Cecilia Workflow: {e}")
-        app_logger.warning("⚠️ Continuing in degraded mode - some workflow features will be unavailable")
+        app_logger.warning(
+            "⚠️ Continuing in degraded mode - some workflow features will be unavailable"
+        )
     except Exception as e:
         app_logger.error(f"❌ Failed to initialize Cecilia Workflow: {e}")
         import traceback
+
         app_logger.error(f"Full traceback: {traceback.format_exc()}")
-        app_logger.warning("⚠️ Continuing in degraded mode - some workflow features will be unavailable")
+        app_logger.warning(
+            "⚠️ Continuing in degraded mode - some workflow features will be unavailable"
+        )
 
     # DEBUG: Print ALL environment variables to identify the problem
     app_logger.info("🔍 DEBUG: All environment variables:")
     for key in sorted(os.environ.keys()):
         value = os.getenv(key)
         # Mask sensitive values but show if they exist
-        if any(secret in key.upper() for secret in ["API_KEY", "SECRET", "TOKEN", "PASSWORD"]):
+        if any(
+            secret in key.upper()
+            for secret in ["API_KEY", "SECRET", "TOKEN", "PASSWORD"]
+        ):
             masked_value = f"[SET - {len(value)} chars]" if value else "[NOT SET]"
             app_logger.info(f"  {key}: {masked_value}")
         else:
@@ -405,9 +432,17 @@ async def startup_event():
         for key in sorted(os.environ.keys()):
             if any(
                 pattern in key.upper()
-                for pattern in ["DATABASE", "POSTGRES", "OPENAI", "EVOLUTION", "RAILWAY"]
+                for pattern in [
+                    "DATABASE",
+                    "POSTGRES",
+                    "OPENAI",
+                    "EVOLUTION",
+                    "RAILWAY",
+                ]
             ):
-                app_logger.info(f"  {key}: {'[SET]' if os.getenv(key) else '[NOT SET]'}")
+                app_logger.info(
+                    f"  {key}: {'[SET]' if os.getenv(key) else '[NOT SET]'}"
+                )
 
     # Initialize Wave 5: Optimized Startup System
     app_logger.info("🚀 Initializing Wave 5: Optimized Startup System...")
@@ -425,7 +460,9 @@ async def startup_event():
     app_logger.info(
         f"📊 Services ready: {startup_report['services_ready']}/{startup_report['services_ready'] + startup_report['services_initializing'] + startup_report['services_failed']}"
     )
-    app_logger.info(f"⚡ Critical services: {startup_report['critical_services_time']:.2f}s")
+    app_logger.info(
+        f"⚡ Critical services: {startup_report['critical_services_time']:.2f}s"
+    )
     app_logger.info(f"🔄 Background tasks: {startup_report['background_tasks']}")
 
     # CRITICAL FIX: Enhanced service instance debugging and population
@@ -441,14 +478,16 @@ async def startup_event():
         )
 
     # Populate dependencies for backward compatibility with validation
-    dependencies.llm_service = optimized_startup_manager.service_instances.get("llm_service")
+    dependencies.llm_service = optimized_startup_manager.service_instances.get(
+        "llm_service"
+    )
     dependencies.intent_classifier = optimized_startup_manager.service_instances.get(
         "intent_classifier"
     )
     # UPDATED: Using CeciliaWorkflow instead of secure_workflow - use safely initialized instance
     dependencies.cecilia_workflow = workflow
-    dependencies.langchain_rag_service = optimized_startup_manager.service_instances.get(
-        "langchain_rag_service"
+    dependencies.langchain_rag_service = (
+        optimized_startup_manager.service_instances.get("langchain_rag_service")
     )
 
     # Validate critical service availability
@@ -468,7 +507,9 @@ async def startup_event():
             app_logger.error(f"❌ {service_name} not available in dependencies!")
 
     # Count successful service injections
-    successful_injections = sum(1 for instance in critical_services.values() if instance)
+    successful_injections = sum(
+        1 for instance in critical_services.values() if instance
+    )
     total_services = len(critical_services)
     app_logger.info(
         f"Service injection success rate: {successful_injections}/{total_services} ({(successful_injections/total_services)*100:.1f}%)"
@@ -482,7 +523,9 @@ async def startup_event():
         register_core_services()
         await service_factory.initialize_core_services()
         dependencies.llm_service = await service_factory.get_service("llm_service")
-        dependencies.intent_classifier = await service_factory.get_service("intent_classifier")
+        dependencies.intent_classifier = await service_factory.get_service(
+            "intent_classifier"
+        )
         # UPDATED: Using CeciliaWorkflow instead of secure_workflow from service factory
         dependencies.cecilia_workflow = workflow
         dependencies.langchain_rag_service = await service_factory.get_service(
@@ -506,7 +549,9 @@ async def startup_event():
             f"OSM={resolver_health['resolution_sources']['optimized_startup']}"
         )
     else:
-        app_logger.warning(f"⚠️ Unified Service Resolver status: {resolver_health['status']}")
+        app_logger.warning(
+            f"⚠️ Unified Service Resolver status: {resolver_health['status']}"
+        )
 
     # Test critical service resolution via unified resolver
     try:
@@ -523,10 +568,14 @@ async def startup_event():
 
     app_logger.info("🔍 DEBUG: Environment variable status:")
     app_logger.info(f"OPENAI_API_KEY present: {bool(os.getenv('OPENAI_API_KEY'))}")
-    app_logger.info(f"EVOLUTION_API_KEY present: {bool(os.getenv('EVOLUTION_API_KEY'))}")
+    app_logger.info(
+        f"EVOLUTION_API_KEY present: {bool(os.getenv('EVOLUTION_API_KEY'))}"
+    )
     app_logger.info(f"JWT_SECRET_KEY present: {bool(os.getenv('JWT_SECRET_KEY'))}")
     app_logger.info(f"OPENAI_API_KEY length: {len(os.getenv('OPENAI_API_KEY', ''))}")
-    app_logger.info(f"EVOLUTION_API_KEY length: {len(os.getenv('EVOLUTION_API_KEY', ''))}")
+    app_logger.info(
+        f"EVOLUTION_API_KEY length: {len(os.getenv('EVOLUTION_API_KEY', ''))}"
+    )
     app_logger.info(f"JWT_SECRET_KEY length: {len(os.getenv('JWT_SECRET_KEY', ''))}")
 
     # Run startup validation first
@@ -538,7 +587,9 @@ async def startup_event():
         if not validation_success:
             # In production, log warnings but continue startup
             if settings.ENVIRONMENT == "production":
-                app_logger.warning("⚠️ Startup validation failed - continuing with limited features")
+                app_logger.warning(
+                    "⚠️ Startup validation failed - continuing with limited features"
+                )
                 app_logger.warning("🚨 Some external services may be unavailable")
             else:
                 app_logger.error("❌ Startup validation failed!")
@@ -551,7 +602,9 @@ async def startup_event():
 
     except Exception as e:
         app_logger.error(f"💀 CRITICAL: Startup validation error: {e}")
-        app_logger.warning("⚠️ Continuing startup in degraded mode - some features may be unavailable")
+        app_logger.warning(
+            "⚠️ Continuing startup in degraded mode - some features may be unavailable"
+        )
 
     # Initialize security systems (Phase 2)
     try:
@@ -685,16 +738,22 @@ async def startup_event():
                 conversation_memory_service.initialize(),
                 timeout=30.0 if os.getenv("RAILWAY_ENVIRONMENT") else 60.0,
             )
-            app_logger.info("✅ ConversationMemoryService connections initialized (Redis/PostgreSQL)")
+            app_logger.info(
+                "✅ ConversationMemoryService connections initialized (Redis/PostgreSQL)"
+            )
 
             # Perform health check to ensure service is ready for session creation
             health_status = await conversation_memory_service.health_check()
             app_logger.info(f"Memory service health: {health_status}")
-            
+
             if health_status.get("status") == "healthy":
-                app_logger.info("🔗 ConversationMemoryService ready for CeciliaWorkflow session management")
+                app_logger.info(
+                    "🔗 ConversationMemoryService ready for CeciliaWorkflow session management"
+                )
             else:
-                app_logger.warning(f"⚠️ ConversationMemoryService unhealthy: {health_status}")
+                app_logger.warning(
+                    f"⚠️ ConversationMemoryService unhealthy: {health_status}"
+                )
 
         except asyncio.TimeoutError:
             timeout_val = 30 if os.getenv("RAILWAY_ENVIRONMENT") else 60
