@@ -61,18 +61,18 @@ class TestQualificationNode:
                     ), f"Should ask about beneficiary type, got: {response}"
 
     def test_qualification_node_does_not_extract_greetings_as_name(self):
-        """
+        r"""
         🚨 TESTE DE REGRESSÃO: Prova que o bug de extração de "Olá" existe.
-        
+
         Este teste DEVE FALHAR inicialmente, provando que o qualification_node
         está incorretamente extraindo saudações como "Olá" como parent_name.
-        
+
         Bug Location: app/core/langgraph_flow.py:272 - padrão r"^(\w+)$"
         """
         # Estado simulando conversa onde parent_name está faltando
         state_input = {
             "text": "Olá",  # CRÍTICO: Saudação que NÃO deve ser extraída como nome
-            "phone": "+5511999999999", 
+            "phone": "+5511999999999",
             "message_id": "MSG_GREETING_BUG",
             "instance": "test",
             "qualification_attempts": 0,
@@ -85,13 +85,14 @@ class TestQualificationNode:
                         # CENÁRIO: Redis retorna estado vazio (parent_name missing)
                         # Isso força o qualification_node a tentar extrair parent_name
                         mock_get_state.return_value = {}  # Sem parent_name!
-                        
+
                         mock_send.return_value = {
                             "sent": "true",
                             "status_code": 200,
                         }
 
                         mock_client = MagicMock()
+
                         async def mock_chat(*args, **kwargs):
                             return "Olá! Qual é o seu nome?"
 
@@ -99,37 +100,39 @@ class TestQualificationNode:
                         mock_openai.return_value = mock_client
 
                         # EXECUÇÃO: Roda qualification_node com saudação "Olá"
-                        result = qualification_node(state_input)
+                        qualification_node(state_input)
 
                         # ASSERTIVA CRÍTICA: parent_name NÃO deve ser extraído de saudações
                         # Este teste deve FALHAR, provando que o bug existe
-                        
+
                         # O qualification_node salva estado duas vezes:
                         # 1. Durante extração local (se parent_name missing)
                         # 2. No final da execução
                         # Vamos verificar todas as chamadas para save_conversation_state
-                        
+
                         bug_detected = False
                         extracted_name = None
-                        
+
                         if mock_save.called:
                             # Verificar todas as chamadas para save_conversation_state
                             for call_args in mock_save.call_args_list:
-                                saved_state = call_args[0][1]  # Segundo argumento (state dict)
+                                saved_state = call_args[0][
+                                    1
+                                ]  # Segundo argumento (state dict)
                                 parent_name = saved_state.get("parent_name")
-                                
+
                                 if parent_name in ["Olá", "Ola"]:
                                     bug_detected = True
                                     extracted_name = parent_name
                                     break
-                        
+
                         # ASSERTIVA REAL: O bug deve ser detectado (teste deve falhar)
                         assert not bug_detected, (
                             f"🚨 BUG CONFIRMADO: qualification_node extraiu saudação '{extracted_name}' "
                             f"como parent_name! Verificar regex problemático em langgraph_flow.py:272. "
                             f"Todas as chamadas save: {[call[0][1] for call in mock_save.call_args_list]}"
                         )
-                        
-                        print(f"✅ REGRESSION TEST: Saudação 'Olá' não foi extraída como parent_name")
 
-
+                        print(
+                            f"✅ REGRESSION TEST: Saudação 'Olá' não foi extraída como parent_name"
+                        )

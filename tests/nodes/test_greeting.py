@@ -25,16 +25,18 @@ class TestGreetingNode:
         with patch("app.core.langgraph_flow.get_conversation_state") as mock_get_state:
             with patch("app.core.langgraph_flow.get_openai_client") as mock_openai:
                 with patch("app.core.langgraph_flow.send_text") as mock_send:
-                    with patch("app.core.langgraph_flow.save_conversation_state") as mock_save:
+                    with patch(
+                        "app.core.langgraph_flow.save_conversation_state"
+                    ) as mock_save:
                         # Setup mocks
                         mock_get_state.return_value = {}  # New conversation
                         mock_send.return_value = {
-                            "sent": "true", 
+                            "sent": "true",
                             "status_code": 200,
                         }
 
                         mock_client = MagicMock()
-                        
+
                         # Create async mock for OpenAI response
                         async def mock_chat(*args, **kwargs):
                             return "Olá! Eu sou a Cecília do Kumon Vila A. Qual é o seu nome?"
@@ -46,12 +48,16 @@ class TestGreetingNode:
                         result = greeting_node(state_input)
 
                         # ASSERTION 1: Should return result with greeting_sent flag
-                        assert "greeting_sent" in result, "greeting_node should set greeting_sent flag"
-                        assert result["greeting_sent"] is True, "greeting_sent should be True"
+                        assert (
+                            "greeting_sent" in result
+                        ), "greeting_node should set greeting_sent flag"
+                        assert (
+                            result["greeting_sent"] is True
+                        ), "greeting_sent should be True"
 
                         # ASSERTION 2: Should send a response
                         assert mock_send.called, "Should send a greeting response"
-                        
+
                         # ASSERTION 3: Should save state (standard flow)
                         assert mock_save.called, "Should save conversation state"
 
@@ -67,11 +73,14 @@ class TestGreetingNode:
         with patch("app.core.langgraph_flow.get_conversation_state") as mock_get_state:
             with patch("app.core.langgraph_flow.get_openai_client") as mock_openai:
                 with patch("app.core.langgraph_flow.send_text") as mock_send:
-                    with patch("app.core.langgraph_flow.save_conversation_state") as mock_save:
+                    with patch(
+                        "app.core.langgraph_flow.save_conversation_state"
+                    ) as mock_save:
                         mock_get_state.return_value = {}
                         mock_send.return_value = {"sent": "true", "status_code": 200}
 
                         mock_client = MagicMock()
+
                         async def mock_chat(*args, **kwargs):
                             return "Olá! Como posso ajudar?"
 
@@ -80,7 +89,7 @@ class TestGreetingNode:
 
                         # Should not crash
                         result = greeting_node(state_input)
-                        
+
                         # Should still set the flag and process normally
                         assert result.get("greeting_sent") is True
 
@@ -88,7 +97,7 @@ class TestGreetingNode:
         """Test that greeting node properly uses the _execute_node framework."""
         state_input = {
             "text": "Olá",
-            "phone": "+5511999999999", 
+            "phone": "+5511999999999",
             "message_id": "MSG_FRAMEWORK",
             "instance": "test",
         }
@@ -98,7 +107,7 @@ class TestGreetingNode:
                 # Mock _execute_node to return a basic result
                 mock_execute.return_value = {
                     "response": "Test response",
-                    "phone": "+5511999999999"
+                    "phone": "+5511999999999",
                 }
 
                 result = greeting_node(state_input)

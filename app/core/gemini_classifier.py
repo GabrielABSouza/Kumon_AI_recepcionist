@@ -152,9 +152,9 @@ class GeminiClassifier:
         # Extract context information
         conversation_history = self._format_conversation_history(context)
         collected_vars, missing_vars = self._format_qualification_state(context)
-        
+
         # Support both old format (direct) and new format (nested)
-        if 'state' in context:
+        if "state" in context:
             # New format: {'state': {...}, 'history': [...]}
             greeting_sent = context.get("state", {}).get("greeting_sent", False)
         else:
@@ -173,7 +173,7 @@ class GeminiClassifier:
     def _format_conversation_history(self, context: dict) -> str:
         """Format conversation history for prompt."""
         # Support both old format (direct) and new format (nested)
-        if 'history' in context:
+        if "history" in context:
             # New format: {'state': {...}, 'history': [...]}
             history = context.get("history", [])
         else:
@@ -202,17 +202,17 @@ class GeminiClassifier:
     def _format_qualification_state(self, context: dict) -> tuple[str, str]:
         """Format current qualification state for prompt."""
         # Support both old format (direct) and new format (nested)
-        if 'state' in context:
+        if "state" in context:
             # New format: {'state': {...}, 'history': [...]}
             state_data = context.get("state", {})
         else:
             # Old format: state variables directly in context
             state_data = context
-            
+
         # Standard qualification variables
         qualification_vars = [
             "parent_name",
-            "student_name", 
+            "student_name",
             "student_age",
             "program_interests",
         ]

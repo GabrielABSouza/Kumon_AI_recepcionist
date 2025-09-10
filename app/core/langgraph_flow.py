@@ -237,6 +237,11 @@ def greeting_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
     # Set flag to indicate greeting was sent (for next turn routing)
     result["greeting_sent"] = True
+    
+    # CRITICAL FIX: Save only greeting_sent flag, not contaminated full_state
+    phone = state.get("phone")
+    if phone:
+        save_conversation_state(phone, {"greeting_sent": True})
 
     return result
 
@@ -345,9 +350,9 @@ def _execute_blended_node(
             text=response_text,
         )
 
-        # Save updated state (if any new data was collected)
-        if phone:
-            save_conversation_state(phone, full_state)
+        # CRITICAL FIX: Remove automatic state saving from _execute_node
+        # Only specific nodes (like qualification_node) should save state
+        # This prevents contamination from Redis data in new conversations
 
         return {
             **state,
@@ -473,9 +478,9 @@ def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[st
             # REMOVED: All global entity extraction logic moved to qualification_node
             # Each node should handle its own specific extraction needs locally
 
-            # Save updated state
-            if phone:
-                save_conversation_state(phone, state)
+            # CRITICAL FIX: Remove automatic state saving from _execute_node
+            # Only specific nodes (like qualification_node) should save state
+            # This prevents contamination from Redis data in new conversations
 
         # CRITICAL FIX: Return the complete state with metadata
         # This ensures state propagation between nodes in LangGraph
