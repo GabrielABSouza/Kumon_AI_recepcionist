@@ -2,7 +2,7 @@
   {
     "user_question": "Qual o valor da mensalidade?",
     "next_qualification_question": "O Kumon é para você mesmo ou para outra pessoa?",
-    "ideal_response": "A mensalidade do Kumon varia de acordo com a disciplina escolhida. Para Matemática ou Português individual, o valor é R$ 180,00 por mês. Se optar pelo programa combinado (Matemática + Português), o investimento é R$ 320,00 mensais.\n\nPara personalizar ainda mais nossa conversa, posso saber se o Kumon é para você mesmo ou para outra pessoa?"
+    "ideal_response": "A mensalidade é R$ 375,00 por disciplina. Oferecemos descontos para quem se matricula em mais de uma disciplina.\n\nPara personalizar ainda mais nossa conversa, posso saber se o Kumon é para você mesmo ou para outra pessoa?"
   },
   {
     "user_question": "Vocês atendem crianças pequenas?",
