@@ -441,6 +441,69 @@ class TestQualificationSequentialLogic:
 
         print("✅ SEQUENCE LOGIC SUCCESS: Node follows correct variable sequence")
 
+    @pytest.mark.asyncio
+    async def test_qualification_generates_correct_follow_up_question(
+        self, empty_state
+    ):
+        """
+        🚨 RED PHASE TEST: Prove that prompt generation is failing
+
+        SCENARIO: State with parent_name already collected ("Gabriel")
+        MESSAGE: User message is "Gabriel" (confirming their name)
+        EXPECTED: Node should generate specific question about beneficiary_type
+        ASSERTION: Response must contain explicit beneficiary question keywords
+
+        🔥 CRITICAL TEST: This should FAIL if prompt generation is generic!
+        """
+        # ARRANGE: Create state with parent_name already collected
+        state_with_parent = empty_state.copy()
+        state_with_parent["collected_data"]["parent_name"] = "Gabriel"
+        state_with_parent["current_stage"] = ConversationStage.QUALIFICATION
+        state_with_parent["current_step"] = ConversationStep.PARENT_NAME_COLLECTION
+        state_with_parent["last_user_message"] = "Gabriel"
+
+        # ACT: Call qualification node
+        result = await qualification_node(state_with_parent)
+
+        # ASSERT: Should generate specific beneficiary_type question
+        response_text = result.get("last_bot_response", "")
+
+        # 🎯 CRITICAL ASSERTION: Response MUST contain beneficiary-specific keywords
+        beneficiary_keywords = [
+            "para você mesmo ou para outra pessoa",
+            "é para você mesmo",
+            "para outra pessoa",
+            "beneficiário",
+            "gabriel, o kumon é para você mesmo",
+        ]
+
+        # The response should be SPECIFIC, not generic
+        generic_keywords = [
+            "como posso ajudar",
+            "poderia me contar mais",
+            "o que você gostaria",
+            "em que posso ajudar",
+        ]
+
+        # POSITIVE ASSERTION: Must contain specific beneficiary question
+        assert any(
+            keyword in response_text.lower() for keyword in beneficiary_keywords
+        ), f"Response should ask specific beneficiary question, got: '{response_text}'"
+
+        # NEGATIVE ASSERTION: Must NOT be generic
+        assert not any(
+            keyword in response_text.lower() for keyword in generic_keywords
+        ), f"Response should NOT be generic, got: '{response_text}'"
+
+        # ADDITIONAL CHECK: Should mention parent name in personalized greeting
+        assert (
+            "gabriel" in response_text.lower()
+        ), f"Response should mention parent name Gabriel, got: '{response_text}'"
+
+        print(
+            f"✅ RED PHASE TEST: Specific prompt generated - '{response_text[:60]}...'"
+        )
+
 
 # ========== HELPER FUNCTIONS ==========
 

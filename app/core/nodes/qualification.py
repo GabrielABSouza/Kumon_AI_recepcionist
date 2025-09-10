@@ -56,10 +56,25 @@ async def qualification_node(state: CeciliaState) -> CeciliaState:
             next_var_to_collect = var
             break
 
+    # 🎥 LOG DE DEPURAÇÃO: Identificação da próxima variável
+    logger.info(
+        f"QUALIFICATION_DEBUG|Next missing variable identified: {next_var_to_collect}"
+    )
+    logger.info(f"QUALIFICATION_DEBUG|Current collected data: {collected}")
+
     # 4. GERE A RESPOSTA
     if next_var_to_collect:
         # Generate question for next variable
         response_text = _generate_question_for_variable(state, next_var_to_collect)
+
+        # 🎥 LOG DE DEPURAÇÃO: Resposta gerada (simulando prompt LLM)
+        logger.info(
+            f"QUALIFICATION_DEBUG|Generated response for {next_var_to_collect}: '{response_text}'"
+        )
+        logger.info(
+            f"QUALIFICATION_DEBUG|Final prompt to LLM: System='Direct response generation', User='{response_text}'"
+        )
+
         state["last_bot_response"] = response_text
 
         # Update conversation step
