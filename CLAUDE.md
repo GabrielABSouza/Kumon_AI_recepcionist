@@ -65,6 +65,76 @@ PGPASSWORD=XnpZDyhnuKYENKoBwxSmNoqUBkJtcscR psql -h yamabiko.proxy.rlwy.net -p 2
 - `status` - active, completed, ended
 - `updated_at` - Last modification timestamp
 
+## Railway Redis Production Cache
+
+### Redis Connection Details
+
+**Internal Network (Railway services):**
+```
+redis://default:kAcPDeAHtSeAFlqHrkXxgaHTAKbNdYFs@redis.railway.internal:6379
+```
+
+**Public Network (external access):**
+```
+redis://default:kAcPDeAHtSeAFlqHrkXxgaHTAKbNdYFs@mainline.proxy.rlwy.net:56033
+```
+
+### Redis Connection Commands
+
+**Connect via Redis CLI (Public):**
+```bash
+redis-cli -h mainline.proxy.rlwy.net -p 56033 -a kAcPDeAHtSeAFlqHrkXxgaHTAKbNdYFs
+```
+
+**Python Connection (Public):**
+```python
+import redis
+client = redis.Redis.from_url("redis://default:kAcPDeAHtSeAFlqHrkXxgaHTAKbNdYFs@mainline.proxy.rlwy.net:56033")
+```
+
+### Common Redis Operations
+
+**List All Keys:**
+```bash
+redis-cli -h mainline.proxy.rlwy.net -p 56033 -a kAcPDeAHtSeAFlqHrkXxgaHTAKbNdYFs KEYS "*"
+```
+
+**Get Conversation State:**
+```bash
+redis-cli -h mainline.proxy.rlwy.net -p 56033 -a kAcPDeAHtSeAFlqHrkXxgaHTAKbNdYFs GET "conversation:PHONE_WITHOUT_PLUS"
+```
+
+**Delete Conversation State:**
+```bash
+redis-cli -h mainline.proxy.rlwy.net -p 56033 -a kAcPDeAHtSeAFlqHrkXxgaHTAKbNdYFs DEL "conversation:PHONE_WITHOUT_PLUS"
+```
+
+**Delete All Conversation Keys:**
+```bash
+redis-cli -h mainline.proxy.rlwy.net -p 56033 -a kAcPDeAHtSeAFlqHrkXxgaHTAKbNdYFs --eval "redis.call('del', unpack(redis.call('keys', 'conversation:*')))" 0
+```
+
+**Check Redis Info:**
+```bash
+redis-cli -h mainline.proxy.rlwy.net -p 56033 -a kAcPDeAHtSeAFlqHrkXxgaHTAKbNdYFs INFO
+```
+
+### Environment Variables
+
+**Production (.env):**
+```
+# Railway Redis Configuration (Internal - para produção)
+REDIS_URL=redis://default:kAcPDeAHtSeAFlqHrkXxgaHTAKbNdYFs@redis.railway.internal:6379
+
+# Railway Redis Configuration (Public - para acesso externo)
+REDIS_PUBLIC_URL=redis://default:kAcPDeAHtSeAFlqHrkXxgaHTAKbNdYFs@mainline.proxy.rlwy.net:56033
+
+# Redis Credentials
+REDIS_PASSWORD=kAcPDeAHtSeAFlqHrkXxgaHTAKbNdYFs
+REDISHOST=redis.railway.internal
+REDISUSER=default
+```
+
 ---
 
 # CLAUDE.md — Kumon Assistant (Arquitetura Mínima, Rápida e Funcional)

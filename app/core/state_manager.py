@@ -49,15 +49,7 @@ def save_conversation_state(phone: str, state: Dict[str, Any]) -> bool:
     if not phone or not state:
         return False
 
-    # 🚨 AUTÓPSIA: Câmera de segurança para detectar contaminação
-    if state.get("parent_name") == "Olá":
-        import traceback
-        print("🚨🚨🚨 CORRUPTED STATE DETECTED! 🚨🚨🚨")
-        print(f"Attempting to save parent_name='Olá' for phone {phone}")
-        # Imprime a pilha de chamadas para vermos quem é o culpado
-        for line in traceback.format_stack():
-            print(line.strip())
-        print("🚨🚨🚨 END OF STACK TRACE 🚨🚨🚨")
+    # State validation could be added here if needed for debugging
 
     # Remove + prefix and use as session key
     session_key = f"conversation:{phone.lstrip('+')}"

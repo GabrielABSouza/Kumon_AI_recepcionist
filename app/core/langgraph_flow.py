@@ -237,7 +237,7 @@ def greeting_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
     # Set flag to indicate greeting was sent (for next turn routing)
     result["greeting_sent"] = True
-    
+
     # CRITICAL FIX: Save only greeting_sent flag, not contaminated full_state
     phone = state.get("phone")
     if phone:

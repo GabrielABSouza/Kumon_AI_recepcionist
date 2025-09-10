@@ -9,7 +9,6 @@ Following TDD Step 1.1: Create test_get_conversation_history
 
 from unittest.mock import patch
 
-
 from app.core.state_manager import get_conversation_history
 
 

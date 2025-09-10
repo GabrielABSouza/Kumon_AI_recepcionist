@@ -20,12 +20,8 @@ async def webhook(request: Request) -> Dict[str, Any]:
     Process ONE message → ONE response → END.
     """
     try:
-        # RAW WEBHOOK PAYLOAD DIAGNOSTIC - Capture antes de qualquer processamento
-        raw_payload = await request.json()
-        print(f"RAW WEBHOOK PAYLOAD RECEIVED: {raw_payload}")
-
         # Parse webhook payload
-        body = raw_payload
+        body = await request.json()
 
         # Extract message data with type safety
         data = body.get("data", {})
