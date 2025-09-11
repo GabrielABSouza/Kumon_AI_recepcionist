@@ -39,11 +39,14 @@ class TestQualificationSequentialLogic:
     @pytest.fixture
     def empty_state(self):
         """Create empty state for testing initial qualification."""
-        return create_initial_cecilia_state(
+        state = create_initial_cecilia_state(
             phone_number="5511999999999",
             user_message="olá, gostaria de saber sobre o Kumon",
             instance="kumon_assistant",
         )
+        # Add 'text' field for master_router compatibility  
+        state["text"] = "olá, gostaria de saber sobre o Kumon"
+        return state
 
     @pytest.fixture
     def state_with_parent_name(self):
@@ -56,6 +59,8 @@ class TestQualificationSequentialLogic:
         state["collected_data"]["parent_name"] = "Maria Silva"
         state["current_stage"] = ConversationStage.QUALIFICATION
         state["current_step"] = ConversationStep.CHILD_NAME_COLLECTION
+        # Add 'text' field for master_router compatibility
+        state["text"] = "Maria Silva"
         return state
 
     @pytest.fixture
@@ -70,6 +75,8 @@ class TestQualificationSequentialLogic:
         state["collected_data"]["beneficiary_type"] = "child"
         state["current_stage"] = ConversationStage.QUALIFICATION
         state["current_step"] = ConversationStep.CHILD_AGE_INQUIRY
+        # Add 'text' field for master_router compatibility
+        state["text"] = "para meu filho"
         return state
 
     # ========== RED PHASE TESTS ==========
@@ -144,7 +151,7 @@ class TestQualificationSequentialLogic:
         🔥 CRITICAL TEST: This is likely where the bug is occurring!
         """
         # ARRANGE: State with parent_name already collected
-        state_with_parent_name["last_user_message"] = "Maria Silva"
+        state_with_parent_name["text"] = "Maria Silva"
 
         # ACT: Call qualification node (simplified - no mocking needed)
         result = await qualification_node(state_with_parent_name)
@@ -183,7 +190,7 @@ class TestQualificationSequentialLogic:
         EXPECTED: Node should ask "Qual o nome da criança?"
         """
         # ARRANGE: State with parent and beneficiary type collected
-        state_with_parent_and_beneficiary["last_user_message"] = "para meu filho"
+        state_with_parent_and_beneficiary["text"] = "para meu filho"
 
         # ACT: Call qualification node (simplified - no mocking needed)
         result = await qualification_node(state_with_parent_and_beneficiary)
@@ -229,7 +236,7 @@ class TestQualificationSequentialLogic:
 
         # ========== TURNO 1: Collect parent_name ==========
         print("🧪 TURNO 1: Testing parent_name collection")
-        current_state["last_user_message"] = "Meu nome é Gabriel"
+        current_state["text"] = "Meu nome é Gabriel"
 
         result = await qualification_node(current_state)
 
@@ -260,7 +267,7 @@ class TestQualificationSequentialLogic:
 
         # ========== TURNO 2: Collect beneficiary_type ==========
         print("🧪 TURNO 2: Testing beneficiary_type collection")
-        current_state["last_user_message"] = "é para meu filho"
+        current_state["text"] = "é para meu filho"
 
         result = await qualification_node(current_state)
 
@@ -291,7 +298,7 @@ class TestQualificationSequentialLogic:
 
         # ========== TURNO 3: Collect student_name ==========
         print("🧪 TURNO 3: Testing student_name collection")
-        current_state["last_user_message"] = "O nome dele é Pedro"
+        current_state["text"] = "O nome dele é Pedro"
 
         result = await qualification_node(current_state)
 
@@ -317,7 +324,7 @@ class TestQualificationSequentialLogic:
 
         # ========== TURNO 4: Collect student_age ==========
         print("🧪 TURNO 4: Testing student_age collection")
-        current_state["last_user_message"] = "Ele tem 8 anos"
+        current_state["text"] = "Ele tem 8 anos"
 
         result = await qualification_node(current_state)
 
@@ -349,7 +356,7 @@ class TestQualificationSequentialLogic:
 
         # ========== TURNO 5: Collect program_interests (FINAL) ==========
         print("🧪 TURNO 5: Testing program_interests collection and completion")
-        current_state["last_user_message"] = "Matemática e português"
+        current_state["text"] = "Matemática e português"
 
         result = await qualification_node(current_state)
 
@@ -465,6 +472,8 @@ class TestQualificationSequentialLogic:
         )
         state["current_stage"] = ConversationStage.QUALIFICATION
         state["current_step"] = ConversationStep.PARENT_NAME_COLLECTION
+        # Add 'text' field for master_router compatibility
+        state["text"] = "olá, gostaria de saber sobre o Kumon"
 
         # First call - should ask for parent name
         state = await qualification_node(state)
@@ -478,7 +487,7 @@ class TestQualificationSequentialLogic:
         print("✅ TURN 1: Asked for parent name correctly")
 
         # ========== TURNO 2: User provides name, bot should ask about beneficiary ==========
-        state["last_user_message"] = "Meu nome é Gabriel"
+        state["text"] = "Meu nome é Gabriel"
         state = await qualification_node(state)
 
         # Validate: Should extract parent_name AND ask about beneficiary
@@ -498,7 +507,7 @@ class TestQualificationSequentialLogic:
         print("✅ TURN 2: Extracted parent_name=Gabriel, asked about beneficiary")
 
         # ========== TURNO 3: User says it's for child, bot should ask child's name ==========
-        state["last_user_message"] = "para meu filho"
+        state["text"] = "para meu filho"
         state = await qualification_node(state)
 
         # Validate: Should extract beneficiary_type AND ask for child's name
@@ -518,7 +527,7 @@ class TestQualificationSequentialLogic:
         print("✅ TURN 3: Extracted beneficiary_type=child, asked for child name")
 
         # ========== TURNO 4: User provides child name, bot should ask age ==========
-        state["last_user_message"] = "O nome dele é Pedro"
+        state["text"] = "O nome dele é Pedro"
         state = await qualification_node(state)
 
         # Validate: Should extract student_name AND ask for age
@@ -534,7 +543,7 @@ class TestQualificationSequentialLogic:
         print("✅ TURN 4: Extracted student_name=Pedro, asked for age")
 
         # ========== TURNO 5: User provides age, bot should ask about interests ==========
-        state["last_user_message"] = "Ele tem 8 anos"
+        state["text"] = "Ele tem 8 anos"
         state = await qualification_node(state)
 
         # Validate: Should extract student_age AND ask about interests
@@ -556,7 +565,7 @@ class TestQualificationSequentialLogic:
         print("✅ TURN 5: Extracted student_age=8, asked about interests")
 
         # ========== TURNO 6: User provides interests, bot should generate summary ==========
-        state["last_user_message"] = "Matemática"
+        state["text"] = "Matemática"
         state = await qualification_node(state)
 
         # Validate: Should extract program_interests AND generate final summary
@@ -621,7 +630,7 @@ class TestQualificationSequentialLogic:
         state_with_parent["collected_data"]["parent_name"] = "Gabriel"
         state_with_parent["current_stage"] = ConversationStage.QUALIFICATION
         state_with_parent["current_step"] = ConversationStep.PARENT_NAME_COLLECTION
-        state_with_parent["last_user_message"] = "Gabriel"
+        state_with_parent["text"] = "Gabriel"
 
         # ACT: Call qualification node
         result = await qualification_node(state_with_parent)

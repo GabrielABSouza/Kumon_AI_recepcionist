@@ -44,7 +44,7 @@ async def qualification_node(state: CeciliaState) -> CeciliaState:
         f"Processing qualification for {_get_phone_from_state(state)} - simplified sequential mode"
     )
 
-    user_message = state["last_user_message"]
+    user_message = state["text"]
 
     # 2. EXTRAIA NOVAS INFORMAÇÕES (se houver)
     _extract_data_from_current_message(state, user_message)
@@ -350,10 +350,10 @@ def _generate_question_for_variable(state: CeciliaState, variable: str) -> str:
 def _get_phone_from_state(state: CeciliaState) -> str:
     """
     🔧 HELPER: Get phone number from state with compatibility for both formats.
-    
+
     Handles both 'phone_number' (test format) and 'phone' (production format).
     """
-    return state.get('phone_number', state.get('phone', 'unknown'))
+    return state.get("phone_number", state.get("phone", "unknown"))
 
 
 def _get_step_for_variable(variable: str) -> ConversationStep:
