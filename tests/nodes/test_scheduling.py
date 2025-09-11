@@ -35,7 +35,8 @@ class TestSchedulingNodeArchitecturalViolations:
     @pytest.mark.asyncio
     async def test_scheduling_node_uses_keyword_matching_instead_of_entities(self):
         """
-        🔥 RED PHASE TEST: Prove scheduling_node uses keyword matching instead of GeminiClassifier entities.
+        🔥 RED PHASE TEST: Prove scheduling_node uses keyword matching instead of
+        GeminiClassifier entities.
 
         PROBLEM: _handle_date_preference contains hardcoded keyword matching:
         - if any(word in message_lower for word in ['manhã', 'manha', 'morning', ...])
@@ -140,7 +141,8 @@ class TestSchedulingNodeArchitecturalViolations:
     @pytest.mark.asyncio
     async def test_scheduling_node_uses_regex_instead_of_entity_extraction(self):
         """
-        🔥 RED PHASE TEST: Prove scheduling_node uses regex instead of GeminiClassifier entity extraction.
+        🔥 RED PHASE TEST: Prove scheduling_node uses regex instead of
+        GeminiClassifier entity extraction.
 
         PROBLEM: _handle_time_selection contains regex pattern:
         - option_match = re.search(r'\\b([1-9])\\b', user_message.strip())
@@ -230,7 +232,8 @@ class TestSchedulingNodeArchitecturalViolations:
     @pytest.mark.asyncio
     async def test_scheduling_node_validates_email_with_regex_instead_of_entities(self):
         """
-        🔥 RED PHASE TEST: Prove scheduling_node validates email with regex instead of GeminiClassifier.
+        🔥 RED PHASE TEST: Prove scheduling_node validates email with regex
+        instead of GeminiClassifier.
 
         PROBLEM: _handle_email_collection contains regex validation:
         - email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$'
@@ -284,7 +287,8 @@ class TestSchedulingNodeArchitecturalViolations:
         updated_state = result.get("updated_state", {})
         print(f"🔍 DEBUG - Response: {response[:100]}...")
         print(
-            f"🔍 DEBUG - Email stored: {updated_state.get('collected_data', {}).get('contact_email')}"
+            f"🔍 DEBUG - Email stored: "
+            f"{updated_state.get('collected_data', {}).get('contact_email')}"
         )
 
         # 🔥 CRITICAL ASSERTION: Should accept email from GeminiClassifier
@@ -303,7 +307,8 @@ class TestSchedulingNodeArchitecturalViolations:
         )
 
         print(
-            "✅ RED PHASE: Test created - will fail until we eliminate regex validation"
+            "✅ RED PHASE: Test created - will fail until we eliminate "
+            "regex validation"
         )
         return True
 
@@ -345,6 +350,7 @@ class TestSchedulingNodeArchitecturalViolations:
         import inspect
 
         source = inspect.getsource(call_method)
+        del state  # Remove unused variable
 
         # Count the number of step-based conditions (state machine complexity)
         step_conditions = source.count("current_step ==")
@@ -426,7 +432,8 @@ async def test_scheduling_architecture_should_follow_unified_pattern():
         print(f"  {key}: {value}")
 
     print(
-        "\n🎯 REFACTOR TARGET: Transform scheduling_node to match greeting/qualification pattern"
+        "\n🎯 REFACTOR TARGET: Transform scheduling_node to match "
+        "greeting/qualification pattern"
     )
     print("✅ SPECIFICATION: Architecture specification documented")
 

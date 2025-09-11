@@ -89,7 +89,7 @@ class SchedulingNode:
         return self._create_response(state, response, updates)
 
     async def _handle_date_preference(
-        self, state: CeciliaState, user_message: str
+        self, state: CeciliaState, user_message: str  # noqa: ARG002
     ) -> Dict[str, Any]:
         """
         🧠 NOVA ARQUITETURA: Processa preferência de período baseada em entidades do GeminiClassifier
@@ -100,7 +100,7 @@ class SchedulingNode:
         nlu_entities = state.get("nlu_entities", {})
         time_preference = nlu_entities.get("time_preference")
 
-        logger.info(f"🧠 SCHEDULING NLU - time_preference extracted: {time_preference}")
+        logger.info("🧠 SCHEDULING NLU - time_preference extracted: %s", time_preference)
 
         # Handle Saturday restriction using entities (if GeminiClassifier detected it)
         if nlu_entities.get("day_preference") == "saturday":
@@ -132,9 +132,9 @@ class SchedulingNode:
                 {"time": "17:30", "display": "17h30", "available": True},
             ]
         else:
-            # GeminiClassifier didn't extract a clear time preference - ask for clarification
+            # GeminiClassifier didn't extract clear time preference - ask clarification
             logger.info(
-                f"🧠 SCHEDULING NLU - no clear time_preference, asking for clarification"
+                "🧠 SCHEDULING NLU - no clear time_preference, asking for clarification"
             )
             response = (
                 "Poderia escolher entre:\n\n"
@@ -150,7 +150,8 @@ class SchedulingNode:
 
         # Gerar resposta com opções
         response_lines = [
-            f"Ótima escolha! Aqui estão os horários disponíveis para a **{preference.upper()}**: 📅\n"
+            f"Ótima escolha! Aqui estão os horários disponíveis "
+            f"para a **{preference.upper()}**: 📅\n"
         ]
 
         for i, slot in enumerate(available_dates[:5], 1):  # Mostrar até 5 opções
@@ -203,7 +204,8 @@ class SchedulingNode:
                         f"Perfeito! Agendamento selecionado:\n\n"
                         f"📅 **{selected_slot['date_formatted']}**\n"
                         f"🕐 **{selected_slot['time_formatted']}**\n\n"
-                        "Para confirmar, preciso do seu **email** para enviar os detalhes da visita.\n\n"
+                        "Para confirmar, preciso do seu **email** "
+                        "para enviar os detalhes da visita.\n\n"
                         "Qual é o seu email? 📧"
                     )
 
@@ -231,7 +233,7 @@ class SchedulingNode:
         else:
             # GeminiClassifier didn't extract a clear option selection
             logger.info(
-                f"🧠 SCHEDULING NLU - no clear selected_option, asking for clarification"
+                "🧠 SCHEDULING NLU - no clear selected_option, asking clarification"
             )
             response = (
                 "Não consegui identificar sua escolha! 🤔\n\n"
@@ -254,7 +256,7 @@ class SchedulingNode:
         nlu_entities = state.get("nlu_entities", {})
         extracted_email = nlu_entities.get("contact_email")
 
-        logger.info(f"🧠 SCHEDULING NLU - contact_email extracted: {extracted_email}")
+        logger.info("🧠 SCHEDULING NLU - contact_email extracted: %s", extracted_email)
 
         if extracted_email:
             # GeminiClassifier extracted and validated a valid email
@@ -321,7 +323,7 @@ class SchedulingNode:
     async def _handle_event_creation(
         self,
         state: CeciliaState,
-        user_message: str,
+        user_message: str,  # noqa: ARG002
         custom_updates: Dict[str, Any] = None,
     ) -> Dict[str, Any]:
         """Finaliza agendamento criando evento no Google Calendar"""
@@ -391,7 +393,7 @@ class SchedulingNode:
         return self._create_response(state, response, updates)
 
     def _generate_available_dates(
-        self, preference: str, time_options: List[Dict]
+        self, preference: str, time_options: List[Dict]  # noqa: ARG002
     ) -> List[Dict]:
         """Gera horários disponíveis (mock - seria consulta real ao Google Calendar)"""
         available_dates = []
