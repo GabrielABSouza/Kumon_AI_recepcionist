@@ -272,8 +272,60 @@ def greeting_node(state: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
-# REMOVED: Inline qualification_node function
-# Now using the refactored qualification_node from app.core.nodes.qualification
+async def qualification_node_wrapper(state: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    🔌 GRAPH WRAPPER: Bridge between LangGraph dict format and CeciliaState format
+    
+    This wrapper converts dict state to CeciliaState, calls the refactored 
+    qualification_node, and converts back to dict format for LangGraph.
+    """
+    from app.core.state.models import (
+        CeciliaState, 
+        ConversationStage,
+        ConversationStep
+    )
+    
+    try:
+        # Convert dict state to CeciliaState format
+        cecilia_state = CeciliaState(
+            phone_number=state.get("phone", ""),
+            last_user_message=state.get("text", ""),
+            current_stage=ConversationStage.QUALIFICATION,
+            current_step=ConversationStep.PARENT_NAME_COLLECTION,
+            collected_data=state.get("collected_data", {}),
+            conversation_metrics={"message_count": 0, "failed_attempts": 0},
+        )
+        
+        # Call the refactored qualification_node
+        result_state = await qualification_node(cecilia_state)
+        
+        # Convert CeciliaState result back to dict format for LangGraph
+        dict_result = {
+            **state,  # Preserve original dict fields
+            "last_bot_response": result_state.get("last_bot_response", ""),
+            "current_stage": str(result_state.get("current_stage", "")).replace("ConversationStage.", ""),
+            "current_step": str(result_state.get("current_step", "")).replace("ConversationStep.", ""),
+            "collected_data": result_state.get("collected_data", {}),
+            "response": result_state.get("last_bot_response", ""),
+            "sent": "true"  # Mark as processed
+        }
+        
+        print(f"QUALIFICATION|wrapper_success|response_len={len(dict_result.get('response', ''))}")
+        return dict_result
+        
+    except Exception as e:
+        print(f"QUALIFICATION|wrapper_error|error={str(e)}")
+        
+        # Fallback to simple response
+        fallback_text = "Olá! Para começarmos, qual é o seu nome?"
+        
+        return {
+            **state,
+            "response": fallback_text,
+            "last_bot_response": fallback_text,
+            "sent": "true",
+            "error_reason": str(e)
+        }
 
 
 async def information_node(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -613,7 +665,7 @@ def build_graph():
 
     # Add nodes
     graph.add_node("greeting_node", greeting_node)
-    graph.add_node("qualification_node", qualification_node)
+    graph.add_node("qualification_node", qualification_node_wrapper)
     graph.add_node("information_node", information_node)
     graph.add_node("scheduling_node", scheduling_node)
     graph.add_node("fallback_node", fallback_node)
