@@ -32,6 +32,9 @@ async def qualification_node(state: CeciliaState) -> CeciliaState:
     3. Generate appropriate question or complete qualification
     4. Return updated state directly
     """
+    # 🎥 FORENSIC AUDIT: Version Fingerprint
+    logging.warning("RUNTIME_AUDIT|Executing new qualification_node version: v2.0_simplified")
+    
     # 1. GARANTA A SEGURANÇA DO ESTADO
     state = copy.deepcopy(state)
 
@@ -56,6 +59,12 @@ async def qualification_node(state: CeciliaState) -> CeciliaState:
             next_var_to_collect = var
             break
 
+    # 🎥 FORENSIC AUDIT: Internal reasoning logs
+    logging.warning(f"RUNTIME_AUDIT|State before prompt gen: {state}")
+    logging.warning(f"RUNTIME_AUDIT|Logic identified next missing var as: '{next_var_to_collect}'")
+    logging.warning(f"RUNTIME_AUDIT|Current collected data: {collected}")
+    logging.warning(f"RUNTIME_AUDIT|Full QUALIFICATION_VARS_SEQUENCE: {QUALIFICATION_VARS_SEQUENCE}")
+
     # 🎥 LOG DE DEPURAÇÃO: Identificação da próxima variável
     logger.info(
         f"QUALIFICATION_DEBUG|Next missing variable identified: {next_var_to_collect}"
@@ -66,6 +75,9 @@ async def qualification_node(state: CeciliaState) -> CeciliaState:
     if next_var_to_collect:
         # Generate question for next variable
         response_text = _generate_question_for_variable(state, next_var_to_collect)
+        
+        # 🎥 FORENSIC AUDIT: Final prompt being sent
+        logging.warning(f"RUNTIME_AUDIT|Final prompt being sent to LLM: {response_text}")
 
         # 🎥 LOG DE DEPURAÇÃO: Resposta gerada (simulando prompt LLM)
         logger.info(
