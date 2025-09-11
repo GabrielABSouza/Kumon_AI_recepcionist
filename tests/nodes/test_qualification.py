@@ -44,7 +44,7 @@ class TestQualificationSequentialLogic:
             user_message="olá, gostaria de saber sobre o Kumon",
             instance="kumon_assistant",
         )
-        # Add 'text' field for master_router compatibility  
+        # Add 'text' field for master_router compatibility
         state["text"] = "olá, gostaria de saber sobre o Kumon"
         return state
 

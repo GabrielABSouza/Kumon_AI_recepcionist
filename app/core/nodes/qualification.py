@@ -92,7 +92,8 @@ async def qualification_node(state: CeciliaState) -> CeciliaState:
             f"QUALIFICATION_DEBUG|Generated response for {next_var_to_collect}: '{response_text}'"
         )
         logger.info(
-            f"QUALIFICATION_DEBUG|Final prompt to LLM: System='Direct response generation', User='{response_text}'"
+            f"QUALIFICATION_DEBUG|Final prompt to LLM: "
+            f"System='Direct response generation', User='{response_text}'"
         )
 
         state["last_bot_response"] = response_text
@@ -178,7 +179,24 @@ def _extract_data_from_current_message(state: CeciliaState, user_message: str) -
             if match:
                 name = match.group(1).strip()
                 # Avoid extracting common words as names
-                if name.lower() not in ["meu", "minha", "para", "nome", "sou", "chamo"]:
+                if name.lower() not in [
+                    "meu",
+                    "minha",
+                    "para",
+                    "nome",
+                    "sou",
+                    "chamo",
+                    "olá",
+                    "ola",
+                    "oi",
+                    "bom",
+                    "dia",
+                    "tarde",
+                    "noite",
+                    "gostaria",
+                    "quero",
+                    "preciso",
+                ]:
                     collected["parent_name"] = name
                     logger.info(f"Extracted parent_name: {name}")
                     break
