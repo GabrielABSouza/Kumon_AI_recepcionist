@@ -22,7 +22,6 @@ from app.core.state_manager import (
 from app.prompts.node_prompts import (
     get_fallback_prompt,
     get_greeting_prompt,
-    get_qualification_prompt,
     get_scheduling_prompt,
 )
 from app.utils.formatters import safe_phone_display

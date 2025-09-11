@@ -41,7 +41,7 @@ async def qualification_node(state: CeciliaState) -> CeciliaState:
     state = copy.deepcopy(state)
 
     logger.info(
-        f"Processing qualification for {state['phone_number']} - simplified sequential mode"
+        f"Processing qualification for {_get_phone_from_state(state)} - simplified sequential mode"
     )
 
     user_message = state["last_user_message"]
@@ -345,6 +345,15 @@ def _generate_question_for_variable(state: CeciliaState, variable: str) -> str:
         )
 
     return "Poderia me contar mais sobre isso?"
+
+
+def _get_phone_from_state(state: CeciliaState) -> str:
+    """
+    🔧 HELPER: Get phone number from state with compatibility for both formats.
+    
+    Handles both 'phone_number' (test format) and 'phone' (production format).
+    """
+    return state.get('phone_number', state.get('phone', 'unknown'))
 
 
 def _get_step_for_variable(variable: str) -> ConversationStep:
