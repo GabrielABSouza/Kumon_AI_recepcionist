@@ -95,9 +95,9 @@ Vamos agendar uma conversa para detalhar o processo? Nossos horários são de Se
         system_prompt = f"""Você é Cecília, assistente virtual do Kumon Vila A.
 Olá! Para começarmos nosso atendimento, qual é o seu nome?"""
 
-    elif parent_name and not beneficiary_type and "student_name" in missing_vars:
-        # Special case: Ask about beneficiary after parent name (temporary variable)
-        # This helps determine if student_name = parent_name (self) or different (child)
+    elif parent_name and not beneficiary_type:
+        # CRITICAL SEQUENCE FIX: Always ask for beneficiary_type after parent_name
+        # This is essential for determining the correct flow (self vs child)
         system_prompt = f"""Você é Cecília, assistente virtual do Kumon Vila A.
 Prazer, {parent_name}! Para personalizar nosso atendimento, o Kumon é para você mesmo(a) ou para outra pessoa?"""
 

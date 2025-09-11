@@ -303,6 +303,53 @@ def qualification_node(state: Dict[str, Any]) -> Dict[str, Any]:
                         f"STATE|extracted|phone={safe_phone_display(phone)}|parent_name={extracted_name}"
                     )
 
+        # CRITICAL ADDITION: Extract beneficiary_type for sequential flow
+        # Check if beneficiary_type is missing after NLU consumption
+        if not saved_state.get("beneficiary_type"):
+            user_text = state.get("text", "").lower()
+            if user_text:
+                import re
+
+                # Extract beneficiary type
+                extracted_beneficiary = None
+                if any(
+                    word in user_text
+                    for word in [
+                        "para mim",
+                        "para eu",
+                        "é para mim",
+                        "pra mim",
+                        "para mim mesmo",
+                        "eu mesmo",
+                    ]
+                ):
+                    extracted_beneficiary = "self"
+                elif any(
+                    word in user_text
+                    for word in [
+                        "para meu",
+                        "para minha",
+                        "meu filho",
+                        "minha filha",
+                        "para outra pessoa",
+                        "filho",
+                        "filha",
+                        "criança",
+                    ]
+                ):
+                    extracted_beneficiary = "child"
+
+                if extracted_beneficiary:
+                    # Save extracted beneficiary_type to Redis state
+                    updated_state = {
+                        **saved_state,
+                        "beneficiary_type": extracted_beneficiary,
+                    }
+                    save_conversation_state(phone, updated_state)
+                    print(
+                        f"STATE|extracted|phone={safe_phone_display(phone)}|beneficiary_type={extracted_beneficiary}"
+                    )
+
     return _execute_node(state, "qualification", get_qualification_prompt)
 
 
