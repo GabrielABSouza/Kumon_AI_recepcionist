@@ -287,7 +287,7 @@ async def qualification_node_wrapper(state: Dict[str, Any]) -> Dict[str, Any]:
             "phone": state.get("phone", ""),
             "phone_number": state.get("phone", ""),  # For phone compatibility
             "collected_data": state.get("collected_data", {}),
-            "current_stage": state.get("current_stage", "qualification"),  
+            "current_stage": state.get("current_stage", "qualification"),
             "current_step": state.get("current_step", "parent_name_collection"),
         }
 
@@ -299,7 +299,7 @@ async def qualification_node_wrapper(state: Dict[str, Any]) -> Dict[str, Any]:
             **state,  # Preserve original LangGraph fields
             "last_bot_response": result_state.get("last_bot_response", ""),
             "current_stage": result_state.get("current_stage", "qualification"),
-            "current_step": result_state.get("current_step", "parent_name_collection"), 
+            "current_step": result_state.get("current_step", "parent_name_collection"),
             "collected_data": result_state.get("collected_data", {}),
             "response": result_state.get("last_bot_response", ""),
             "sent": "true",  # Mark as processed

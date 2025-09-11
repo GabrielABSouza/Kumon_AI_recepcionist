@@ -9,6 +9,7 @@ machine transitions work correctly for variable collection.
 """
 
 import pytest
+from unittest.mock import patch, ANY
 
 from app.core.nodes.qualification import qualification_node
 from app.core.state.models import (
@@ -61,6 +62,8 @@ class TestQualificationSequentialLogic:
         state["current_step"] = ConversationStep.CHILD_NAME_COLLECTION
         # Add 'text' field for master_router compatibility
         state["text"] = "Maria Silva"
+        # Add 'phone' field for compatibility with send_text integration
+        state["phone"] = "5511999999999"
         return state
 
     @pytest.fixture
@@ -673,6 +676,41 @@ class TestQualificationSequentialLogic:
         print(
             f"✅ RED PHASE TEST: Specific prompt generated - '{response_text[:60]}...'"
         )
+
+    @pytest.mark.asyncio
+    async def test_qualification_node_successfully_calls_send_text(self, state_with_parent_name):
+        """
+        🚨 TESTE CRÍTICO: Valida a integração entre a lógica do nó e o serviço de entrega.
+        
+        Verifica se, após toda a lógica interna, a função `send_text` é chamada,
+        e se é chamada com os argumentos corretos e esperados.
+        """
+        # ARRANGE
+        # O state_with_parent_name já simula o estado onde o bot precisa responder.
+        # Usamos ANY para a resposta de texto, pois ela é gerada pelo LLM.
+        expected_phone = state_with_parent_name.get("phone")
+        expected_instance = state_with_parent_name.get("instance")
+
+        # ACT & ASSERT
+        # Usamos 'patch' para substituir temporariamente a função 'send_text' por um espião (mock).
+        # O caminho do patch deve ser onde a função é importada/usada pelo nó.
+        with patch('app.core.nodes.qualification.send_text') as mock_send_text:
+            # Executa o nó
+            await qualification_node(state_with_parent_name)
+
+            # ASSERTIVA 1: A função send_text DEVE ter sido chamada exatamente uma vez.
+            # Esta assertiva falhará se um erro (como TypeError) estiver sendo silenciado.
+            mock_send_text.assert_called_once()
+
+            # ASSERTIVA 2: A função deve ser chamada com os argumentos corretos.
+            # Isso pegará erros de 'number' vs 'phone' ou ordem incorreta.
+            mock_send_text.assert_called_once_with(
+                expected_phone,
+                ANY,  # A resposta exata do LLM não importa, apenas que seja uma string.
+                expected_instance
+            )
+
+        print("✅ TEST SUCCESS: A integração com send_text foi validada.")
 
 
 # ========== HELPER FUNCTIONS ==========
