@@ -445,18 +445,18 @@ class TestQualificationSequentialLogic:
     async def test_qualification_node_conducts_full_elegant_conversation_flow(self):
         """
         🎯 DEFINITIVE INTEGRATION TEST: Complete elegant conversation flow from start to finish.
-        
+
         This is the master test that will serve as the specification for the refactored
         qualification_node. It simulates a realistic conversation where:
         1. Each turn extracts data AND generates the next question
-        2. The flow is conversational and elegant 
+        2. The flow is conversational and elegant
         3. All variables are collected in proper sequence
         4. The final summary is generated correctly
-        
+
         This test MUST pass for the refactoring to be considered successful.
         """
         print("🎯 STARTING DEFINITIVE INTEGRATION TEST")
-        
+
         # ========== TURNO 1: Initial state - Bot should ask for parent name ==========
         state = create_initial_cecilia_state(
             phone_number="5511999999999",
@@ -465,105 +465,141 @@ class TestQualificationSequentialLogic:
         )
         state["current_stage"] = ConversationStage.QUALIFICATION
         state["current_step"] = ConversationStep.PARENT_NAME_COLLECTION
-        
+
         # First call - should ask for parent name
         state = await qualification_node(state)
-        
+
         # Validate: Should ask for parent name
         response = state.get("last_bot_response", "").lower()
-        assert any(keyword in response for keyword in ["qual é o seu nome", "seu nome", "como posso chamá"]), \
-            f"Turn 1: Should ask for parent name, got: '{state.get('last_bot_response', '')}'"
+        assert any(
+            keyword in response
+            for keyword in ["qual é o seu nome", "seu nome", "como posso chamá"]
+        ), f"Turn 1: Should ask for parent name, got: '{state.get('last_bot_response', '')}'"
         print("✅ TURN 1: Asked for parent name correctly")
 
         # ========== TURNO 2: User provides name, bot should ask about beneficiary ==========
         state["last_user_message"] = "Meu nome é Gabriel"
         state = await qualification_node(state)
-        
+
         # Validate: Should extract parent_name AND ask about beneficiary
-        assert state["collected_data"].get("parent_name") == "Gabriel", \
-            f"Turn 2: Should extract Gabriel as parent_name, got: {state['collected_data'].get('parent_name')}"
-        
+        assert (
+            state["collected_data"].get("parent_name") == "Gabriel"
+        ), f"Turn 2: Should extract Gabriel as parent_name, got: {state['collected_data'].get('parent_name')}"
+
         response = state.get("last_bot_response", "").lower()
-        assert any(keyword in response for keyword in ["para você mesmo ou para outra pessoa", "é para você", "beneficiário"]), \
-            f"Turn 2: Should ask about beneficiary, got: '{state.get('last_bot_response', '')}'"
+        assert any(
+            keyword in response
+            for keyword in [
+                "para você mesmo ou para outra pessoa",
+                "é para você",
+                "beneficiário",
+            ]
+        ), f"Turn 2: Should ask about beneficiary, got: '{state.get('last_bot_response', '')}'"
         print("✅ TURN 2: Extracted parent_name=Gabriel, asked about beneficiary")
 
         # ========== TURNO 3: User says it's for child, bot should ask child's name ==========
-        state["last_user_message"] = "para meu filho"  
+        state["last_user_message"] = "para meu filho"
         state = await qualification_node(state)
-        
+
         # Validate: Should extract beneficiary_type AND ask for child's name
-        assert state["collected_data"].get("beneficiary_type") == "child", \
-            f"Turn 3: Should extract 'child' as beneficiary_type, got: {state['collected_data'].get('beneficiary_type')}"
-        
+        assert (
+            state["collected_data"].get("beneficiary_type") == "child"
+        ), f"Turn 3: Should extract 'child' as beneficiary_type, got: {state['collected_data'].get('beneficiary_type')}"
+
         response = state.get("last_bot_response", "").lower()
-        assert any(keyword in response for keyword in ["qual é o nome da criança", "nome do seu filho", "como se chama"]), \
-            f"Turn 3: Should ask for child's name, got: '{state.get('last_bot_response', '')}'"
+        assert any(
+            keyword in response
+            for keyword in [
+                "qual é o nome da criança",
+                "nome do seu filho",
+                "como se chama",
+            ]
+        ), f"Turn 3: Should ask for child's name, got: '{state.get('last_bot_response', '')}'"
         print("✅ TURN 3: Extracted beneficiary_type=child, asked for child name")
 
         # ========== TURNO 4: User provides child name, bot should ask age ==========
         state["last_user_message"] = "O nome dele é Pedro"
         state = await qualification_node(state)
-        
+
         # Validate: Should extract student_name AND ask for age
-        assert state["collected_data"].get("student_name") == "Pedro", \
-            f"Turn 4: Should extract 'Pedro' as student_name, got: {state['collected_data'].get('student_name')}"
-            
-        response = state.get("last_bot_response", "").lower()  
-        assert any(keyword in response for keyword in ["quantos anos", "idade", "anos tem pedro"]), \
-            f"Turn 4: Should ask for Pedro's age, got: '{state.get('last_bot_response', '')}'"
+        assert (
+            state["collected_data"].get("student_name") == "Pedro"
+        ), f"Turn 4: Should extract 'Pedro' as student_name, got: {state['collected_data'].get('student_name')}"
+
+        response = state.get("last_bot_response", "").lower()
+        assert any(
+            keyword in response
+            for keyword in ["quantos anos", "idade", "anos tem pedro"]
+        ), f"Turn 4: Should ask for Pedro's age, got: '{state.get('last_bot_response', '')}'"
         print("✅ TURN 4: Extracted student_name=Pedro, asked for age")
 
         # ========== TURNO 5: User provides age, bot should ask about interests ==========
         state["last_user_message"] = "Ele tem 8 anos"
         state = await qualification_node(state)
-        
+
         # Validate: Should extract student_age AND ask about interests
-        assert state["collected_data"].get("student_age") == 8, \
-            f"Turn 5: Should extract 8 as student_age, got: {state['collected_data'].get('student_age')}"
-            
+        assert (
+            state["collected_data"].get("student_age") == 8
+        ), f"Turn 5: Should extract 8 as student_age, got: {state['collected_data'].get('student_age')}"
+
         response = state.get("last_bot_response", "").lower()
-        assert any(keyword in response for keyword in ["qual matéria", "gostaria de estudar", "matemática", "português", "inglês"]), \
-            f"Turn 5: Should ask about program interests, got: '{state.get('last_bot_response', '')}'"
+        assert any(
+            keyword in response
+            for keyword in [
+                "qual matéria",
+                "gostaria de estudar",
+                "matemática",
+                "português",
+                "inglês",
+            ]
+        ), f"Turn 5: Should ask about program interests, got: '{state.get('last_bot_response', '')}'"
         print("✅ TURN 5: Extracted student_age=8, asked about interests")
 
         # ========== TURNO 6: User provides interests, bot should generate summary ==========
         state["last_user_message"] = "Matemática"
         state = await qualification_node(state)
-        
+
         # Validate: Should extract program_interests AND generate final summary
         interests = state["collected_data"].get("program_interests", [])
-        assert "Matemática" in interests, \
-            f"Turn 6: Should extract 'Matemática' in interests, got: {interests}"
-            
+        assert (
+            "Matemática" in interests
+        ), f"Turn 6: Should extract 'Matemática' in interests, got: {interests}"
+
         # Should transition to information gathering stage
-        assert state["current_stage"] == ConversationStage.INFORMATION_GATHERING, \
-            f"Turn 6: Should transition to INFORMATION_GATHERING, got: {state['current_stage']}"
-            
+        assert (
+            state["current_stage"] == ConversationStage.INFORMATION_GATHERING
+        ), f"Turn 6: Should transition to INFORMATION_GATHERING, got: {state['current_stage']}"
+
         # Should generate comprehensive summary
         response = state.get("last_bot_response", "").lower()
-        assert all(keyword in response for keyword in ["gabriel", "pedro", "8 anos", "matemática"]), \
-            f"Turn 6: Summary should contain all collected data, got: '{state.get('last_bot_response', '')}'"
-        assert any(keyword in response for keyword in ["resumo", "perfeito", "qualificação"]), \
-            f"Turn 6: Should be a summary response, got: '{state.get('last_bot_response', '')}'"
+        assert all(
+            keyword in response
+            for keyword in ["gabriel", "pedro", "8 anos", "matemática"]
+        ), f"Turn 6: Summary should contain all collected data, got: '{state.get('last_bot_response', '')}'"
+        assert any(
+            keyword in response for keyword in ["resumo", "perfeito", "qualificação"]
+        ), f"Turn 6: Should be a summary response, got: '{state.get('last_bot_response', '')}'"
         print("✅ TURN 6: Extracted interests=Matemática, generated complete summary")
 
         # ========== FINAL VALIDATION: All data collected correctly ==========
         final_data = state["collected_data"]
         expected_data = {
             "parent_name": "Gabriel",
-            "beneficiary_type": "child", 
+            "beneficiary_type": "child",
             "student_name": "Pedro",
             "student_age": 8,
-            "program_interests": ["Matemática"]
+            "program_interests": ["Matemática"],
         }
-        
+
         for key, expected_value in expected_data.items():
             actual_value = final_data.get(key)
-            assert actual_value == expected_value, \
-                f"Final validation - {key}: expected {expected_value}, got {actual_value}"
-        
-        print("🎯 DEFINITIVE INTEGRATION TEST PASSED: qualification_node conducts complete elegant conversation!")
+            assert (
+                actual_value == expected_value
+            ), f"Final validation - {key}: expected {expected_value}, got {actual_value}"
+
+        print(
+            "🎯 DEFINITIVE INTEGRATION TEST PASSED: qualification_node conducts complete elegant conversation!"
+        )
         return True
 
     @pytest.mark.asyncio

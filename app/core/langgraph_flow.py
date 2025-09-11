@@ -13,6 +13,7 @@ from app.core.delivery import send_text
 from app.core.gemini_classifier import classifier
 from app.core.llm import OpenAIClient
 from app.core.nodes.information import information_node as intelligent_information_node
+from app.core.nodes.qualification import qualification_node
 from app.core.state_manager import (
     get_conversation_history,
     get_conversation_state,
@@ -272,128 +273,8 @@ def greeting_node(state: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
-def qualification_node(state: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle qualification intent with attempt tracking and NLU entity consumption."""
-    # CRITICAL: Increment attempt counter here (where state changes are preserved)
-    state = copy.deepcopy(state)  # Deep copy to prevent state corruption
-    state["qualification_attempts"] = state.get("qualification_attempts", 0) + 1
-
-    print(
-        f"QUALIFICATION|node_enter|attempts={state['qualification_attempts']}|phone={safe_phone_display(state.get('phone'))}"
-    )
-
-    # NEW: Consume pre-extracted entities from NLU result
-    phone = state.get("phone")
-    if phone:
-        # Load current state from Redis
-        saved_state = get_conversation_state(phone)
-
-        # Check for pre-extracted entities from GeminiClassifier NLU
-        nlu_result = state.get("nlu_result", {})
-        if nlu_result and "entities" in nlu_result:
-            entities_consumed = []
-            updated_state = dict(saved_state)  # Start with current saved state
-
-            for key, value in nlu_result["entities"].items():
-                # Only consume entities that are qualification variables and not already set
-                if key in QUALIFICATION_REQUIRED_VARS and not saved_state.get(key):
-                    updated_state[key] = value
-                    entities_consumed.append(f"{key}={value}")
-                    print(
-                        f"NLU_ENTITY|consumed|phone={safe_phone_display(phone)}|{key}={value}"
-                    )
-
-            # Save updated state with consumed entities if any were processed
-            if entities_consumed:
-                save_conversation_state(phone, updated_state)
-                print(
-                    f"NLU_ENTITY|saved|phone={safe_phone_display(phone)}|entities={len(entities_consumed)}|consumed={', '.join(entities_consumed)}"
-                )
-
-    # LEGACY EXTRACTION: Check if parent_name is missing and extract from user message
-    # Note: This is now secondary to NLU entity consumption but kept for backward compatibility
-    if phone:
-        # Reload state after potential NLU entity consumption
-        saved_state = get_conversation_state(phone)
-
-        # Check if parent_name is missing after NLU consumption
-        if not saved_state.get("parent_name"):
-            user_text = state.get("text", "")
-            if user_text:
-                # Extract parent_name from user message using regex patterns
-                import re
-
-                parent_name_patterns = [
-                    r"meu nome é (\w+)",
-                    r"me chamo (\w+)",
-                    r"sou (\w+)",
-                    r"eu sou (\w+)",
-                    r"^(?!(?:Olá|olá|Oi|oi|Bom|bom|Boa|boa|Hey|hey|Eai|eai|E aí|e aí)$)(\w+)$",  # Single word response excluding greetings
-                ]
-
-                extracted_name = None
-                for pattern in parent_name_patterns:
-                    match = re.search(pattern, user_text.lower())
-                    if match:
-                        extracted_name = match.group(1).capitalize()
-                        break
-
-                if extracted_name:
-                    # Save extracted parent_name to Redis state
-                    updated_state = {**saved_state, "parent_name": extracted_name}
-                    save_conversation_state(phone, updated_state)
-                    print(
-                        f"STATE|extracted|phone={safe_phone_display(phone)}|parent_name={extracted_name}"
-                    )
-
-        # CRITICAL ADDITION: Extract beneficiary_type for sequential flow
-        # Check if beneficiary_type is missing after NLU consumption
-        if not saved_state.get("beneficiary_type"):
-            user_text = state.get("text", "").lower()
-            if user_text:
-                import re
-
-                # Extract beneficiary type
-                extracted_beneficiary = None
-                if any(
-                    word in user_text
-                    for word in [
-                        "para mim",
-                        "para eu",
-                        "é para mim",
-                        "pra mim",
-                        "para mim mesmo",
-                        "eu mesmo",
-                    ]
-                ):
-                    extracted_beneficiary = "self"
-                elif any(
-                    word in user_text
-                    for word in [
-                        "para meu",
-                        "para minha",
-                        "meu filho",
-                        "minha filha",
-                        "para outra pessoa",
-                        "filho",
-                        "filha",
-                        "criança",
-                    ]
-                ):
-                    extracted_beneficiary = "child"
-
-                if extracted_beneficiary:
-                    # Save extracted beneficiary_type to Redis state
-                    updated_state = {
-                        **saved_state,
-                        "beneficiary_type": extracted_beneficiary,
-                    }
-                    save_conversation_state(phone, updated_state)
-                    print(
-                        f"STATE|extracted|phone={safe_phone_display(phone)}|beneficiary_type={extracted_beneficiary}"
-                    )
-
-    return _execute_node(state, "qualification", get_qualification_prompt)
+# REMOVED: Inline qualification_node function
+# Now using the refactored qualification_node from app.core.nodes.qualification
 
 
 async def information_node(state: Dict[str, Any]) -> Dict[str, Any]:
