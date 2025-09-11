@@ -384,8 +384,6 @@ def fallback_node(state: Dict[str, Any]) -> Dict[str, Any]:
     return _execute_node(state, "fallback", get_fallback_prompt)
 
 
-
-
 def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[str, Any]:
     """Execute a single node: generate response and send."""
     message_id = state.get("message_id")
@@ -716,12 +714,12 @@ def build_graph():
 workflow = build_graph()
 
 
-def run(state: Dict[str, Any]) -> Dict[str, Any]:
-    """Run the workflow with the given state."""
+async def run(state: Dict[str, Any]) -> Dict[str, Any]:
+    """Run the workflow with the given state asynchronously."""
     print(f"PIPELINE|flow_start|message_id={state.get('message_id')}")
 
     try:
-        result = workflow.invoke(state)
+        result = await workflow.ainvoke(state)
         print(f"PIPELINE|flow_complete|sent={result.get('sent', 'false')}")
         return result
     except Exception as e:

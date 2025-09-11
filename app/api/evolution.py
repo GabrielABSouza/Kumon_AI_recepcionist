@@ -132,8 +132,8 @@ async def webhook(request: Request) -> Dict[str, Any]:
             "instance": instance,
         }
 
-        # Run the ONE_TURN flow
-        result = langgraph_flow.run(state)
+        # Run the ONE_TURN flow asynchronously
+        result = await langgraph_flow.run(state)
 
         # Mark as replied if any message was sent during the flow
         # This centralized approach prevents multi-node flows from being interrupted
