@@ -3,11 +3,13 @@ Utility functions for prompt generation and few-shot learning.
 """
 import json
 import os
+
+# Path to the few-shot examples JSON file (relative to this file)
+import pathlib
 from typing import Any, Dict, List
 
-# Path to the few-shot examples JSON file
-FEW_SHOT_EXAMPLES_PATH = (
-    "/Users/gabrielbastos/recepcionista_kumon/app/data/few_shot_examples.json"
+FEW_SHOT_EXAMPLES_PATH = str(
+    pathlib.Path(__file__).parent.parent / "data" / "few_shot_examples.json"
 )
 
 

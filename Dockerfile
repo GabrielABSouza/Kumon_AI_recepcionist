@@ -17,6 +17,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY main.py .
 COPY app/ ./app/
 
+# Explicitly copy data directory to ensure JSON files are included
+COPY app/data/ ./app/data/
+
 # Expose port
 EXPOSE ${PORT}
 

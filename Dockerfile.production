@@ -22,6 +22,9 @@ RUN pip install --no-cache-dir -r requirements-production.txt
 # Copy application code
 COPY app/ ./app/
 
+# Explicitly copy data directory to ensure JSON files are included
+COPY app/data/ ./app/data/
+
 # Create necessary directories
 RUN mkdir -p logs data cache temp
 
