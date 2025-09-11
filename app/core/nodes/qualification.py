@@ -1,6 +1,5 @@
 import copy
 import logging
-import re
 
 from ..delivery import send_text
 from ..state.models import CeciliaState, ConversationStage, ConversationStep
@@ -19,19 +18,21 @@ QUALIFICATION_VARS_SEQUENCE = [
 
 async def qualification_node(state: CeciliaState) -> CeciliaState:
     """
-    🚀 SIMPLIFIED SEQUENTIAL QUALIFICATION NODE
+    🧠 QUALIFICATION ORCHESTRATOR - NEW ARCHITECTURE
 
-    Radical simplification that eliminates complex class abstractions:
-    - Direct state manipulation with copy.deepcopy safety
-    - Consolidated logic in single function
-    - Clear, debuggable sequential flow
-    - No complex transformation chains
+    Pure orchestration node that relies exclusively on GeminiClassifier for entity extraction.
 
-    Follows TDD requirements:
-    1. Extract data from current user message
-    2. Determine next variable to collect
+    ARCHITECTURE PRINCIPLES:
+    - 🎯 ZERO entity extraction logic - trusts GeminiClassifier 100%
+    - 🎭 Pure orchestrator: consumes pre-extracted entities, generates questions
+    - 🔄 Sequential flow: determines next missing variable and asks for it
+    - 🚀 Simplified: no complex abstractions, direct state manipulation
+
+    WORKFLOW:
+    1. Process entities already extracted by GeminiClassifier contextual
+    2. Determine next variable to collect based on sequence
     3. Generate appropriate question or complete qualification
-    4. Return updated state directly
+    4. Return updated state with response sent via Evolution API
     """
 
     # 1. GARANTA A SEGURANÇA DO ESTADO
@@ -41,10 +42,10 @@ async def qualification_node(state: CeciliaState) -> CeciliaState:
         f"Processing qualification for {_get_phone_from_state(state)} - simplified sequential mode"
     )
 
-    user_message = state["text"]
+    state["text"]
 
-    # 2. EXTRAIA NOVAS INFORMAÇÕES (se houver)
-    _extract_data_from_current_message(state, user_message)
+    # 2. NOVA ARQUITETURA: Use entidades já extraídas pelo GeminiClassifier
+    _process_nlu_entities(state)
 
     # 3. DETERMINE O PRÓXIMO PASSO
     next_var_to_collect = None
@@ -58,7 +59,6 @@ async def qualification_node(state: CeciliaState) -> CeciliaState:
             next_var_to_collect = var
             break
 
-
     # 🎥 LOG DE DEPURAÇÃO: Identificação da próxima variável
     logger.info(
         f"QUALIFICATION_DEBUG|Next missing variable identified: {next_var_to_collect}"
@@ -69,7 +69,6 @@ async def qualification_node(state: CeciliaState) -> CeciliaState:
     if next_var_to_collect:
         # Generate question for next variable
         response_text = _generate_question_for_variable(state, next_var_to_collect)
-
 
         # 🎥 LOG DE DEPURAÇÃO: Resposta gerada (simulando prompt LLM)
         logger.info(
@@ -138,175 +137,44 @@ async def qualification_node(state: CeciliaState) -> CeciliaState:
     return state
 
 
-def _extract_data_from_current_message(state: CeciliaState, user_message: str) -> None:
+def _process_nlu_entities(state: CeciliaState) -> None:
     """
-    🔍 Extract data from user message based on what we're currently collecting.
+    🧠 NOVA ARQUITETURA: Processa entidades já extraídas pelo GeminiClassifier contextual.
 
-    Simplified extraction logic with direct state modification.
+    O GeminiClassifier é agora o cérebro principal da extração - ele tem memória de curto prazo
+    através do histórico da conversa e extrai entidades de forma muito mais precisa.
+
+    Esta função apenas valida e salva as entidades que já foram extraídas.
     """
+    nlu_entities = state.get("nlu_entities", {})
     collected = state["collected_data"]
-    message_lower = user_message.lower()
 
-    # Determine what we're currently trying to collect
-    current_var = None
-    for var in QUALIFICATION_VARS_SEQUENCE:
-        if var not in collected or not collected.get(var):
-            if var == "student_name" and collected.get("beneficiary_type") == "self":
-                continue
-            current_var = var
-            break
+    # Processar cada entidade extraída pelo NLU
+    for entity_key, entity_value in nlu_entities.items():
+        if entity_value is not None and entity_key in QUALIFICATION_VARS_SEQUENCE:
+            # Validação adicional se necessário
+            if entity_key == "student_age":
+                # Validar idade
+                if isinstance(entity_value, int) and 2 <= entity_value <= 25:
+                    collected[entity_key] = entity_value
+                    logger.info(f"NLU extracted {entity_key}: {entity_value}")
+            elif entity_key == "program_interests":
+                # Validar interesses
+                if isinstance(entity_value, list) and entity_value:
+                    collected[entity_key] = entity_value
+                    logger.info(f"NLU extracted {entity_key}: {entity_value}")
+            else:
+                # Para strings simples (names, beneficiary_type)
+                if isinstance(entity_value, str) and len(entity_value.strip()) > 0:
+                    collected[entity_key] = entity_value.strip()
+                    logger.info(f"NLU extracted {entity_key}: {entity_value}")
 
-    if not current_var:
-        return  # Nothing to extract
+    logger.info(f"NLU processing complete. Collected: {collected}")
 
-    # Extract based on current variable
-    if current_var == "parent_name":
-        # Look for names in the message
-        # Improved extraction: look for "nome é", "sou", "me chamo" patterns
-        name_patterns = [
-            r"nome (?:é|eh) ([A-Z][a-záêçõàâáéíóúô]+(?:\s+[A-Z][a-záêçõàâáéíóúô]+)*)",
-            r"(?:sou|me chamo) ([A-Z][a-záêçõàâáéíóúô]+(?:\s+[A-Z][a-záêçõàâáéíóúô]+)*)",
-            r"^([A-Z][a-záêçõàâáéíóúô]+(?:\s+[A-Z][a-záêçõàâáéíóúô]+)*)$",  # Just name
-        ]
 
-        for pattern in name_patterns:
-            match = re.search(pattern, user_message, re.IGNORECASE)
-            if match:
-                name = match.group(1).strip()
-                # Avoid extracting common words as names
-                if name.lower() not in [
-                    "meu",
-                    "minha",
-                    "para",
-                    "nome",
-                    "sou",
-                    "chamo",
-                    "olá",
-                    "ola",
-                    "oi",
-                    "bom",
-                    "dia",
-                    "tarde",
-                    "noite",
-                    "gostaria",
-                    "quero",
-                    "preciso",
-                ]:
-                    collected["parent_name"] = name
-                    logger.info(f"Extracted parent_name: {name}")
-                    break
-
-    elif current_var == "beneficiary_type":
-        # Extract beneficiary type
-        if any(
-            word in message_lower
-            for word in ["para mim", "para eu", "é para mim", "pra mim"]
-        ):
-            collected["beneficiary_type"] = "self"
-        elif any(
-            word in message_lower
-            for word in ["para meu", "para minha", "meu filho", "minha filha"]
-        ):
-            collected["beneficiary_type"] = "child"
-        elif any(
-            word in message_lower
-            for word in ["filho", "filha", "criança", "menino", "menina"]
-        ):
-            collected["beneficiary_type"] = "child"
-        elif any(
-            word in message_lower for word in ["para você", "você mesmo", "para si"]
-        ):
-            collected["beneficiary_type"] = "self"
-        elif any(word in message_lower for word in ["outra pessoa"]):
-            collected["beneficiary_type"] = "child"
-
-        if "beneficiary_type" in collected:
-            logger.info(f"Extracted beneficiary_type: {collected['beneficiary_type']}")
-
-    elif current_var == "student_name":
-        # Extract student name - simplified and more robust approach
-        # Find all capitalized words in the message
-        capitalized_words = re.findall(r"\b[A-Z][a-záêçõàâáéíóúô]+\b", user_message)
-
-        # Filter out common non-name words
-        non_names = {
-            "O",
-            "A",
-            "E",
-            "É",
-            "Eh",
-            "Nome",
-            "Dele",
-            "Dela",
-            "Filho",
-            "Filha",
-            "Criança",
-            "Tem",
-            "Ele",
-            "Ela",
-        }
-        potential_names = [word for word in capitalized_words if word not in non_names]
-
-        if potential_names:
-            # Take the first potential name
-            collected["student_name"] = potential_names[0]
-            logger.info(f"Extracted student_name: {potential_names[0]}")
-        else:
-            # Fallback: try simple patterns
-            name_patterns = [
-                r"(?:nome|chama)\s+(?:é|eh|dele|dela)?\s*([A-Z][a-z]+)",
-                r"é\s+([A-Z][a-z]+)",
-                r"^([A-Z][a-z]+)$",
-            ]
-
-            for pattern in name_patterns:
-                match = re.search(pattern, user_message, re.IGNORECASE)
-                if match:
-                    name = match.group(1).strip()
-                    if name.lower() not in [
-                        "nome",
-                        "ele",
-                        "ela",
-                        "filho",
-                        "filha",
-                        "criança",
-                        "tem",
-                    ]:
-                        collected["student_name"] = name
-                        logger.info(f"Extracted student_name via pattern: {name}")
-                        break
-
-    elif current_var == "student_age":
-        # Extract age
-        age_pattern = r"\b(\d{1,2})\s*anos?"
-        age_match = re.search(age_pattern, user_message)
-        if age_match:
-            age = int(age_match.group(1))
-            if 2 <= age <= 25:  # Reasonable age range
-                collected["student_age"] = age
-                logger.info(f"Extracted student_age: {age}")
-
-    elif current_var == "program_interests":
-        # Extract program interests
-        interests = []
-        if any(
-            word in message_lower
-            for word in ["matemática", "matematica", "math", "números", "calculo"]
-        ):
-            interests.append("Matemática")
-        if any(
-            word in message_lower
-            for word in ["português", "portugues", "redação", "leitura", "escrita"]
-        ):
-            interests.append("Português")
-        if any(
-            word in message_lower for word in ["inglês", "ingles", "english", "idioma"]
-        ):
-            interests.append("Inglês")
-
-        if interests:
-            collected["program_interests"] = interests
-            logger.info(f"Extracted program_interests: {interests}")
+# 🗑️ REMOVED: _extract_data_from_current_message_legacy function
+# This legacy function has been eliminated as part of the new architecture.
+# The qualification_node now relies exclusively on entities extracted by GeminiClassifier.
 
 
 def _generate_question_for_variable(state: CeciliaState, variable: str) -> str:

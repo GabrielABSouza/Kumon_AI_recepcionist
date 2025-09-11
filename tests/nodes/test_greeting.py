@@ -27,7 +27,7 @@ class TestGreetingNode:
                 with patch("app.core.langgraph_flow.send_text") as mock_send:
                     with patch(
                         "app.core.langgraph_flow.save_conversation_state"
-                    ) as mock_save:
+                    ) as _mock_save:
                         # Setup mocks
                         mock_get_state.return_value = {}  # New conversation
                         mock_send.return_value = {
@@ -38,7 +38,7 @@ class TestGreetingNode:
                         mock_client = MagicMock()
 
                         # Create async mock for OpenAI response
-                        async def mock_chat(*args, **kwargs):
+                        async def mock_chat(*_args, **_kwargs):
                             return "Olá! Eu sou a Cecília do Kumon Vila A. Qual é o seu nome?"
 
                         mock_client.chat = mock_chat
@@ -59,7 +59,7 @@ class TestGreetingNode:
                         assert mock_send.called, "Should send a greeting response"
 
                         # ASSERTION 3: Should save state (standard flow)
-                        assert mock_save.called, "Should save conversation state"
+                        assert _mock_save.called, "Should save conversation state"
 
     def test_greeting_node_handles_empty_text(self):
         """Test that greeting node handles empty or missing text gracefully."""
@@ -75,13 +75,13 @@ class TestGreetingNode:
                 with patch("app.core.langgraph_flow.send_text") as mock_send:
                     with patch(
                         "app.core.langgraph_flow.save_conversation_state"
-                    ) as mock_save:
+                    ) as _mock_save:
                         mock_get_state.return_value = {}
                         mock_send.return_value = {"sent": "true", "status_code": 200}
 
                         mock_client = MagicMock()
 
-                        async def mock_chat(*args, **kwargs):
+                        async def mock_chat(*_args, **_kwargs):
                             return "Olá! Como posso ajudar?"
 
                         mock_client.chat = mock_chat
@@ -120,3 +120,73 @@ class TestGreetingNode:
 
                 # ASSERTION 2: Should add greeting_sent flag to result
                 assert result["greeting_sent"] is True, "Should add greeting_sent flag"
+
+    def test_greeting_node_uses_pre_extracted_entities_from_classifier(self):
+        """
+        🚨 RED PHASE TEST: Greeting node deve usar entidades já extraídas pelo GeminiClassifier.
+
+        PROBLEMA ATUAL: greeting_node tem lógica de NLU duplicada em _get_business_updates_for_greeting
+        que analisa keywords - deve ser eliminado.
+
+        NOVA ARQUITETURA: greeting_node deve ler entidades do state['intent_result']['entities']
+        e usar essa informação para atualizar o estado.
+
+        🔥 ESTE TESTE VAI FALHAR até refatorarmos _get_business_updates_for_greeting
+        """
+        from app.core.nodes.greeting import GreetingNode
+        from app.core.state.models import CeciliaState, ConversationStep
+
+        # ARRANGE: Criar estado onde o GeminiClassifier contradiz as keywords
+        # 🔥 PROBLEMA: Se greeting_node ainda usa keywords, vai interpretar mal
+        state = CeciliaState(
+            {
+                "phone_number": "5511999999999",
+                # 🎯 CRÍTICO: Mensagem confusa que keywords interpretariam como "self"
+                "last_user_message": "é para mim, mas na verdade para minha sobrinha",
+                "current_step": ConversationStep.INITIAL_RESPONSE,
+                "collected_data": {
+                    "parent_name": "Maria"  # Nome já coletado na etapa anterior
+                },
+                # 🧠 INTELIGÊNCIA: GeminiClassifier é mais inteligente e identifica corretamente
+                "intent_result": {
+                    "primary_intent": "qualification",
+                    "entities": {
+                        "beneficiary_type": "child",  # GeminiClassifier identifica corretamente
+                        "parent_name": "Maria",
+                    },
+                },
+            }
+        )
+
+        # ACT: Executar greeting_node
+        node = GreetingNode()
+        updates = node._get_business_updates_for_greeting(state)
+
+        # 🔍 DEBUG: Vamos ver o que está sendo retornado
+        print(f"🔍 DEBUG - Updates retornados: {updates}")
+        print(f"🔍 DEBUG - Estado atual: current_step={state.get('current_step')}")
+        print(f"🔍 DEBUG - intent_result: {state.get('intent_result')}")
+
+        # ASSERT 1: Deve usar entidade extraída pelo GeminiClassifier
+        assert "is_for_self" in updates, (
+            f"greeting_node deve processar beneficiary_type do GeminiClassifier. "
+            f"Updates atuais: {updates}"
+        )
+        assert (
+            updates["is_for_self"] is False
+        ), f"Com beneficiary_type='child', is_for_self deve ser False. Got: {updates}"
+
+        # ASSERT 2: Deve transicionar para próximo step baseado na entidade
+        assert updates["current_step"] == ConversationStep.CHILD_NAME_COLLECTION, (
+            f"Com beneficiary_type='child', deve ir para CHILD_NAME_COLLECTION. "
+            f"Got: {updates['current_step']}"
+        )
+
+        # ASSERT 3: Deve definir relationship corretamente baseado na entidade
+        assert updates["relationship"] == "responsável por filho(a)", (
+            f"Com beneficiary_type='child', relationship deve ser definido. "
+            f"Got: {updates.get('relationship')}"
+        )
+
+        print("✅ RED PHASE: Teste criado - vai falhar até refatorarmos greeting_node")
+        return True

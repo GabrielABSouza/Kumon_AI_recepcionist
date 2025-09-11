@@ -39,8 +39,11 @@ class GeminiClassifier:
             }
         """
         if not self.enabled:
-            # Simple fallback classification for testing
-            return self._simple_classify_structured(text)
+            # Simple fallback classification for testing with context support
+            print(f"GeminiClassifier fallback mode: text='{text}', context={context}")
+            result = self._simple_classify_structured(text, context)
+            print(f"GeminiClassifier result: {result}")
+            return result
 
         # Build structured NLU prompt
         if context:
@@ -65,24 +68,26 @@ class GeminiClassifier:
                 "confidence": 0.0,
             }
 
-    def _simple_classify_structured(self, text: str) -> dict:
-        """Simple keyword-based classification returning structured output."""
+    def _simple_classify_structured(self, text: str, context: dict = None) -> dict:
+        """Intelligent contextual classification with enhanced entity extraction."""
         text_lower = text.lower()
 
-        # Extract basic entities from text
-        entities = {}
+        # Enhanced entity extraction with context awareness
+        entities = self._extract_entities_contextual(text, context)
 
-        # Extract student names (basic pattern matching)
-        import re
-
-        name_matches = re.findall(
-            r"\b(?:meu filho|minha filha|filho|filha)\s+([A-ZÀ-Ÿ][a-zà-ÿ]+)", text
-        )
-        if name_matches:
-            entities["student_name"] = name_matches[0]
-            entities["beneficiary_type"] = "child"
-        elif any(word in text_lower for word in ["para mim", "eu mesmo", "para eu"]):
-            entities["beneficiary_type"] = "self"
+        # Check if we need to merge with context entities
+        if context and "state" in context:
+            state_data = context["state"]
+            # Don't override entities already extracted from current message
+            for key in [
+                "parent_name",
+                "student_name",
+                "student_age",
+                "beneficiary_type",
+                "program_interests",
+            ]:
+                if key not in entities and key in state_data and state_data[key]:
+                    entities[key] = state_data[key]
 
         # Check for multi-intent patterns first
         has_qualification_answer = any(
@@ -151,6 +156,178 @@ class GeminiClassifier:
                 "confidence": 0.5,
             }
 
+    def _extract_entities_contextual(self, text: str, context: dict = None) -> dict:
+        """
+        🧠 INTELIGÊNCIA CONTEXTUAL: Extract entities based on conversation context.
+
+        Esta é a inteligência principal do novo sistema - usa o contexto da conversa
+        para extrair entidades de forma muito mais precisa que regex simples.
+        """
+        import re
+
+        text_lower = text.lower().strip()
+        entities = {}
+
+        # Get missing variables from context to know what to extract
+        missing_vars = []
+        if context and "state" in context:
+            state_data = context["state"]
+            qualification_vars = [
+                "parent_name",
+                "student_name",
+                "student_age",
+                "beneficiary_type",
+                "program_interests",
+            ]
+            missing_vars = [
+                var for var in qualification_vars if not state_data.get(var)
+            ]
+
+        print(
+            f"_extract_entities_contextual: text='{text}', missing_vars={missing_vars}"
+        )
+
+        # 🎯 CONTEXTO: Se esperamos parent_name e recebemos um nome isolado
+        if "parent_name" in missing_vars:
+            # Padrões para nome do responsável
+            parent_patterns = [
+                r"(?:meu nome é|me chamo|sou)\s+([A-ZÀ-Ÿ][a-záêçõàâéíóúô\s]+)",
+                r"^([A-ZÀ-Ÿ][a-záêçõàâéíóúô]+(?:\s+[A-ZÀ-Ÿ][a-záêçõàâéíóúô]+)?)$",  # Nome isolado
+            ]
+
+            for pattern in parent_patterns:
+                match = re.search(pattern, text, re.IGNORECASE)
+                if match:
+                    name = match.group(1).strip()
+                    # Filtro de palavras comuns que não são nomes
+                    blacklist = {
+                        "olá",
+                        "ola",
+                        "oi",
+                        "bom",
+                        "dia",
+                        "tarde",
+                        "noite",
+                        "sim",
+                        "não",
+                        "obrigado",
+                        "obrigada",
+                        "por",
+                        "favor",
+                        "gostaria",
+                        "quero",
+                        "preciso",
+                        "meu",
+                        "minha",
+                        "para",
+                        "nome",
+                        "sou",
+                        "chamo",
+                        "ele",
+                        "ela",
+                    }
+                    if name.lower() not in blacklist and len(name) > 2:
+                        entities["parent_name"] = name
+                        break
+
+        # 🎯 CONTEXTO: Se esperamos beneficiary_type após coletar parent_name
+        if "beneficiary_type" in missing_vars and "parent_name" not in missing_vars:
+            if any(
+                word in text_lower
+                for word in ["para mim", "para eu", "é para mim", "pra mim", "eu mesmo"]
+            ):
+                entities["beneficiary_type"] = "self"
+            elif any(
+                word in text_lower
+                for word in [
+                    "para meu",
+                    "para minha",
+                    "meu filho",
+                    "minha filha",
+                    "filho",
+                    "filha",
+                    "criança",
+                    "para outra pessoa",
+                ]
+            ):
+                entities["beneficiary_type"] = "child"
+
+        # 🎯 CONTEXTO: Se esperamos student_name após definir beneficiary_type=child
+        if (
+            "student_name" in missing_vars
+            and context
+            and context.get("state", {}).get("beneficiary_type") == "child"
+        ):
+            # Padrões para nome do estudante
+            student_patterns = [
+                r"(?:nome dele é|nome dela é|se chama|chama)\s+([A-ZÀ-Ÿ][a-záêçõàâéíóúô]+)",
+                r"(?:é o|é a)\s+([A-ZÀ-Ÿ][a-záêçõàâéíóúô]+)",
+                r"^([A-ZÀ-Ÿ][a-záêçõàâéíóúô]+)$",  # Nome isolado quando perguntado especificamente
+            ]
+
+            for pattern in student_patterns:
+                match = re.search(pattern, text, re.IGNORECASE)
+                if match:
+                    name = match.group(1).strip()
+                    # Mesmo blacklist do parent_name
+                    blacklist = {
+                        "nome",
+                        "ele",
+                        "ela",
+                        "filho",
+                        "filha",
+                        "criança",
+                        "tem",
+                        "anos",
+                        "olá",
+                        "ola",
+                        "oi",
+                        "sim",
+                        "não",
+                    }
+                    if name.lower() not in blacklist and len(name) > 2:
+                        entities["student_name"] = name
+                        break
+
+        # 🎯 CONTEXTO: Se esperamos student_age após coletar student_name
+        if "student_age" in missing_vars:
+            age_patterns = [
+                r"(?:tem|idade|anos?)\s+(\d{1,2})\s*anos?",
+                r"(\d{1,2})\s*anos?",
+                r"^(\d{1,2})$",  # Apenas número quando perguntado especificamente
+            ]
+
+            for pattern in age_patterns:
+                match = re.search(pattern, text)
+                if match:
+                    age = int(match.group(1))
+                    if 2 <= age <= 25:  # Faixa etária válida para Kumon
+                        entities["student_age"] = age
+                        break
+
+        # 🎯 CONTEXTO: Se esperamos program_interests após coletar informações básicas
+        if "program_interests" in missing_vars:
+            interests = []
+            if any(
+                word in text_lower
+                for word in ["matemática", "matematica", "math", "números", "cálculo"]
+            ):
+                interests.append("Matemática")
+            if any(
+                word in text_lower
+                for word in ["português", "portugues", "redação", "leitura", "escrita"]
+            ):
+                interests.append("Português")
+            if any(
+                word in text_lower for word in ["inglês", "ingles", "english", "idioma"]
+            ):
+                interests.append("Inglês")
+
+            if interests:
+                entities["program_interests"] = interests
+
+        return entities
+
     # Legacy _simple_classify() method removed - all code now uses structured format
 
     def _build_prompt(self, text: str) -> str:
@@ -179,7 +356,9 @@ class GeminiClassifier:
         missing_vars = self._get_missing_qualification_vars(context)
 
         # Build the sophisticated NLU prompt
-        prompt = f"""Você é um motor de NLU (Natural Language Understanding) para um chatbot de atendimento do Kumon. Sua tarefa é analisar a mensagem do usuário dentro do contexto da conversa e retornar um objeto JSON estruturado.
+        prompt = f"""Você é um motor de NLU (Natural Language Understanding) para um
+chbot de atendimento do Kumon. Sua tarefa é analisar a mensagem do usuário
+dentro do contexto da conversa e retornar um objeto JSON estruturado.
 
 **CONTEXTO DA CONVERSA:**
 - Histórico (últimas 4 mensagens):
@@ -190,8 +369,11 @@ class GeminiClassifier:
 "{text}"
 
 **TAREFAS DE ANÁLISE:**
-1. **primary_intent:** Determine a intenção principal. Se a mensagem responde a uma pergunta anterior, a intenção é 'qualification'. Se introduz um tópico novo, a intenção é esse novo tópico (ex: 'information', 'scheduling').
-2. **secondary_intent:** Se a mensagem contiver um pedido secundário (ex: responder E fazer uma nova pergunta), identifique-o aqui. Caso contrário, retorne null.
+1. **primary_intent:** Determine a intenção principal. Se a mensagem responde a uma
+pergunta anterior, a intenção é 'qualification'. Se introduz um tópico novo, a
+intenção é esse novo tópico (ex: 'information', 'scheduling').
+2. **secondary_intent:** Se a mensagem contiver um pedido secundário (ex: responder
+E fazer uma nova pergunta), identifique-o aqui. Caso contrário, retorne null.
 3. **entities:** Extraia as seguintes entidades do texto, se presentes:
    - parent_name (string)
    - beneficiary_type (string, valores possíveis: 'self' ou 'child')
@@ -217,7 +399,8 @@ class GeminiClassifier:
 
     def _build_basic_nlu_prompt(self, text: str) -> str:
         """Build basic NLU prompt without context."""
-        prompt = f"""Você é um motor de NLU para um chatbot do Kumon. Analise a mensagem e retorne um objeto JSON.
+        prompt = f"""Você é um motor de NLU para um chatbot do Kumon.
+Analise a mensagem e retorne um objeto JSON.
 
 **MENSAGEM DO USUÁRIO:**
 "{text}"

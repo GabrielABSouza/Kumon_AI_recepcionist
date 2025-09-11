@@ -8,8 +8,9 @@ CRITICAL: These tests follow the exact conversation flow and ensure the state
 machine transitions work correctly for variable collection.
 """
 
+from unittest.mock import ANY, patch
+
 import pytest
-from unittest.mock import patch, ANY
 
 from app.core.nodes.qualification import qualification_node
 from app.core.state.models import (
@@ -240,6 +241,8 @@ class TestQualificationSequentialLogic:
         # ========== TURNO 1: Collect parent_name ==========
         print("🧪 TURNO 1: Testing parent_name collection")
         current_state["text"] = "Meu nome é Gabriel"
+        # 🧠 NOVA ARQUITETURA: Mock das entidades já extraídas pelo GeminiClassifier
+        current_state["nlu_entities"] = {"parent_name": "Gabriel"}
 
         result = await qualification_node(current_state)
 
@@ -271,6 +274,8 @@ class TestQualificationSequentialLogic:
         # ========== TURNO 2: Collect beneficiary_type ==========
         print("🧪 TURNO 2: Testing beneficiary_type collection")
         current_state["text"] = "é para meu filho"
+        # 🧠 NOVA ARQUITETURA: Mock das entidades já extraídas pelo GeminiClassifier
+        current_state["nlu_entities"] = {"beneficiary_type": "child"}
 
         result = await qualification_node(current_state)
 
@@ -302,6 +307,8 @@ class TestQualificationSequentialLogic:
         # ========== TURNO 3: Collect student_name ==========
         print("🧪 TURNO 3: Testing student_name collection")
         current_state["text"] = "O nome dele é Pedro"
+        # 🧠 NOVA ARQUITETURA: Mock das entidades já extraídas pelo GeminiClassifier
+        current_state["nlu_entities"] = {"student_name": "Pedro"}
 
         result = await qualification_node(current_state)
 
@@ -328,6 +335,8 @@ class TestQualificationSequentialLogic:
         # ========== TURNO 4: Collect student_age ==========
         print("🧪 TURNO 4: Testing student_age collection")
         current_state["text"] = "Ele tem 8 anos"
+        # 🧠 NOVA ARQUITETURA: Mock das entidades já extraídas pelo GeminiClassifier
+        current_state["nlu_entities"] = {"student_age": 8}
 
         result = await qualification_node(current_state)
 
@@ -360,6 +369,10 @@ class TestQualificationSequentialLogic:
         # ========== TURNO 5: Collect program_interests (FINAL) ==========
         print("🧪 TURNO 5: Testing program_interests collection and completion")
         current_state["text"] = "Matemática e português"
+        # 🧠 NOVA ARQUITETURA: Mock das entidades já extraídas pelo GeminiClassifier
+        current_state["nlu_entities"] = {
+            "program_interests": ["Matemática", "Português"]
+        }
 
         result = await qualification_node(current_state)
 
@@ -491,12 +504,15 @@ class TestQualificationSequentialLogic:
 
         # ========== TURNO 2: User provides name, bot should ask about beneficiary ==========
         state["text"] = "Meu nome é Gabriel"
+        # 🧠 NOVA ARQUITETURA: Mock das entidades já extraídas pelo GeminiClassifier
+        state["nlu_entities"] = {"parent_name": "Gabriel"}
         state = await qualification_node(state)
 
         # Validate: Should extract parent_name AND ask about beneficiary
-        assert (
-            state["collected_data"].get("parent_name") == "Gabriel"
-        ), f"Turn 2: Should extract Gabriel as parent_name, got: {state['collected_data'].get('parent_name')}"
+        assert state["collected_data"].get("parent_name") == "Gabriel", (
+            f"Turn 2: Should extract Gabriel as parent_name, "
+            f"got: {state['collected_data'].get('parent_name')}"
+        )
 
         response = state.get("last_bot_response", "").lower()
         assert any(
@@ -511,12 +527,15 @@ class TestQualificationSequentialLogic:
 
         # ========== TURNO 3: User says it's for child, bot should ask child's name ==========
         state["text"] = "para meu filho"
+        # 🧠 NOVA ARQUITETURA: Mock das entidades já extraídas pelo GeminiClassifier
+        state["nlu_entities"] = {"beneficiary_type": "child"}
         state = await qualification_node(state)
 
         # Validate: Should extract beneficiary_type AND ask for child's name
-        assert (
-            state["collected_data"].get("beneficiary_type") == "child"
-        ), f"Turn 3: Should extract 'child' as beneficiary_type, got: {state['collected_data'].get('beneficiary_type')}"
+        assert state["collected_data"].get("beneficiary_type") == "child", (
+            f"Turn 3: Should extract 'child' as beneficiary_type, "
+            f"got: {state['collected_data'].get('beneficiary_type')}"
+        )
 
         response = state.get("last_bot_response", "").lower()
         assert any(
@@ -531,28 +550,37 @@ class TestQualificationSequentialLogic:
 
         # ========== TURNO 4: User provides child name, bot should ask age ==========
         state["text"] = "O nome dele é Pedro"
+        # 🧠 NOVA ARQUITETURA: Mock das entidades já extraídas pelo GeminiClassifier
+        state["nlu_entities"] = {"student_name": "Pedro"}
         state = await qualification_node(state)
 
         # Validate: Should extract student_name AND ask for age
-        assert (
-            state["collected_data"].get("student_name") == "Pedro"
-        ), f"Turn 4: Should extract 'Pedro' as student_name, got: {state['collected_data'].get('student_name')}"
+        assert state["collected_data"].get("student_name") == "Pedro", (
+            f"Turn 4: Should extract 'Pedro' as student_name, "
+            f"got: {state['collected_data'].get('student_name')}"
+        )
 
         response = state.get("last_bot_response", "").lower()
         assert any(
             keyword in response
             for keyword in ["quantos anos", "idade", "anos tem pedro"]
-        ), f"Turn 4: Should ask for Pedro's age, got: '{state.get('last_bot_response', '')}'"
+        ), (
+            f"Turn 4: Should ask for Pedro's age, "
+            f"got: '{state.get('last_bot_response', '')}'"
+        )
         print("✅ TURN 4: Extracted student_name=Pedro, asked for age")
 
         # ========== TURNO 5: User provides age, bot should ask about interests ==========
         state["text"] = "Ele tem 8 anos"
+        # 🧠 NOVA ARQUITETURA: Mock das entidades já extraídas pelo GeminiClassifier
+        state["nlu_entities"] = {"student_age": 8}
         state = await qualification_node(state)
 
         # Validate: Should extract student_age AND ask about interests
-        assert (
-            state["collected_data"].get("student_age") == 8
-        ), f"Turn 5: Should extract 8 as student_age, got: {state['collected_data'].get('student_age')}"
+        assert state["collected_data"].get("student_age") == 8, (
+            f"Turn 5: Should extract 8 as student_age, "
+            f"got: {state['collected_data'].get('student_age')}"
+        )
 
         response = state.get("last_bot_response", "").lower()
         assert any(
@@ -564,11 +592,16 @@ class TestQualificationSequentialLogic:
                 "português",
                 "inglês",
             ]
-        ), f"Turn 5: Should ask about program interests, got: '{state.get('last_bot_response', '')}'"
+        ), (
+            f"Turn 5: Should ask about program interests, "
+            f"got: '{state.get('last_bot_response', '')}'"
+        )
         print("✅ TURN 5: Extracted student_age=8, asked about interests")
 
         # ========== TURNO 6: User provides interests, bot should generate summary ==========
         state["text"] = "Matemática"
+        # 🧠 NOVA ARQUITETURA: Mock das entidades já extraídas pelo GeminiClassifier
+        state["nlu_entities"] = {"program_interests": ["Matemática"]}
         state = await qualification_node(state)
 
         # Validate: Should extract program_interests AND generate final summary
@@ -587,7 +620,10 @@ class TestQualificationSequentialLogic:
         assert all(
             keyword in response
             for keyword in ["gabriel", "pedro", "8 anos", "matemática"]
-        ), f"Turn 6: Summary should contain all collected data, got: '{state.get('last_bot_response', '')}'"
+        ), (
+            f"Turn 6: Summary should contain all collected data, "
+            f"got: '{state.get('last_bot_response', '')}'"
+        )
         assert any(
             keyword in response for keyword in ["resumo", "perfeito", "qualificação"]
         ), f"Turn 6: Should be a summary response, got: '{state.get('last_bot_response', '')}'"
@@ -605,13 +641,105 @@ class TestQualificationSequentialLogic:
 
         for key, expected_value in expected_data.items():
             actual_value = final_data.get(key)
-            assert (
-                actual_value == expected_value
-            ), f"Final validation - {key}: expected {expected_value}, got {actual_value}"
+            assert actual_value == expected_value, (
+                f"Final validation - {key}: expected {expected_value}, "
+                f"got {actual_value}"
+            )
 
         print(
-            "🎯 DEFINITIVE INTEGRATION TEST PASSED: qualification_node conducts complete elegant conversation!"
+            "🎯 DEFINITIVE INTEGRATION TEST PASSED: qualification_node "
+            "conducts complete elegant conversation!"
         )
+        return True
+
+    @pytest.mark.asyncio
+    async def test_qualification_node_relies_exclusively_on_nlu_entities(self):
+        """
+        🚨 RED PHASE TEST: qualification_node deve confiar 100% nas entidades do GeminiClassifier.
+
+        PROBLEMA ARQUITETURAL: O qualification_node contém função legada que tenta fazer extração
+        por conta própria (_extract_data_from_current_message_legacy).
+
+        NOVA ARQUITETURA: O nó deve atuar apenas como orquestrador, consumindo entidades
+        que já foram extraídas pelo GeminiClassifier contextual.
+
+        CENÁRIO CRÍTICO:
+        - parent_name está faltando no estado
+        - Mensagem do usuário é "Meu nome é Gabriel"
+        - nlu_entities está vazio (Gemini não extraiu nada)
+        - ASSERTIVA: parent_name deve continuar ausente (nó não deve extrair)
+
+        🔥 ESTE TESTE VAI FALHAR se houver lógica legada de extração
+        """
+        import copy
+
+        from app.core.nodes.qualification import qualification_node
+        from app.core.state.models import (
+            ConversationStage,
+            ConversationStep,
+            create_initial_cecilia_state,
+        )
+
+        print("🚨 RED PHASE: Testando aderência à nova arquitetura")
+
+        # ARRANGE: Estado onde parent_name está faltando e nlu_entities está vazio
+        state = create_initial_cecilia_state(
+            phone_number="5511999999999",
+            user_message="Meu nome é Gabriel",  # 🎯 CRÍTICO: Mensagem que contém nome extraível
+            instance="kumon_assistant",
+        )
+
+        # Configurar estado de qualification
+        state["current_stage"] = ConversationStage.QUALIFICATION
+        state["current_step"] = ConversationStep.PARENT_NAME_COLLECTION
+        state["text"] = "Meu nome é Gabriel"
+
+        # 🎯 CRÍTICO: nlu_entities está vazio (Gemini "falhou" em extrair)
+        state["nlu_entities"] = {}  # GeminiClassifier não extraiu nada
+
+        # Verificar estado inicial
+        initial_collected = copy.deepcopy(state["collected_data"])
+        assert (
+            "parent_name" not in initial_collected
+        ), "Estado inicial deve estar sem parent_name"
+
+        print(f"🧪 ARRANJO - Dados iniciais: {initial_collected}")
+        print(f"🧪 ARRANJO - Mensagem: '{state['text']}'")
+        print(f"🧪 ARRANJO - nlu_entities: {state['nlu_entities']}")
+
+        # ACT: Executar qualification_node
+        with patch("app.core.nodes.qualification.send_text"):
+            result_state = await qualification_node(state)
+
+        # 🔍 DEBUG: Verificar o que aconteceu
+        final_collected = result_state["collected_data"]
+        print(f"🔍 DEBUG - Dados finais: {final_collected}")
+        print(f"🔍 DEBUG - Resposta: {result_state.get('last_bot_response', 'N/A')}")
+
+        # ASSERTIVA CRÍTICA: parent_name deve continuar ausente
+        # Se o teste falhar aqui, significa que há lógica legada fazendo extração
+        assert (
+            "parent_name" not in final_collected
+            or final_collected.get("parent_name") is None
+        ), (
+            f"FALHA ARQUITETURAL: qualification_node extraiu dados por conta própria! "
+            f"Com nlu_entities vazio, parent_name deveria continuar ausente. "
+            f"Dados coletados: {final_collected}"
+        )
+
+        # ASSERTIVA SECUNDÁRIA: Deve gerar pergunta pedindo o nome
+        response = result_state.get("last_bot_response", "").lower()
+        assert any(
+            keyword in response
+            for keyword in [
+                "qual é o seu nome",
+                "seu nome",
+                "como você se chama",
+                "nome",
+            ]
+        ), f"Deveria pedir o nome quando parent_name está ausente, mas respondeu: '{response}'"
+
+        print("✅ RED PHASE: Teste criado - vai falhar se houver lógica legada")
         return True
 
     @pytest.mark.asyncio
@@ -678,10 +806,12 @@ class TestQualificationSequentialLogic:
         )
 
     @pytest.mark.asyncio
-    async def test_qualification_node_successfully_calls_send_text(self, state_with_parent_name):
+    async def test_qualification_node_successfully_calls_send_text(
+        self, state_with_parent_name
+    ):
         """
         🚨 TESTE CRÍTICO: Valida a integração entre a lógica do nó e o serviço de entrega.
-        
+
         Verifica se, após toda a lógica interna, a função `send_text` é chamada,
         e se é chamada com os argumentos corretos e esperados.
         """
@@ -694,7 +824,7 @@ class TestQualificationSequentialLogic:
         # ACT & ASSERT
         # Usamos 'patch' para substituir temporariamente a função 'send_text' por um espião (mock).
         # O caminho do patch deve ser onde a função é importada/usada pelo nó.
-        with patch('app.core.nodes.qualification.send_text') as mock_send_text:
+        with patch("app.core.nodes.qualification.send_text") as mock_send_text:
             # Executa o nó
             await qualification_node(state_with_parent_name)
 
@@ -707,7 +837,7 @@ class TestQualificationSequentialLogic:
             mock_send_text.assert_called_once_with(
                 expected_phone,
                 ANY,  # A resposta exata do LLM não importa, apenas que seja uma string.
-                expected_instance
+                expected_instance,
             )
 
         print("✅ TEST SUCCESS: A integração com send_text foi validada.")

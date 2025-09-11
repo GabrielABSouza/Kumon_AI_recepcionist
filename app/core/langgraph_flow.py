@@ -50,72 +50,6 @@ def get_openai_client():
     return _openai_client
 
 
-def classify_intent(state: Dict[str, Any]) -> str:
-    """
-    Business Logic Router: Check conversation state for continuation rules.
-
-    This function implements the "Rules First" principle - it only checks
-    business logic for conversation continuation, never does AI classification.
-
-    Returns:
-        str: Node name if a business rule applies (e.g., "qualification_node")
-        None: If no business rules apply (defer to AI classification)
-    """
-    try:
-        # Load saved state to check business context
-        phone = state.get("phone")
-        saved_state = {}
-        if phone:
-            saved_state = get_conversation_state(phone)
-
-        # No saved state = new conversation = no business rules apply
-        if not saved_state:
-            return None
-    except Exception:
-        # If business logic fails, return None to defer to AI
-        return None
-
-    # Merge saved state for context
-    full_state = {**saved_state, **state}
-    has_parent_name = bool(full_state.get("parent_name"))
-
-    # BUSINESS RULE 1: Post-greeting continuation
-    # If we sent a greeting, the next message should be qualification
-    if full_state.get("greeting_sent") and not has_parent_name:
-        print(
-            f"PIPELINE|classify_complete|intent=qualification|"
-            f"confidence=1.0|reason=post_greeting_response"
-        )
-        return "qualification_node"
-
-    # BUSINESS RULE 2: Qualification continuation
-    # If we have partial qualification data, continue collecting
-    missing_vars = [
-        var
-        for var in QUALIFICATION_REQUIRED_VARS
-        if var not in saved_state or not saved_state[var]
-    ]
-
-    if has_parent_name and missing_vars:
-        print(
-            f"PIPELINE|classify_complete|intent=qualification|"
-            f"confidence=1.0|reason=continue_qualification|missing={len(missing_vars)}"
-        )
-        return "qualification_node"
-
-    # BUSINESS RULE 3: Qualification complete → Scheduling
-    # If all qualification data is complete, proceed to scheduling
-    if has_parent_name and not missing_vars:
-        print(
-            f"PIPELINE|classify_complete|intent=scheduling|"
-            f"confidence=1.0|reason=qualification_complete"
-        )
-        return "scheduling_node"
-
-    # No business rules apply - defer to AI classification
-    return None
-
-
 def map_intent_to_node(intent: str) -> str:
     """Map intent string to corresponding node name."""
     intent_to_node = {
@@ -170,13 +104,15 @@ def master_router(state: Dict[str, Any]) -> str:
 
                 if saved_state or conversation_history:
                     # Use new context format: {'state': {...}, 'history': [...]}
-                    conversation_context = {
+                    # Context is loaded here but used by individual nodes as needed
+                    conversation_context = {  # noqa: F841
                         "state": saved_state or {},
                         "history": conversation_history,
                     }
         except Exception as context_error:
             print(
-                f"PIPELINE|master_router_context_error|error={str(context_error)}|phone={phone}"
+                f"PIPELINE|master_router_context_error|error={str(context_error)}|"
+                f"phone={phone}"
             )
             # Continue with empty context
 
@@ -188,50 +124,34 @@ def master_router(state: Dict[str, Any]) -> str:
         # 🤖 PERFORMANCE AUDIT: Measure Gemini Classifier Call
         gemini_start_time = time.perf_counter()
 
-        # STEP A: Get AI analysis first (always)
-        nlu_result = classifier.classify(text, context=conversation_context)
+        # STEP A: Simple intent classification for routing only
+        # 🎯 SIMPLIFICADO: NLU contextual agora é feito dentro dos nós que precisam
+        basic_nlu_result = classifier.classify(text, context=None)  # Basic only
 
         gemini_duration = (time.perf_counter() - gemini_start_time) * 1000
         print(
-            f"PERF_AUDIT|Gemini Classifier Call|duration_ms={gemini_duration:.2f}|phone={phone}"
+            f"PERF_AUDIT|Gemini Basic Classification|"
+            f"duration_ms={gemini_duration:.2f}|phone={phone}"
         )
 
-        # 🧠 PERFORMANCE AUDIT: Measure Business Rules & Decision Logic
+        # 🧠 PERFORMANCE AUDIT: Measure Decision Logic
         rules_start_time = time.perf_counter()
 
-        # Extract structured NLU data
-        primary_intent = nlu_result.get("primary_intent", "fallback")
-        confidence = nlu_result.get("confidence", 0.0)
-        secondary_intent = nlu_result.get("secondary_intent")
-        nlu_result.get("entities", {})
+        # Extract basic intent for routing
+        primary_intent = basic_nlu_result.get("primary_intent", "fallback")
+        confidence = basic_nlu_result.get("confidence", 0.0)
 
         print(
-            f"PIPELINE|ai_analysis|intent={primary_intent}|confidence={confidence:.2f}|secondary={secondary_intent}|phone={phone}"
+            f"PIPELINE|basic_routing|intent={primary_intent}|"
+            f"confidence={confidence:.2f}|phone={phone}"
         )
 
-        # STEP B: Priority 1 - Honor Explicit Interruption Intents
-        interrupt_intents = ["information", "scheduling", "help"]
-        decision = None
-
-        if primary_intent in interrupt_intents:
-            decision = map_intent_to_node(primary_intent)
-            print(
-                f"PIPELINE|explicit_intent_honored|decision={decision}|intent={primary_intent}|phone={phone}"
-            )
-        else:
-            # STEP C: Priority 2 - Check for Continuation Rules (only if no explicit intent)
-            continuation_decision = classify_intent(state)
-            if continuation_decision is not None:
-                decision = continuation_decision
-                print(
-                    f"PIPELINE|continuation_applied|decision={continuation_decision}|phone={phone}"
-                )
-            else:
-                # STEP D: Priority 3 - Use AI Intent for New Flows
-                decision = map_intent_to_node(primary_intent)
-                print(
-                    f"PIPELINE|new_flow_started|decision={decision}|intent={primary_intent}|confidence={confidence:.2f}|phone={phone}"
-                )
+        # SIMPLE: Use AI Classification ONLY
+        decision = map_intent_to_node(primary_intent)
+        print(
+            f"PIPELINE|ai_decision|decision={decision}|intent={primary_intent}|"
+            f"confidence={confidence:.2f}|phone={phone}"
+        )
 
         rules_duration = (time.perf_counter() - rules_start_time) * 1000
         print(
@@ -241,7 +161,8 @@ def master_router(state: Dict[str, Any]) -> str:
         # 📊 PERFORMANCE AUDIT: Total Master Router Time
         total_duration = (time.perf_counter() - total_start_time) * 1000
         print(
-            f"PERF_AUDIT|Master Router Total|duration_ms={total_duration:.2f}|decision={decision}|phone={phone}"
+            f"PERF_AUDIT|Master Router Total|duration_ms={total_duration:.2f}|"
+            f"decision={decision}|phone={phone}"
         )
 
         return decision
@@ -252,7 +173,8 @@ def master_router(state: Dict[str, Any]) -> str:
         print(f"PIPELINE|master_router_error|error={str(e)}|phone={phone}")
         print(f"PIPELINE|master_router_fallback|decision=fallback_node|phone={phone}")
         print(
-            f"PERF_AUDIT|Master Router Total|duration_ms={total_duration:.2f}|decision=fallback_node|error=true|phone={phone}"
+            f"PERF_AUDIT|Master Router Total|duration_ms={total_duration:.2f}|"
+            f"decision=fallback_node|error=true|phone={phone}"
         )
         return "fallback_node"
 
@@ -274,21 +196,59 @@ def greeting_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
 async def qualification_node_wrapper(state: Dict[str, Any]) -> Dict[str, Any]:
     """
-    🔌 GRAPH WRAPPER: Bridge between LangGraph dict format and qualification_node
+    🔌 GRAPH WRAPPER: Nova arquitetura com NLU contextual integrado
 
-    SIMPLIFIED: Instead of complex CeciliaState conversion, just create a simple
-    dict state with the 'text' field that qualification_node expects.
+    NOVA ARQUITETURA:
+    - Executa GeminiClassifier contextual DENTRO do nó
+    - Extrai entidades baseadas no contexto da conversa
+    - Passa entidades para qualification_node para processamento
     """
     try:
+        # 🧠 PASSO 1: Executar NLU contextual dentro do nó
+        phone = state.get("phone")
+        text = state.get("text", "")
+
+        # Preparar contexto para classificação contextual
+        conversation_context = None
+        try:
+            if phone:
+                # Coletar contexto de conversa
+                from app.core.state_manager import (
+                    get_conversation_history,
+                    get_conversation_state,
+                )
+
+                saved_state = get_conversation_state(phone)
+                conversation_history = get_conversation_history(phone, limit=4)
+
+                if saved_state or conversation_history:
+                    conversation_context = {
+                        "state": saved_state or {},
+                        "history": conversation_history,
+                    }
+        except Exception as context_error:
+            print(
+                f"QUALIFICATION|context_error|error={str(context_error)}|phone={phone}"
+            )
+            # Continue with empty context
+
+        # Executar GeminiClassifier contextual
+        nlu_result = classifier.classify(text, context=conversation_context)
+        nlu_entities = nlu_result.get("entities", {})
+
+        print(f"🧠 QUALIFICATION NLU - entities extracted: {nlu_entities}")
+
         # Create simple dict state that qualification_node can process
-        # This avoids the complex CeciliaState conversion and field mapping issues
         simple_state = {
-            "text": state.get("text", ""),
-            "phone": state.get("phone", ""),
-            "phone_number": state.get("phone", ""),  # For phone compatibility
+            "text": text,
+            "phone": phone,
+            "phone_number": phone,  # For phone compatibility
             "collected_data": state.get("collected_data", {}),
             "current_stage": state.get("current_stage", "qualification"),
             "current_step": state.get("current_step", "parent_name_collection"),
+            # 🎯 NOVA ARQUITETURA: Passa entidades do NLU contextual
+            "nlu_entities": nlu_entities,
+            "instance": state.get("instance", "kumon_assistant"),
         }
 
         # Call the refactored qualification_node with simple dict
@@ -296,13 +256,16 @@ async def qualification_node_wrapper(state: Dict[str, Any]) -> Dict[str, Any]:
 
         # Convert result back to LangGraph format
         dict_result = {
-            **state,  # Preserve original LangGraph fields
+            **state,  # Preserve original LangGraph fields including nlu_entities
             "last_bot_response": result_state.get("last_bot_response", ""),
             "current_stage": result_state.get("current_stage", "qualification"),
             "current_step": result_state.get("current_step", "parent_name_collection"),
             "collected_data": result_state.get("collected_data", {}),
             "response": result_state.get("last_bot_response", ""),
             "sent": "true",  # Mark as processed
+            # 🎯 FORÇA PRESERVAÇÃO: Garante que nlu_entities sejam mantidos
+            "nlu_entities": state.get("nlu_entities", {}),
+            "nlu_result": state.get("nlu_result", {}),
         }
 
         print(
@@ -446,7 +409,8 @@ def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[st
             ]
 
             print(
-                f"QUALIFICATION|node_exec|attempts={qualification_attempts}|missing={len(missing_vars)}"
+                f"QUALIFICATION|node_exec|attempts={qualification_attempts}|"
+                f"missing={len(missing_vars)}"
             )
             prompt = prompt_func(
                 user_text, redis_state=state, attempts=qualification_attempts
@@ -551,7 +515,7 @@ def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[st
         return result_state
 
 
-def route_from_greeting(state: Dict[str, Any]) -> str:
+def route_from_greeting(_state: Dict[str, Any]) -> str:  # noqa: U101
     """
     Greeting always ends the current turn to wait for user response.
     The next turn will be routed by Gemini classifier based on context.
@@ -569,7 +533,8 @@ def route_from_qualification(state: Dict[str, Any]) -> str:
     qualification_attempts = state.get("qualification_attempts", 0)
 
     print(
-        f"QUALIFICATION|route_check|attempts={qualification_attempts}|phone={safe_phone_display(state.get('phone'))}"
+        f"QUALIFICATION|route_check|attempts={qualification_attempts}|"
+        f"phone={safe_phone_display(state.get('phone'))}"
     )
 
     # Check if all required variables are collected
@@ -580,7 +545,7 @@ def route_from_qualification(state: Dict[str, Any]) -> str:
 
     if not missing_vars:
         # All data collected - proceed to scheduling
-        print(f"QUALIFICATION|complete|all_data_collected|next=scheduling")
+        print("QUALIFICATION|complete|all_data_collected|next=scheduling")
         return "scheduling_node"
 
     # INFINITE LOOP PREVENTION: After 4 failed attempts, route to information_node
@@ -595,7 +560,8 @@ def route_from_qualification(state: Dict[str, Any]) -> str:
     # Data still missing - STOP AND WAIT for user response (conversational behavior)
     # The qualification question has been asked, now we wait for user input
     print(
-        f"QUALIFICATION|stop_and_wait|missing_vars={missing_vars}|attempts={qualification_attempts}"
+        f"QUALIFICATION|stop_and_wait|missing_vars={missing_vars}|"
+        f"attempts={qualification_attempts}"
     )
     return END
 
@@ -615,7 +581,7 @@ def route_from_information(state: Dict[str, Any]) -> str:
 
     # If qualification is complete, can proceed to scheduling
     if not missing_qualification_vars:
-        print(f"INFORMATION|qualification_complete|next=scheduling")
+        print("INFORMATION|qualification_complete|next=scheduling")
         return "scheduling_node"
 
     # If user has qualification context (parent_name) but incomplete data
@@ -625,7 +591,8 @@ def route_from_information(state: Dict[str, Any]) -> str:
         # If user hasn't hit the escape hatch limit, continue qualification
         if attempts < 4:
             print(
-                f"INFORMATION|continue_qualification|missing={len(missing_qualification_vars)}|attempts={attempts}"
+                f"INFORMATION|continue_qualification|"
+                f"missing={len(missing_qualification_vars)}|attempts={attempts}"
             )
             return "qualification_node"
         else:
@@ -637,7 +604,7 @@ def route_from_information(state: Dict[str, Any]) -> str:
             return END
 
     # No qualification context - end conversation
-    print(f"INFORMATION|no_qualification_context|end=true")
+    print("INFORMATION|no_qualification_context|end=true")
     return END
 
 
