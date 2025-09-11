@@ -132,7 +132,7 @@ def map_intent_to_node(intent: str) -> str:
 def master_router(state: Dict[str, Any]) -> str:
     """
     Master Router: Implements Flexible Intent Prioritization.
-    
+
     🔍 PERFORMANCE INSTRUMENTED VERSION
     Measures timing for each critical operation to identify bottlenecks.
 
@@ -148,7 +148,7 @@ def master_router(state: Dict[str, Any]) -> str:
     """
     # 🚀 PERFORMANCE AUDIT: Start total timing
     total_start_time = time.perf_counter()
-    
+
     phone = safe_phone_display(state.get("phone"))
     text = state.get("text", "")
 
@@ -158,7 +158,7 @@ def master_router(state: Dict[str, Any]) -> str:
     try:
         # 🔍 PERFORMANCE AUDIT: Measure State & History Loading
         db_start_time = time.perf_counter()
-        
+
         # Prepare context for AI classification
         conversation_context = None
         try:
@@ -181,20 +181,24 @@ def master_router(state: Dict[str, Any]) -> str:
             # Continue with empty context
 
         db_duration = (time.perf_counter() - db_start_time) * 1000
-        print(f"PERF_AUDIT|Load State & History|duration_ms={db_duration:.2f}|phone={phone}")
+        print(
+            f"PERF_AUDIT|Load State & History|duration_ms={db_duration:.2f}|phone={phone}"
+        )
 
         # 🤖 PERFORMANCE AUDIT: Measure Gemini Classifier Call
         gemini_start_time = time.perf_counter()
-        
+
         # STEP A: Get AI analysis first (always)
         nlu_result = classifier.classify(text, context=conversation_context)
-        
+
         gemini_duration = (time.perf_counter() - gemini_start_time) * 1000
-        print(f"PERF_AUDIT|Gemini Classifier Call|duration_ms={gemini_duration:.2f}|phone={phone}")
+        print(
+            f"PERF_AUDIT|Gemini Classifier Call|duration_ms={gemini_duration:.2f}|phone={phone}"
+        )
 
         # 🧠 PERFORMANCE AUDIT: Measure Business Rules & Decision Logic
         rules_start_time = time.perf_counter()
-        
+
         # Extract structured NLU data
         primary_intent = nlu_result.get("primary_intent", "fallback")
         confidence = nlu_result.get("confidence", 0.0)
@@ -208,7 +212,7 @@ def master_router(state: Dict[str, Any]) -> str:
         # STEP B: Priority 1 - Honor Explicit Interruption Intents
         interrupt_intents = ["information", "scheduling", "help"]
         decision = None
-        
+
         if primary_intent in interrupt_intents:
             decision = map_intent_to_node(primary_intent)
             print(
@@ -230,11 +234,15 @@ def master_router(state: Dict[str, Any]) -> str:
                 )
 
         rules_duration = (time.perf_counter() - rules_start_time) * 1000
-        print(f"PERF_AUDIT|Business Rules & Decision|duration_ms={rules_duration:.2f}|phone={phone}")
+        print(
+            f"PERF_AUDIT|Business Rules & Decision|duration_ms={rules_duration:.2f}|phone={phone}"
+        )
 
         # 📊 PERFORMANCE AUDIT: Total Master Router Time
         total_duration = (time.perf_counter() - total_start_time) * 1000
-        print(f"PERF_AUDIT|Master Router Total|duration_ms={total_duration:.2f}|decision={decision}|phone={phone}")
+        print(
+            f"PERF_AUDIT|Master Router Total|duration_ms={total_duration:.2f}|decision={decision}|phone={phone}"
+        )
 
         return decision
 
@@ -243,7 +251,9 @@ def master_router(state: Dict[str, Any]) -> str:
         total_duration = (time.perf_counter() - total_start_time) * 1000
         print(f"PIPELINE|master_router_error|error={str(e)}|phone={phone}")
         print(f"PIPELINE|master_router_fallback|decision=fallback_node|phone={phone}")
-        print(f"PERF_AUDIT|Master Router Total|duration_ms={total_duration:.2f}|decision=fallback_node|error=true|phone={phone}")
+        print(
+            f"PERF_AUDIT|Master Router Total|duration_ms={total_duration:.2f}|decision=fallback_node|error=true|phone={phone}"
+        )
         return "fallback_node"
 
 
