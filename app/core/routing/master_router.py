@@ -89,7 +89,21 @@ def check_for_continuation_rule(state: Dict[str, Any]) -> str:
     return None
 
 
-async def master_router(state: Dict[str, Any]) -> str:
+def master_router_sync(state: Dict[str, Any]) -> str:
+    """
+    🔄 SYNCHRONOUS WRAPPER for LangGraph 0.0.26 Compatibility
+
+    LangGraph 0.0.26 não suporta funções async em conditional entry points.
+    Este wrapper executa o master_router async de forma síncrona.
+    """
+    import asyncio
+
+    # Use asyncio.run() for better event loop management
+    # This creates a new event loop, runs the coroutine, and cleans up
+    return asyncio.run(master_router_async(state))
+
+
+async def master_router_async(state: Dict[str, Any]) -> str:
     """
     Master Router: Implements Flexible Intent Prioritization.
 
@@ -258,3 +272,8 @@ async def master_router(state: Dict[str, Any]) -> str:
             f"decision=fallback_node|error=true|phone={phone}"
         )
         return "fallback_node"
+
+
+# Alias for backward compatibility and cleaner imports
+master_router = master_router_async  # For async contexts
+master_router_for_langgraph = master_router_sync  # For LangGraph 0.0.26

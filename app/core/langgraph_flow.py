@@ -14,7 +14,7 @@ from app.core.llm import OpenAIClient
 from app.core.nodes.greeting import greeting_node as simplified_greeting_node
 from app.core.nodes.information import information_node as intelligent_information_node
 from app.core.nodes.qualification import qualification_node
-from app.core.routing.master_router import master_router
+from app.core.routing.master_router import master_router_for_langgraph
 from app.core.state_manager import get_conversation_state, save_conversation_state
 from app.prompts.node_prompts import get_fallback_prompt, get_scheduling_prompt
 from app.utils.formatters import safe_phone_display
@@ -547,10 +547,10 @@ def build_graph():
     graph.add_node("scheduling_node", scheduling_node)
     graph.add_node("fallback_node", fallback_node)
 
-    # Set conditional entry point using master router (Rules First, AI After)
-    # For langgraph 0.0.26, we need to use set_conditional_entry_point
+    # Set conditional entry point using SYNCHRONOUS master router wrapper
+    # For langgraph 0.0.26, conditional entry points must be synchronous functions
     graph.set_conditional_entry_point(
-        master_router,
+        master_router_for_langgraph,
         {
             "greeting_node": "greeting_node",
             "qualification_node": "qualification_node",
