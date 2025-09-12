@@ -179,7 +179,8 @@ async def master_router(state: Dict[str, Any]) -> str:
 
         print(
             f"PIPELINE|full_context_routing|intent={primary_intent}|"
-            f"confidence={confidence:.2f}|entities={len(nlu_result.get('entities', {}))}|phone={phone}"
+            f"confidence={confidence:.2f}|entities={len(nlu_result.get('entities', {}))}|"
+            f"phone={phone}"
         )
 
         # STEP B: Priority 1 - Honor Explicit Interruption Intents
