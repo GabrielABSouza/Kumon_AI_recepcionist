@@ -124,12 +124,14 @@ async def webhook(request: Request) -> Dict[str, Any]:
 
         print(f"PIPELINE|turn_start|message_id={message_id}")
 
-        # Build state for LangGraph
+        # Build state for LangGraph with all required fields initialized
         state = {
             "phone": phone,
             "message_id": message_id,
             "text": text,
             "instance": instance,
+            # ARCHITECTURAL FIX: Initialize collected_data at the source
+            "collected_data": {},
         }
 
         # Run the ONE_TURN flow asynchronously
