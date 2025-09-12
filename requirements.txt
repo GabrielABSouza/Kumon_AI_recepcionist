@@ -4,7 +4,7 @@
 #
 #    pip-compile requirements.in
 #
-aiofiles==23.2.1
+aiofiles==24.1.0
     # via -r requirements.in
 aiohappyeyeballs==2.6.1
     # via aiohttp
@@ -16,9 +16,8 @@ aiosignal==1.4.0
     # via aiohttp
 annotated-types==0.7.0
     # via pydantic
-anyio==3.7.1
+anyio==4.10.0
     # via
-    #   fastapi
     #   httpx
     #   openai
     #   starlette
@@ -29,7 +28,7 @@ async-timeout==4.0.3
     #   asyncpg
     #   langchain
     #   redis
-asyncpg==0.29.0
+asyncpg==0.30.0
     # via -r requirements.in
 attrs==25.3.0
     # via aiohttp
@@ -52,11 +51,11 @@ distro==1.9.0
     # via openai
 dnspython==2.8.0
     # via email-validator
-email-validator==2.1.0
+email-validator==2.3.0
     # via -r requirements.in
 exceptiongroup==1.3.0
     # via anyio
-fastapi==0.104.1
+fastapi==0.116.1
     # via -r requirements.in
 frozenlist==1.7.0
     # via
@@ -69,11 +68,11 @@ google-api-core[grpc]==2.25.1
     #   google-ai-generativelanguage
     #   google-api-python-client
     #   google-generativeai
-google-api-python-client==2.108.0
+google-api-python-client==2.181.0
     # via
     #   -r requirements.in
     #   google-generativeai
-google-auth==2.23.4
+google-auth==2.40.3
     # via
     #   -r requirements.in
     #   google-ai-generativelanguage
@@ -86,7 +85,7 @@ google-auth-httplib2==0.2.0
     # via
     #   -r requirements.in
     #   google-api-python-client
-google-auth-oauthlib==1.1.0
+google-auth-oauthlib==1.2.2
     # via -r requirements.in
 google-generativeai==0.8.5
     # via -r requirements.in
@@ -112,7 +111,7 @@ httplib2==0.31.0
     #   google-auth-httplib2
 httptools==0.6.4
     # via uvicorn
-httpx==0.25.2
+httpx==0.28.1
     # via
     #   -r requirements.in
     #   langsmith
@@ -159,7 +158,7 @@ multidict==6.6.4
     #   yarl
 mypy-extensions==1.1.0
     # via typing-inspect
-numpy==1.24.3
+numpy==1.26.4
     # via
     #   -r requirements.in
     #   langchain
@@ -207,11 +206,11 @@ pydantic==2.11.7
     #   pydantic-settings
 pydantic-core==2.33.2
     # via pydantic
-pydantic-settings==2.0.3
+pydantic-settings==2.10.1
     # via -r requirements.in
 pyparsing==3.2.3
     # via httplib2
-python-dotenv==1.0.0
+python-dotenv==1.1.1
     # via
     #   -r requirements.in
     #   pydantic-settings
@@ -222,9 +221,9 @@ pyyaml==6.0.2
     #   langchain-community
     #   langchain-core
     #   uvicorn
-redis==5.0.1
+redis==6.4.0
     # via -r requirements.in
-requests==2.31.0
+requests==2.32.5
     # via
     #   -r requirements.in
     #   google-api-core
@@ -242,13 +241,12 @@ rsa==4.9.1
 sniffio==1.3.1
     # via
     #   anyio
-    #   httpx
     #   openai
 sqlalchemy==2.0.43
     # via
     #   langchain
     #   langchain-community
-starlette==0.27.0
+starlette==0.47.3
     # via fastapi
 tenacity==8.5.0
     # via
@@ -262,6 +260,7 @@ tqdm==4.67.1
 typing-extensions==4.15.0
     # via
     #   aiosignal
+    #   anyio
     #   exceptiongroup
     #   fastapi
     #   google-generativeai
@@ -270,18 +269,21 @@ typing-extensions==4.15.0
     #   pydantic
     #   pydantic-core
     #   sqlalchemy
+    #   starlette
     #   typing-inspect
     #   typing-inspection
     #   uvicorn
 typing-inspect==0.9.0
     # via dataclasses-json
 typing-inspection==0.4.1
-    # via pydantic
+    # via
+    #   pydantic
+    #   pydantic-settings
 uritemplate==4.2.0
     # via google-api-python-client
 urllib3==2.5.0
     # via requests
-uvicorn[standard]==0.24.0
+uvicorn[standard]==0.35.0
     # via -r requirements.in
 uvloop==0.21.0
     # via uvicorn
