@@ -47,7 +47,7 @@ async def webhook(request: Request) -> Dict[str, Any]:
         key = data.get("key", {})
         if not isinstance(key, dict):
             key = {}
-        if key.get("fromMe", True):
+        if key.get("fromMe", False):
             print("WEBHOOK|skip|from_me=true")
             response = {
                 "status": "ignored",
