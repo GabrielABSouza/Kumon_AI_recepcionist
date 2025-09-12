@@ -2,6 +2,7 @@
 Minimal LangGraph flow: Entry → [Single Node] → End
 Each node handles its intent and sends a response.
 """
+import asyncio
 import copy
 from typing import Any, Dict
 
@@ -13,13 +14,26 @@ from app.core.llm import OpenAIClient
 from app.core.nodes.greeting import greeting_node as simplified_greeting_node
 from app.core.nodes.information import information_node as intelligent_information_node
 from app.core.nodes.qualification import qualification_node
-from app.core.routing.master_router import master_router_for_langgraph
+from app.core.routing.master_router import master_router as async_master_router
 from app.core.state_manager import get_conversation_state, save_conversation_state
 from app.prompts.node_prompts import get_fallback_prompt, get_scheduling_prompt
 from app.utils.formatters import safe_phone_display
 
 # Initialize OpenAI adapter (lazy initialization)
 _openai_client = None
+
+
+def master_router_sync_wrapper(state: dict) -> str:
+    """
+    Um invólucro síncrono para chamar nossa função de roteador assíncrona.
+    Isso é necessário para compatibilidade com o set_conditional_entry_point do LangGraph.
+
+    O LangGraph exige que a função de condição seja síncrona (def), mas nosso
+    master_router precisa ser async para usar await com o classifier.
+    """
+    # Executa a função async e aguarda o resultado em um contexto síncrono
+    return asyncio.run(async_master_router(state))
+
 
 # Required qualification variables that must be collected
 # Variáveis permanentes obrigatórias para qualificação (sem beneficiary_type que é temporária)
@@ -543,10 +557,10 @@ def build_graph():
     graph.add_node("scheduling_node", scheduling_node)
     graph.add_node("fallback_node", fallback_node)
 
-    # Set conditional entry point using native async master router
-    # LangGraph can handle async functions directly - no wrapper needed!
+    # Set conditional entry point using synchronous wrapper for LangGraph compatibility
+    # LangGraph requires sync functions in set_conditional_entry_point
     graph.set_conditional_entry_point(
-        master_router_for_langgraph,  # Now points to native async master_router
+        master_router_sync_wrapper,  # Sync wrapper that calls async master_router
         {
             "greeting_node": "greeting_node",
             "qualification_node": "qualification_node",
