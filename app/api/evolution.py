@@ -134,8 +134,23 @@ async def webhook(request: Request) -> Dict[str, Any]:
             "collected_data": {},
         }
 
+        # DEBUG: Log state before LangGraph execution
+        print(f"DEBUG|before_langgraph|state_keys={list(state.keys())}")
+        print(f"DEBUG|before_langgraph|text='{state.get('text')}'")
+        print(f"DEBUG|before_langgraph|phone={state.get('phone')}")
+
         # Run the ONE_TURN flow asynchronously
         result = await langgraph_flow.run(state)
+
+        # DEBUG: Log result after LangGraph execution
+        print(f"DEBUG|after_langgraph|result_keys={list(result.keys())}")
+        print(
+            f"DEBUG|after_langgraph|response='{result.get('response', 'NO_RESPONSE')}'"
+        )
+        print(f"DEBUG|after_langgraph|sent={result.get('sent', 'NO_SENT')}")
+        print(
+            f"DEBUG|after_langgraph|response_length={len(str(result.get('response', '')))}"
+        )
 
         # Mark as replied if any message was sent during the flow
         # This centralized approach prevents multi-node flows from being interrupted

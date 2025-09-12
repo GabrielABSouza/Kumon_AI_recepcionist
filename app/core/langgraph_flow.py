@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 # Simple fallback node implementation
 async def fallback_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """Handle fallback for unrecognized intents."""
+    print("DEBUG|fallback_node_executed")
     fallback_text = "Desculpe, não compreendi sua solicitação. Como posso ajudá-lo?"
 
     # Import send_text here to avoid circular imports
@@ -98,21 +99,40 @@ def build_graph():
 
 # Instância global do grafo
 graph = build_graph()
+print(f"DEBUG|graph_built|type={type(graph)}")
+print(f"DEBUG|graph_built|is_none={graph is None}")
 
 
 # A função principal que executa o grafo permanece a mesma
 async def run_flow(state: Dict[str, Any]) -> Dict[str, Any]:
     """Executa o workflow com o estado fornecido."""
+    print(f"DEBUG|run_flow_called|message_id={state.get('message_id')}")
+    print(f"PIPELINE|flow_start|message_id={state.get('message_id')}")
+
     try:
-        # A invocação é assíncrona, respeitando a natureza dos nós
-        return await graph.ainvoke(state)
+        print("DEBUG|before_ainvoke")
+        result = await graph.ainvoke(state)
+        print(
+            f"DEBUG|after_ainvoke|result_keys={list(result.keys()) if isinstance(result, dict) else 'NOT_DICT'}"
+        )
+        print(
+            f"DEBUG|after_ainvoke|sent={result.get('sent', 'NO_SENT') if isinstance(result, dict) else 'NOT_DICT'}"
+        )
+        print(
+            f"PIPELINE|flow_complete|sent={result.get('sent', 'false') if isinstance(result, dict) else 'false'}"
+        )
+        return result
     except Exception as e:
+        print(f"DEBUG|flow_error|error={str(e)}|type={type(e).__name__}")
+        print(f"PIPELINE|flow_error|error={str(e)}")
         logger.error(f"LANGGRAPH_FLOW|FlowError|error={str(e)}", exc_info=True)
         # Retorna um estado de erro
-        return {"error": str(e)}
+        return {"sent": "false", "error": str(e)}
 
 
 # API compatibility alias
 async def run(state: Dict[str, Any]) -> Dict[str, Any]:
     """API compatibility function - calls run_flow internally."""
+    print(f"DEBUG|run_called|state_keys={list(state.keys())}")
+    print(f"DEBUG|run_called|message_id={state.get('message_id')}")
     return await run_flow(state)
