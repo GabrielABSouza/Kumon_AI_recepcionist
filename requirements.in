@@ -15,8 +15,12 @@ httpx
 
 # AI/ML dependencies
 openai
-google-generativeai
+google-generativeai>=0.8.5
 numpy
+
+# gRPC dependencies (versões estáveis para asyncio, compatíveis com google-generativeai)
+grpcio>=1.60.0,<1.75.0
+grpcio-status>=1.60.0,<1.75.0
 
 # Google APIs
 google-auth
