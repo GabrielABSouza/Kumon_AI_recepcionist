@@ -84,7 +84,7 @@ async def qualification_node(state: CeciliaState) -> CeciliaState:
         # Send message via Evolution API
         phone = _get_phone_from_state(state)
         instance = state.get("instance", "kumon_assistant")
-        send_text(phone, response_text, instance)
+        await send_text(phone, response_text, instance)
 
         # Update conversation step
         state["current_step"] = _get_step_for_variable(next_var_to_collect)
