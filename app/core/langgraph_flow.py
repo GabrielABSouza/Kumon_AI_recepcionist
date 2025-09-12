@@ -7,12 +7,43 @@ from langgraph.graph import END, StateGraph
 
 # Importe os nós e o roteador de seus arquivos dedicados
 from app.core.nodes.greeting import greeting_node
-
-# ... importe seus outros nós (information, scheduling, fallback)
+from app.core.nodes.information import information_node
 from app.core.nodes.master_router import master_router
 from app.core.nodes.qualification import qualification_node
+from app.core.nodes.scheduling import scheduling_node
 
 logger = logging.getLogger(__name__)
+
+
+# Simple fallback node implementation
+async def fallback_node(state: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle fallback for unrecognized intents."""
+    fallback_text = "Desculpe, não compreendi sua solicitação. Como posso ajudá-lo?"
+
+    # Import send_text here to avoid circular imports
+    from app.core.delivery import send_text
+
+    try:
+        phone = state.get("phone", "")
+        instance = state.get("instance", "kumon_assistant")
+
+        delivery_result = await send_text(phone, fallback_text, instance)
+
+        return {
+            **state,
+            "sent": delivery_result.get("sent", "false"),
+            "response": fallback_text,
+            "routing_decision": "fallback_node",
+        }
+    except Exception as e:
+        logger.error(f"FALLBACK|error|{str(e)}")
+        return {
+            **state,
+            "sent": "false",
+            "response": fallback_text,
+            "error_reason": str(e),
+            "routing_decision": "fallback_node",
+        }
 
 
 # O "Carteiro" Síncrono e Simples
@@ -34,7 +65,9 @@ def build_graph():
     workflow.add_node("master_router", master_router)
     workflow.add_node("greeting_node", greeting_node)
     workflow.add_node("qualification_node", qualification_node)
-    # ... adicione seus outros nós ...
+    workflow.add_node("information_node", information_node)
+    workflow.add_node("scheduling_node", scheduling_node)
+    workflow.add_node("fallback_node", fallback_node)
 
     # Define o ponto de entrada para o ROTEADOR
     workflow.set_entry_point("master_router")
@@ -58,7 +91,7 @@ def build_graph():
     workflow.add_edge("qualification_node", END)
     workflow.add_edge("information_node", END)
     workflow.add_edge("scheduling_node", END)
-    # Não precisamos de uma aresta para o fallback_node, pois ele já está no mapa condicional
+    workflow.add_edge("fallback_node", END)
 
     return workflow.compile()
 
