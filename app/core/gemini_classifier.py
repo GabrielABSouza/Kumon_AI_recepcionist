@@ -48,7 +48,10 @@ class GeminiClassifier:
                 "confidence": float
             }
         """
+        print(f"DEBUG|gemini_classifier|classify_called|text='{text}'|enabled={self.enabled}")
+        
         if not self.enabled:
+            print("DEBUG|gemini_classifier|api_not_configured|returning_fallback")
             # Simple "dumb" fallback when Gemini API not configured
             return {
                 "primary_intent": "fallback",
@@ -62,12 +65,15 @@ class GeminiClassifier:
         prompt = self._build_nlu_prompt(text, context)
 
         try:
+            print(f"DEBUG|gemini_classifier|calling_api|prompt_len={len(prompt)}")
             # ATUALIZADO: Usando `generate_content_async` para performance
             response = await self.model.generate_content_async(prompt)
             result = response.text.strip()
+            print(f"DEBUG|gemini_classifier|api_response|result_len={len(result)}")
 
             # Parse structured JSON response
             structured_result = self._parse_structured_response(result)
+            print(f"DEBUG|gemini_classifier|parsed_result|intent={structured_result.get('primary_intent')}")
             return structured_result
 
         except Exception as e:
