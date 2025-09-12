@@ -21,7 +21,7 @@ async def greeting_node(state: CeciliaState) -> CeciliaState:
 
     # 3. Enviar a mensagem
     # Garanta que a chamada a send_text esteja com os argumentos corretos (phone, text, instance)
-    await send_text(
+    send_text(
         phone=state.get("phone"), text=response_text, instance=state.get("instance")
     )
 
