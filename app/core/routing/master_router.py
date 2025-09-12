@@ -1,22 +1,24 @@
 """
-Master Router: Implements Flexible Intent Prioritization.
+Master Router: Async Native Implementation.
 
-🔍 PERFORMANCE INSTRUMENTED VERSION
-Measures timing for each critical operation to identify bottlenecks.
+🚀 CLEAN ASYNC ARCHITECTURE
+Native async implementation from end to end without wrappers or thread isolation.
 
-New Architecture: Prioritizes explicit user intent over rigid continuation rules.
+Architecture: Prioritizes explicit user intent over rigid continuation rules.
 Hierarchy:
-1. Get AI analysis first (always)
+1. Get AI analysis first (always) - using await
 2. Honor explicit interruption intents (information, scheduling, help)
 3. Apply continuation rules only if no explicit intent
 4. Use AI classification for new flows
 """
-import time
+import logging
 from typing import Any, Dict
 
 from app.core.gemini_classifier import classifier
 from app.core.state_manager import get_conversation_history, get_conversation_state
 from app.utils.formatters import safe_phone_display
+
+logger = logging.getLogger(__name__)
 
 
 def map_intent_to_node(intent: str) -> str:
@@ -89,199 +91,71 @@ def check_for_continuation_rule(state: Dict[str, Any]) -> str:
     return None
 
 
-def master_router_sync_for_langgraph(state: Dict[str, Any]) -> str:
+# A CORREÇÃO CRÍTICA: a função PRECISA ser 'async def' para usar await
+async def master_router(state: Dict[str, Any]) -> str:
     """
-    🔄 MINIMAL SYNCHRONOUS WRAPPER for LangGraph 0.0.26 Compatibility
-
-    STRATEGY: Use ThreadPoolExecutor to run async function in separate thread
-    This completely avoids all event loop conflicts.
+    Roteador principal que orquestra a classificação de intenção.
+    DEVE ser assíncrono para chamar o classificador corretamente.
     """
-    import asyncio
-    import concurrent.futures
-
-    # Run the async function in a separate thread with its own event loop
-    # This completely isolates it from the main Uvicorn event loop
-    def run_async_in_thread():
-        return asyncio.run(master_router_async(state))
-
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        future = executor.submit(run_async_in_thread)
-        return future.result()
-
-
-async def master_router_async(state: Dict[str, Any]) -> str:
-    """
-    Master Router: Implements Flexible Intent Prioritization.
-
-    🔍 PERFORMANCE INSTRUMENTED VERSION
-    Measures timing for each critical operation to identify bottlenecks.
-
-    New Architecture: Prioritizes explicit user intent over rigid continuation rules.
-    Hierarchy:
-    1. Get AI analysis first (always)
-    2. Honor explicit interruption intents (information, scheduling, help)
-    3. Apply continuation rules only if no explicit intent
-    4. Use AI classification for new flows
-
-    Returns:
-        str: Node name to route to (e.g., "greeting_node", "qualification_node")
-    """
-    # 🚀 PERFORMANCE AUDIT: Start total timing
-    total_start_time = time.perf_counter()
-
-    phone = safe_phone_display(state.get("phone"))
+    phone = state.get("phone")
     text = state.get("text", "")
-
-    print(f"PIPELINE|master_router_start|phone={phone}|text_len={len(text)}")
-    print(f"PERF_AUDIT|Master Router Start|phone={phone}")
+    logger.info(
+        f"MASTER_ROUTER|Start|phone={safe_phone_display(phone)}|text_len={len(text)}"
+    )
 
     try:
-        # 🔍 PERFORMANCE AUDIT: Measure State & History Loading
-        db_start_time = time.perf_counter()
+        # 1. Carregar contexto (estado e histórico)
+        context = None
+        if phone:
+            saved_state = get_conversation_state(phone)
+            history = get_conversation_history(phone, limit=4)
+            context = {"state": saved_state or {}, "history": history}
+            # Unifica o estado salvo com o estado atual do turno
+            if saved_state:
+                state = {**saved_state, **state}
 
-        # Prepare context for AI classification
-        conversation_context = None
-        try:
-            if phone:
-                # Collect conversation state
-                saved_state = get_conversation_state(phone)
-                # Collect conversation history
-                conversation_history = get_conversation_history(phone, limit=4)
-
-                if saved_state or conversation_history:
-                    # Use new context format: {'state': {...}, 'history': [...]}
-                    # Context is loaded here but used by individual nodes as needed
-                    conversation_context = {
-                        "state": saved_state or {},
-                        "history": conversation_history,
-                    }
-                    # Merge saved state into current state for continuation rules
-                    if saved_state:
-                        # Current state takes precedence over saved state
-                        for key, value in saved_state.items():
-                            if key not in state:
-                                state[key] = value
-        except Exception as context_error:
-            print(
-                f"PIPELINE|master_router_context_error|error={str(context_error)}|"
-                f"phone={phone}"
-            )
-            # Continue with empty context
-
-        db_duration = (time.perf_counter() - db_start_time) * 1000
-        print(
-            f"PERF_AUDIT|Load State & History|duration_ms={db_duration:.2f}|phone={phone}"
-        )
-
-        # 🤖 PERFORMANCE AUDIT: Measure Gemini Classifier Call
-        gemini_start_time = time.perf_counter()
-
-        # STEP A: AI analysis with FULL CONTEXT (not basic only!)
-        # 🎯 FIXED: Use conversation_context para análise contextual completa
-        nlu_result = await classifier.classify(text, context=conversation_context)
-
-        gemini_duration = (time.perf_counter() - gemini_start_time) * 1000
-        print(
-            f"PERF_AUDIT|Gemini Full Classification|"
-            f"duration_ms={gemini_duration:.2f}|phone={phone}"
-        )
-
-        # 🧠 PERFORMANCE AUDIT: Measure Decision Logic
-        rules_start_time = time.perf_counter()
-
-        # Extract intent and add NLU result to state for nodes to use
-        primary_intent = nlu_result.get("primary_intent", "fallback")
-        confidence = nlu_result.get("confidence", 0.0)
-
-        # Add NLU result to state for nodes to access
+        # 2. Chamar o classificador de forma assíncrona
+        # A CORREÇÃO CRÍTICA É AQUI: 'await' é obrigatório
+        nlu_result = await classifier.classify(text, context=context)
         state["nlu_result"] = nlu_result
         state["nlu_entities"] = nlu_result.get("entities", {})
 
-        print(
-            f"PIPELINE|full_context_routing|intent={primary_intent}|"
-            f"confidence={confidence:.2f}|entities={len(nlu_result.get('entities', {}))}|"
-            f"phone={phone}"
+        primary_intent = nlu_result.get("primary_intent", "fallback")
+        confidence = nlu_result.get("confidence", 0.0)
+
+        logger.info(
+            f"MASTER_ROUTER|NLU|intent={primary_intent}|confidence={confidence:.2f}|"
+            f"entities={len(nlu_result.get('entities', {}))}"
         )
 
-        # STEP B: Priority 1 - Honor Explicit Interruption Intents
+        # 3. STEP A: Priority 1 - Honor Explicit Interruption Intents
         interrupt_intents = ["information", "scheduling", "help"]
         if primary_intent in interrupt_intents:
             decision = map_intent_to_node(primary_intent)
-            print(
-                f"PIPELINE|priority_1_interruption|decision={decision}|intent={primary_intent}|"
-                f"confidence={confidence:.2f}|phone={phone}"
-            )
-            rules_duration = (time.perf_counter() - rules_start_time) * 1000
-            print(
-                f"PERF_AUDIT|Business Rules & Decision|"
-                f"duration_ms={rules_duration:.2f}|phone={phone}"
-            )
-
-            # 📊 PERFORMANCE AUDIT: Total Master Router Time
-            total_duration = (time.perf_counter() - total_start_time) * 1000
-            print(
-                f"PERF_AUDIT|Master Router Total|duration_ms={total_duration:.2f}|"
-                f"decision={decision}|phone={phone}"
+            logger.info(
+                f"MASTER_ROUTER|Interruption|decision={decision}|intent={primary_intent}"
             )
             return decision
 
-        # STEP C: Priority 2 - Apply Continuation Rules
+        # 4. STEP B: Priority 2 - Apply Continuation Rules
         continuation_node = check_for_continuation_rule(state)
         if continuation_node:
-            print(
-                f"PIPELINE|priority_2_continuation|decision={continuation_node}|"
-                f"intent={primary_intent}|confidence={confidence:.2f}|phone={phone}"
-            )
-            rules_duration = (time.perf_counter() - rules_start_time) * 1000
-            print(
-                f"PERF_AUDIT|Business Rules & Decision|"
-                f"duration_ms={rules_duration:.2f}|phone={phone}"
-            )
-
-            # 📊 PERFORMANCE AUDIT: Total Master Router Time
-            total_duration = (time.perf_counter() - total_start_time) * 1000
-            print(
-                f"PERF_AUDIT|Master Router Total|duration_ms={total_duration:.2f}|"
-                f"decision={continuation_node}|phone={phone}"
+            logger.info(
+                f"MASTER_ROUTER|Continuation|decision={continuation_node}|intent={primary_intent}"
             )
             return continuation_node
 
-        # STEP D: Priority 3 - Use AI Classification for New Flows
+        # 5. STEP C: Priority 3 - Use AI Classification for New Flows
         decision = map_intent_to_node(primary_intent)
-        print(
-            f"PIPELINE|priority_3_new_flow|decision={decision}|"
-            f"intent={primary_intent}|confidence={confidence:.2f}|phone={phone}"
+        logger.info(
+            f"MASTER_ROUTER|NewFlow|decision={decision}|intent={primary_intent}"
         )
-
-        rules_duration = (time.perf_counter() - rules_start_time) * 1000
-        print(
-            f"PERF_AUDIT|Business Rules & Decision|"
-            f"duration_ms={rules_duration:.2f}|phone={phone}"
-        )
-
-        # 📊 PERFORMANCE AUDIT: Total Master Router Time
-        total_duration = (time.perf_counter() - total_start_time) * 1000
-        print(
-            f"PERF_AUDIT|Master Router Total|duration_ms={total_duration:.2f}|"
-            f"decision={decision}|phone={phone}"
-        )
-
         return decision
 
     except Exception as e:
-        # Graceful fallback on any error
-        total_duration = (time.perf_counter() - total_start_time) * 1000
-        print(f"PIPELINE|master_router_error|error={str(e)}|phone={phone}")
-        print(f"PIPELINE|master_router_fallback|decision=fallback_node|phone={phone}")
-        print(
-            f"PERF_AUDIT|Master Router Total|duration_ms={total_duration:.2f}|"
-            f"decision=fallback_node|error=true|phone={phone}"
-        )
+        logger.error(f"MASTER_ROUTER|Error|error={str(e)}", exc_info=True)
         return "fallback_node"
 
 
-# Unified async router with safe sync wrapper for LangGraph
-master_router = master_router_async  # For async contexts
-master_router_for_langgraph = (
-    master_router_sync_for_langgraph  # Safe sync wrapper for LangGraph 0.0.26
-)
+# Export single async router - no more wrappers needed!
+master_router_for_langgraph = master_router

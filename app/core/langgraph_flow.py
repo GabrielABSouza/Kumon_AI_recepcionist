@@ -543,10 +543,10 @@ def build_graph():
     graph.add_node("scheduling_node", scheduling_node)
     graph.add_node("fallback_node", fallback_node)
 
-    # Set conditional entry point using SAFE sync wrapper for LangGraph 0.0.26
-    # Uses thread pool executor to avoid "Event loop is closed" errors
+    # Set conditional entry point using native async master router
+    # LangGraph can handle async functions directly - no wrapper needed!
     graph.set_conditional_entry_point(
-        master_router_for_langgraph,  # Safe sync wrapper that doesn't conflict with Uvicorn
+        master_router_for_langgraph,  # Now points to native async master_router
         {
             "greeting_node": "greeting_node",
             "qualification_node": "qualification_node",
