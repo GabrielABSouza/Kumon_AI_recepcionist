@@ -9,7 +9,6 @@ from typing import Any, Dict
 from langgraph.graph import END, StateGraph
 
 from app.core.delivery import send_text
-from app.core.gemini_classifier import classifier
 from app.core.llm import OpenAIClient
 from app.core.nodes.greeting import greeting_node as simplified_greeting_node
 from app.core.nodes.information import information_node as intelligent_information_node
@@ -116,94 +115,26 @@ async def greeting_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
 async def qualification_node_wrapper(state: Dict[str, Any]) -> Dict[str, Any]:
     """
-    🔌 GRAPH WRAPPER: Nova arquitetura com NLU contextual integrado
-
-    NOVA ARQUITETURA:
-    - Executa GeminiClassifier contextual DENTRO do nó
-    - Extrai entidades baseadas no contexto da conversa
-    - Passa entidades para qualification_node para processamento
+    Wrapper simplificado que apenas passa o estado para o nó de qualificação real,
+    confiando que o master_router já executou a NLU e adicionou o 'nlu_result' ao estado.
     """
+    import logging
+
+    logger = logging.getLogger(__name__)
+
     try:
-        # 🧠 PASSO 1: Executar NLU contextual dentro do nó
-        phone = state.get("phone")
-        text = state.get("text", "")
-
-        # Preparar contexto para classificação contextual
-        conversation_context = None
-        try:
-            if phone:
-                # Coletar contexto de conversa
-                from app.core.state_manager import (
-                    get_conversation_history,
-                    get_conversation_state,
-                )
-
-                saved_state = get_conversation_state(phone)
-                conversation_history = get_conversation_history(phone, limit=4)
-
-                if saved_state or conversation_history:
-                    conversation_context = {
-                        "state": saved_state or {},
-                        "history": conversation_history,
-                    }
-        except Exception as context_error:
-            print(
-                f"QUALIFICATION|context_error|error={str(context_error)}|phone={phone}"
-            )
-            # Continue with empty context
-
-        # Executar GeminiClassifier contextual
-        nlu_result = classifier.classify(text, context=conversation_context)
-        nlu_entities = nlu_result.get("entities", {})
-
-        print(f"🧠 QUALIFICATION NLU - entities extracted: {nlu_entities}")
-
-        # Create simple dict state that qualification_node can process
-        simple_state = {
-            "text": text,
-            "phone": phone,
-            "phone_number": phone,  # For phone compatibility
-            "collected_data": state.get("collected_data", {}),
-            "current_stage": state.get("current_stage", "qualification"),
-            "current_step": state.get("current_step", "parent_name_collection"),
-            # 🎯 NOVA ARQUITETURA: Passa entidades do NLU contextual
-            "nlu_entities": nlu_entities,
-            "instance": state.get("instance", "kumon_assistant"),
-        }
-
-        # Call the refactored qualification_node with simple dict
-        result_state = await qualification_node(simple_state)
-
-        # Convert result back to LangGraph format
-        dict_result = {
-            **state,  # Preserve original LangGraph fields including nlu_entities
-            "last_bot_response": result_state.get("last_bot_response", ""),
-            "current_stage": result_state.get("current_stage", "qualification"),
-            "current_step": result_state.get("current_step", "parent_name_collection"),
-            "collected_data": result_state.get("collected_data", {}),
-            "response": result_state.get("last_bot_response", ""),
-            "sent": "true",  # Mark as processed
-            # 🎯 FORÇA PRESERVAÇÃO: Garante que nlu_entities sejam mantidos
-            "nlu_entities": state.get("nlu_entities", {}),
-            "nlu_result": state.get("nlu_result", {}),
-        }
-
-        print(
-            f"QUALIFICATION|wrapper_success|response_len={len(dict_result.get('response', ''))}"
-        )
-        return dict_result
-
+        # A NLU já foi feita pelo master_router.
+        # Apenas chame o nó de lógica de negócio, que agora é assíncrono.
+        # a 'qualification_node' importada de app.core.nodes.qualification
+        return await qualification_node(state)
     except Exception as e:
-        print(f"QUALIFICATION|wrapper_error|error={str(e)}")
-
-        # Fallback to simple response
-        fallback_text = "Olá! Para começarmos, qual é o seu nome?"
-
+        logger.error(f"QUALIFICATION|node_error|error={str(e)}", exc_info=True)
+        # Lógica de fallback, se necessário
         return {
             **state,
-            "response": fallback_text,
-            "last_bot_response": fallback_text,
-            "sent": "true",
+            "response": "Desculpe, ocorreu um erro ao processar sua solicitação.",
+            "last_bot_response": "Desculpe, ocorreu um erro ao processar sua solicitação.",
+            "sent": "false",
             "error_reason": str(e),
         }
 
