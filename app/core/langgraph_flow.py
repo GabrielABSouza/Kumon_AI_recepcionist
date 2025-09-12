@@ -422,7 +422,7 @@ def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[st
         return result_state
 
 
-def route_from_greeting(_state: Dict[str, Any]) -> str:
+def route_from_greeting(state: Dict[str, Any]) -> str:  # noqa: U100
     """
     Greeting always ends the current turn to wait for user response.
     The next turn will be routed by Gemini classifier based on context.

@@ -47,8 +47,8 @@ class TestMasterRouterValidation:
 
             # ASSERTION 2: AI classifier should NOT be called (Rules First)
             assert not mock_classifier.classify.called, (
-                f"CRITICAL: AI classifier called when business rule applied! "
-                f"This violates 'Rules First, AI After' principle."
+                "CRITICAL: AI classifier called when business rule applied! "
+                "This violates 'Rules First, AI After' principle."
             )
 
             print("✅ VALIDATION PASSED: Rules First - Business rule takes precedence")
@@ -91,8 +91,8 @@ class TestMasterRouterValidation:
 
             # ASSERTION 2: AI classifier should be called (AI After)
             assert mock_classifier.classify.called, (
-                f"CRITICAL: AI classifier not called when no business rules applied! "
-                f"This violates 'Rules First, AI After' principle."
+                "CRITICAL: AI classifier not called when no business rules applied! "
+                "This violates 'Rules First, AI After' principle."
             )
 
             print("✅ VALIDATION PASSED: AI After - AI used when no business rules")
@@ -126,8 +126,8 @@ class TestMasterRouterValidation:
 
             # ASSERTION 2: Should never call AI classifier
             assert not mock_classifier.classify.called, (
-                f"CRITICAL: check_for_continuation_rule called AI classifier! "
-                f"Responsibility separation violated."
+                "CRITICAL: check_for_continuation_rule called AI classifier! "
+                "Responsibility separation violated."
             )
 
             print(
@@ -172,7 +172,7 @@ class TestMasterRouterValidation:
             # ASSERTION 2: AI should be called as fallback
             assert (
                 mock_classifier.classify.called
-            ), f"Expected AI to be used as fallback when business rules fail"
+            ), "Expected AI to be used as fallback when business rules fail"
 
             print("✅ VALIDATION PASSED: Graceful error handling with AI fallback")
 
@@ -230,7 +230,7 @@ class TestMasterRouterValidation:
             # ASSERTION 3: No AI calls from business logic
             assert (
                 mock_classifier.classify.call_count == 1
-            ), f"Expected exactly 1 AI call (from master_router), got {mock_classifier.classify.call_count}"
+            ), (f"Expected exactly 1 AI call (from master_router), got {mock_classifier.classify.call_count}")
 
             print("✅ FINAL VALIDATION PASSED: No responsibility duplication")
             print("   - check_for_continuation_rule: Business logic only ✅")
@@ -255,13 +255,7 @@ class TestMasterRouterValidation:
         }
 
         # STEP 2: Mock the state and history that should be collected
-        mock_conversation_state = {
-            "greeting_sent": True,
-            "parent_name": "Gabriel",
-            "student_name": "João",
-            "student_age": None,
-            "program_interests": None,
-        }
+        # mock_conversation_state removed as it was unused
 
         mock_conversation_history = [
             {
@@ -333,10 +327,8 @@ class TestMasterRouterValidation:
             print(
                 "✅ TDD STEP 3.1: Master router context integration test structure created"
             )
-            print(
-                f"   Validated: State collection, history collection, context passing"
-            )
-            print(f"   Expected context format: {{'state': {{...}}, 'history': [...]}}")
+            print("   Validated: State collection, history collection, context passing")
+            print("   Expected context format: {'state': {...}, 'history': [...]}")
 
         # STEP 6: Test that context is only collected when AI is needed
         state_with_business_rule = {"phone": "5511888888888", "text": "test"}

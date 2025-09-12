@@ -70,7 +70,7 @@ class TestMasterRouterFlexible:
 
             print("✅ SUCCESS: Router correctly prioritizes explicit user intent")
             print(f"✅ User Request: {qualification_in_progress_state['text']}")
-            print(f"✅ AI Classification: information (confidence: 0.95)")
+            print("✅ AI Classification: information (confidence: 0.95)")
             print(f"✅ Router Decision: {result}")
 
     def test_router_maintains_continuation_when_no_explicit_intent(self):
@@ -124,7 +124,7 @@ class TestMasterRouterFlexible:
                 "✅ SUCCESS: Router correctly continues qualification when appropriate"
             )
             print(f"✅ User Response: {qualification_continuation_state['text']}")
-            print(f"✅ AI Classification: qualification (confidence: 0.85)")
+            print("✅ AI Classification: qualification (confidence: 0.85)")
             print(f"✅ Router Decision: {result}")
 
 

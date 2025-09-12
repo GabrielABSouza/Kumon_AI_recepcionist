@@ -42,7 +42,10 @@ def get_next_qualification_question_from_state(state: CeciliaState) -> str:
                 else:
                     return "Qual é a idade da criança?"
             elif var == "program_interests":
-                return f"{name_prefix}tem interesse em algum programa específico? Matemática, Português ou ambos?"
+                return (
+                    f"{name_prefix}tem interesse em algum programa específico? "
+                    "Matemática, Português ou ambos?"
+                )
 
     return ""  # No qualification needed
 
@@ -51,7 +54,8 @@ def build_blended_response_prompt(user_question: str, next_q_question: str) -> s
     """Build prompt for blended response (information + qualification)."""
     system_prompt = f"""Você é Cecília, assistente virtual do Kumon Vila A.
 
-TAREFA: Responda à pergunta do usuário e, se houver, faça a próxima pergunta de qualificação de forma natural.
+TAREFA: Responda à pergunta do usuário e, se houver, faça a próxima pergunta " \
+                        "de qualificação de forma natural.
 
 INFORMAÇÕES KUMON VILA A:
 - Matemática ou Português: R$ 375,00/mês cada

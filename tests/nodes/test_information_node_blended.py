@@ -81,7 +81,7 @@ class TestInformationNodeBlended:
 
             print("✅ SUCCESS: Information node correctly generated blended response")
             print(f"✅ User Question: {test_state['text']}")
-            print(f"✅ Next Qualification: beneficiary_type")
+            print("✅ Next Qualification: beneficiary_type")
             print(
                 f"✅ Blended Response Generated: {result_state['last_bot_response'][:80]}..."
             )
@@ -148,7 +148,7 @@ class TestInformationNodeBlended:
                 "✅ SUCCESS: Information node correctly handled complete qualification"
             )
             print(f"✅ User Question: {test_state['text']}")
-            print(f"✅ Qualification Status: Complete")
+            print("✅ Qualification Status: Complete")
             print(f"✅ Response: {result_state['last_bot_response'][:80]}...")
 
     @pytest.mark.asyncio

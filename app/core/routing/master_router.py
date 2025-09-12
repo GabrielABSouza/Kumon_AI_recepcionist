@@ -62,7 +62,8 @@ def check_for_continuation_rule(state: Dict[str, Any]) -> str:
             # Continue qualification if not at escape hatch limit
             if qualification_attempts < 4:
                 print(
-                    f"ROUTER|continuation_rule|qualification|missing={len(missing_vars)}|attempts={qualification_attempts}"
+                    f"ROUTER|continuation_rule|qualification|missing={len(missing_vars)}|"
+                    f"attempts={qualification_attempts}"
                 )
                 return "qualification_node"
 
@@ -186,7 +187,8 @@ def master_router(state: Dict[str, Any]) -> str:
             )
             rules_duration = (time.perf_counter() - rules_start_time) * 1000
             print(
-                f"PERF_AUDIT|Business Rules & Decision|duration_ms={rules_duration:.2f}|phone={phone}"
+                f"PERF_AUDIT|Business Rules & Decision|"
+                f"duration_ms={rules_duration:.2f}|phone={phone}"
             )
 
             # 📊 PERFORMANCE AUDIT: Total Master Router Time
@@ -206,7 +208,8 @@ def master_router(state: Dict[str, Any]) -> str:
             )
             rules_duration = (time.perf_counter() - rules_start_time) * 1000
             print(
-                f"PERF_AUDIT|Business Rules & Decision|duration_ms={rules_duration:.2f}|phone={phone}"
+                f"PERF_AUDIT|Business Rules & Decision|"
+                f"duration_ms={rules_duration:.2f}|phone={phone}"
             )
 
             # 📊 PERFORMANCE AUDIT: Total Master Router Time
@@ -220,13 +223,14 @@ def master_router(state: Dict[str, Any]) -> str:
         # STEP D: Priority 3 - Use AI Classification for New Flows
         decision = map_intent_to_node(primary_intent)
         print(
-            f"PIPELINE|priority_3_new_flow|decision={decision}|intent={primary_intent}|"
-            f"confidence={confidence:.2f}|phone={phone}"
+            f"PIPELINE|priority_3_new_flow|decision={decision}|"
+            f"intent={primary_intent}|confidence={confidence:.2f}|phone={phone}"
         )
 
         rules_duration = (time.perf_counter() - rules_start_time) * 1000
         print(
-            f"PERF_AUDIT|Business Rules & Decision|duration_ms={rules_duration:.2f}|phone={phone}"
+            f"PERF_AUDIT|Business Rules & Decision|"
+            f"duration_ms={rules_duration:.2f}|phone={phone}"
         )
 
         # 📊 PERFORMANCE AUDIT: Total Master Router Time
