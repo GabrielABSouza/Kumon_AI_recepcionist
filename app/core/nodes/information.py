@@ -1,14 +1,14 @@
 import copy
 import logging
+from typing import Any, Dict
 
 from ..delivery import send_text
-from ..state.models import CeciliaState
 
 logger = logging.getLogger(__name__)
 
 
 # Utility function to get next qualification question from qualification logic
-def get_next_qualification_question_from_state(state: CeciliaState) -> str:
+def get_next_qualification_question_from_state(state: Dict[str, Any]) -> str:
     """
     Get the next qualification question by delegating to qualification node logic.
     This avoids duplicating qualification logic in information node.
@@ -72,7 +72,7 @@ Responda de forma natural e amigável:"""
     return system_prompt
 
 
-async def information_node(state: CeciliaState) -> CeciliaState:
+async def information_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     🧠 SIMPLIFIED INFORMATION NODE - NEW ARCHITECTURE
 
@@ -91,6 +91,8 @@ async def information_node(state: CeciliaState) -> CeciliaState:
     4. Generate response with LLM
     5. Send response and return updated state
     """
+    print("DEBUG|information_node_executed|CALLED!")
+    print(f"DEBUG|information_node|state_type={type(state)}")
     # 1. GUARANTEE STATE SAFETY
     state = copy.deepcopy(state)
 

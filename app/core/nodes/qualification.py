@@ -1,8 +1,9 @@
 import copy
 import logging
+from typing import Any, Dict
 
 from ..delivery import send_text
-from ..state.models import CeciliaState, ConversationStage, ConversationStep
+from ..state.models import ConversationStage, ConversationStep
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +17,7 @@ QUALIFICATION_VARS_SEQUENCE = [
 ]
 
 
-async def qualification_node(state: CeciliaState) -> CeciliaState:
+async def qualification_node(state: Dict[str, Any]) -> Dict[str, Any]:
     print("DEBUG|qualification_node_executed|CALLED!")
     print(f"DEBUG|qualification_node|state_type={type(state)}")
     print(f"DEBUG|qualification_node|state_keys={list(state.keys()) if isinstance(state, dict) else 'NOT_DICT'}")
@@ -140,7 +141,7 @@ async def qualification_node(state: CeciliaState) -> CeciliaState:
     return state
 
 
-def _process_nlu_entities(state: CeciliaState) -> None:
+def _process_nlu_entities(state: Dict[str, Any]) -> None:
     """
     🧠 NOVA ARQUITETURA: Processa entidades já extraídas pelo GeminiClassifier contextual.
 
@@ -180,7 +181,7 @@ def _process_nlu_entities(state: CeciliaState) -> None:
 # The qualification_node now relies exclusively on entities extracted by GeminiClassifier.
 
 
-def _generate_question_for_variable(state: CeciliaState, variable: str) -> str:
+def _generate_question_for_variable(state: Dict[str, Any], variable: str) -> str:
     """
     🗣️ Generate contextual question for the specified variable.
 
@@ -231,7 +232,7 @@ def _generate_question_for_variable(state: CeciliaState, variable: str) -> str:
     return "Poderia me contar mais sobre isso?"
 
 
-def _get_phone_from_state(state: CeciliaState) -> str:
+def _get_phone_from_state(state: Dict[str, Any]) -> str:
     """
     🔧 HELPER: Get phone number from state with compatibility for both formats.
 

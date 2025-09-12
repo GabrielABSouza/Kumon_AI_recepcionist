@@ -1,13 +1,13 @@
 import copy
 import logging
+from typing import Any, Dict
 
 from app.core.delivery import send_text
-from app.core.state.models import CeciliaState
 
 logger = logging.getLogger(__name__)
 
 
-async def greeting_node(state: CeciliaState) -> CeciliaState:
+async def greeting_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     Envia a mensagem de saudação inicial e prepara o estado para a qualificação.
     Sua única responsabilidade é iniciar a conversa.

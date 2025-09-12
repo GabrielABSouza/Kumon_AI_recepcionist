@@ -7,7 +7,6 @@ from ...clients.google_calendar import (  # Real Google Calendar integration
 )
 from ..state.managers import StateManager
 from ..state.models import (
-    CeciliaState,
     ConversationStage,
     ConversationStep,
     get_collected_field,
@@ -34,7 +33,7 @@ class SchedulingNode:
             logger.warning(f"Google Calendar service failed to initialize: {e}")
             self.calendar_service = None
 
-    async def __call__(self, state: CeciliaState) -> Dict[str, Any]:
+    async def __call__(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Processa agendamento"""
         logger.info(
             f"Processing scheduling for {state['phone_number']} - step: {state['current_step']}"
@@ -63,7 +62,7 @@ class SchedulingNode:
         else:
             return await self._start_scheduling(state)
 
-    async def _start_scheduling(self, state: CeciliaState) -> Dict[str, Any]:
+    async def _start_scheduling(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Inicia processo de agendamento"""
         parent_name = get_collected_field(state, "parent_name") or ""
         child_name = get_collected_field(state, "child_name") or ""
@@ -89,7 +88,7 @@ class SchedulingNode:
         return self._create_response(state, response, updates)
 
     async def _handle_date_preference(
-        self, state: CeciliaState, user_message: str  # noqa: ARG002
+        self, state: Dict[str, Any], user_message: str  # noqa: ARG002
     ) -> Dict[str, Any]:
         """
         🧠 NOVA ARQUITETURA: Processa preferência de período baseada em entidades do GeminiClassifier
@@ -176,7 +175,7 @@ class SchedulingNode:
         return self._create_response(state, response, updates)
 
     async def _handle_time_selection(
-        self, state: CeciliaState, user_message: str
+        self, state: Dict[str, Any], user_message: str
     ) -> Dict[str, Any]:
         """
         🧠 NOVA ARQUITETURA: Processa seleção de horário baseada em entidades do GeminiClassifier
@@ -244,7 +243,7 @@ class SchedulingNode:
         return self._create_response(state, response, updates)
 
     async def _handle_email_collection(
-        self, state: CeciliaState, user_message: str
+        self, state: Dict[str, Any], user_message: str
     ) -> Dict[str, Any]:
         """
         🧠 NOVA ARQUITETURA: Coleta email baseada em entidades do GeminiClassifier
@@ -322,7 +321,7 @@ class SchedulingNode:
 
     async def _handle_event_creation(
         self,
-        state: CeciliaState,
+        state: Dict[str, Any],
         user_message: str,  # noqa: ARG002
         custom_updates: Dict[str, Any] = None,
     ) -> Dict[str, Any]:
@@ -440,7 +439,7 @@ class SchedulingNode:
         return available_dates
 
     async def _create_calendar_event(
-        self, state: CeciliaState, selected_slot: Dict
+        self, state: Dict[str, Any], selected_slot: Dict
     ) -> Dict[str, Any]:
         """Cria evento no Google Calendar (real integration)"""
 
@@ -550,7 +549,7 @@ class SchedulingNode:
         )
 
     def _create_response(
-        self, state: CeciliaState, response: str, updates: Dict[str, Any]
+        self, state: Dict[str, Any], response: str, updates: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Cria resposta padronizada"""
         updated_state = StateManager.update_state(state, updates)
@@ -565,12 +564,14 @@ class SchedulingNode:
 
 
 # Entry point para LangGraph
-async def scheduling_node(state: CeciliaState) -> CeciliaState:
+async def scheduling_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """Entry point para LangGraph"""
+    print("DEBUG|scheduling_node_executed|CALLED!")
+    print(f"DEBUG|scheduling_node|state_type={type(state)}")
     node = SchedulingNode()
     result = await node(state)
 
-    # CRITICAL FIX: Use safe_update_state to preserve CeciliaState structure
+    # CRITICAL FIX: Use safe_update_state to preserve Dict[str, Any] structure
     safe_update_state(state, result["updated_state"])
     state["last_bot_response"] = result["response"]
 
