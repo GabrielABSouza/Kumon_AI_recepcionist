@@ -165,8 +165,23 @@ def _process_nlu_entities(state: Dict[str, Any]) -> None:
 
     Esta função apenas valida e salva as entidades que já foram extraídas.
     """
-    nlu_entities = state.get("nlu_entities", {})
+    print("DEBUG|_process_nlu_entities|function_called")
+    
+    # DIAGNOSTIC: Check both possible locations for entities
+    nlu_entities_old = state.get("nlu_entities", {})
+    nlu_result = state.get("nlu_result", {})
+    nlu_entities_new = nlu_result.get("entities", {})
+    
+    print(f"DEBUG|_process_nlu_entities|nlu_entities_old={nlu_entities_old}")
+    print(f"DEBUG|_process_nlu_entities|nlu_entities_new={nlu_entities_new}")
+    print(f"DEBUG|_process_nlu_entities|nlu_result_keys={list(nlu_result.keys())}")
+    
+    # Use the correct location (new format from nlu_result)
+    nlu_entities = nlu_entities_new
     collected = state["collected_data"]
+    
+    print(f"DEBUG|_process_nlu_entities|collected_before={collected}")
+    print(f"DEBUG|_process_nlu_entities|processing_entities={nlu_entities}")
 
     # Processar cada entidade extraída pelo NLU
     for entity_key, entity_value in nlu_entities.items():
@@ -186,8 +201,10 @@ def _process_nlu_entities(state: Dict[str, Any]) -> None:
                 # Para strings simples (names, beneficiary_type)
                 if isinstance(entity_value, str) and len(entity_value.strip()) > 0:
                     collected[entity_key] = entity_value.strip()
+                    print(f"DEBUG|_process_nlu_entities|extracted_string|{entity_key}={entity_value}")
                     logger.info(f"NLU extracted {entity_key}: {entity_value}")
 
+    print(f"DEBUG|_process_nlu_entities|collected_after={collected}")
     logger.info(f"NLU processing complete. Collected: {collected}")
 
 
