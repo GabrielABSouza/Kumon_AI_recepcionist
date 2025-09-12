@@ -4,7 +4,6 @@ Each node handles its intent and sends a response.
 """
 import asyncio
 import copy
-import time
 from typing import Any, Dict
 
 from langgraph.graph import END, StateGraph
@@ -12,18 +11,12 @@ from langgraph.graph import END, StateGraph
 from app.core.delivery import send_text
 from app.core.gemini_classifier import classifier
 from app.core.llm import OpenAIClient
+from app.core.nodes.greeting import greeting_node as simplified_greeting_node
 from app.core.nodes.information import information_node as intelligent_information_node
 from app.core.nodes.qualification import qualification_node
-from app.core.state_manager import (
-    get_conversation_history,
-    get_conversation_state,
-    save_conversation_state,
-)
-from app.prompts.node_prompts import (
-    get_fallback_prompt,
-    get_greeting_prompt,
-    get_scheduling_prompt,
-)
+from app.core.routing.master_router import master_router
+from app.core.state_manager import get_conversation_state, save_conversation_state
+from app.prompts.node_prompts import get_fallback_prompt, get_scheduling_prompt
 from app.utils.formatters import safe_phone_display
 
 # Initialize OpenAI adapter (lazy initialization)
@@ -50,148 +43,62 @@ def get_openai_client():
     return _openai_client
 
 
-def map_intent_to_node(intent: str) -> str:
-    """Map intent string to corresponding node name."""
-    intent_to_node = {
-        "greeting": "greeting_node",
-        "qualification": "qualification_node",
-        "information": "information_node",
-        "scheduling": "scheduling_node",
-        "fallback": "fallback_node",
-        "help": "fallback_node",  # Help routes to fallback for now
-    }
-    return intent_to_node.get(intent, "fallback_node")
-
-
-def master_router(state: Dict[str, Any]) -> str:
-    """
-    Master Router: Implements Flexible Intent Prioritization.
-
-    🔍 PERFORMANCE INSTRUMENTED VERSION
-    Measures timing for each critical operation to identify bottlenecks.
-
-    New Architecture: Prioritizes explicit user intent over rigid continuation rules.
-    Hierarchy:
-    1. Get AI analysis first (always)
-    2. Honor explicit interruption intents (information, scheduling, help)
-    3. Apply continuation rules only if no explicit intent
-    4. Use AI classification for new flows
-
-    Returns:
-        str: Node name to route to (e.g., "greeting_node", "qualification_node")
-    """
-    # 🚀 PERFORMANCE AUDIT: Start total timing
-    total_start_time = time.perf_counter()
-
-    phone = safe_phone_display(state.get("phone"))
-    text = state.get("text", "")
-
-    print(f"PIPELINE|master_router_start|phone={phone}|text_len={len(text)}")
-    print(f"PERF_AUDIT|Master Router Start|phone={phone}")
-
+async def greeting_node(state: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle greeting intent using simplified greeting node."""
     try:
-        # 🔍 PERFORMANCE AUDIT: Measure State & History Loading
-        db_start_time = time.perf_counter()
+        # Convert dict to CeciliaState for the simplified greeting node
 
-        # Prepare context for AI classification
-        conversation_context = None
-        try:
-            if phone:
-                # Collect conversation state
-                saved_state = get_conversation_state(phone)
-                # Collect conversation history
-                conversation_history = get_conversation_history(phone, limit=4)
+        # Create a minimal CeciliaState with required fields
+        cecil_state = {
+            "phone": state.get("phone"),
+            "instance": state.get("instance", "kumon_assistant"),
+        }
 
-                if saved_state or conversation_history:
-                    # Use new context format: {'state': {...}, 'history': [...]}
-                    # Context is loaded here but used by individual nodes as needed
-                    conversation_context = {  # noqa: F841
-                        "state": saved_state or {},
-                        "history": conversation_history,
-                    }
-        except Exception as context_error:
-            print(
-                f"PIPELINE|master_router_context_error|error={str(context_error)}|"
-                f"phone={phone}"
-            )
-            # Continue with empty context
+        # Call the simplified greeting node
+        result_state = await simplified_greeting_node(cecil_state)
 
-        db_duration = (time.perf_counter() - db_start_time) * 1000
-        print(
-            f"PERF_AUDIT|Load State & History|duration_ms={db_duration:.2f}|phone={phone}"
-        )
+        # Convert back to dict format expected by langgraph
+        phone = state.get("phone")
+        if phone:
+            save_conversation_state(phone, {"greeting_sent": True})
 
-        # 🤖 PERFORMANCE AUDIT: Measure Gemini Classifier Call
-        gemini_start_time = time.perf_counter()
-
-        # STEP A: Simple intent classification for routing only
-        # 🎯 SIMPLIFICADO: NLU contextual agora é feito dentro dos nós que precisam
-        basic_nlu_result = classifier.classify(text, context=None)  # Basic only
-
-        gemini_duration = (time.perf_counter() - gemini_start_time) * 1000
-        print(
-            f"PERF_AUDIT|Gemini Basic Classification|"
-            f"duration_ms={gemini_duration:.2f}|phone={phone}"
-        )
-
-        # 🧠 PERFORMANCE AUDIT: Measure Decision Logic
-        rules_start_time = time.perf_counter()
-
-        # Extract basic intent for routing
-        primary_intent = basic_nlu_result.get("primary_intent", "fallback")
-        confidence = basic_nlu_result.get("confidence", 0.0)
-
-        print(
-            f"PIPELINE|basic_routing|intent={primary_intent}|"
-            f"confidence={confidence:.2f}|phone={phone}"
-        )
-
-        # SIMPLE: Use AI Classification ONLY
-        decision = map_intent_to_node(primary_intent)
-        print(
-            f"PIPELINE|ai_decision|decision={decision}|intent={primary_intent}|"
-            f"confidence={confidence:.2f}|phone={phone}"
-        )
-
-        rules_duration = (time.perf_counter() - rules_start_time) * 1000
-        print(
-            f"PERF_AUDIT|Business Rules & Decision|duration_ms={rules_duration:.2f}|phone={phone}"
-        )
-
-        # 📊 PERFORMANCE AUDIT: Total Master Router Time
-        total_duration = (time.perf_counter() - total_start_time) * 1000
-        print(
-            f"PERF_AUDIT|Master Router Total|duration_ms={total_duration:.2f}|"
-            f"decision={decision}|phone={phone}"
-        )
-
-        return decision
+        return {
+            **state,
+            "sent": "true",
+            "response": result_state.get("last_bot_response", ""),
+            "greeting_sent": True,
+        }
 
     except Exception as e:
-        # Graceful fallback on any error
-        total_duration = (time.perf_counter() - total_start_time) * 1000
-        print(f"PIPELINE|master_router_error|error={str(e)}|phone={phone}")
-        print(f"PIPELINE|master_router_fallback|decision=fallback_node|phone={phone}")
-        print(
-            f"PERF_AUDIT|Master Router Total|duration_ms={total_duration:.2f}|"
-            f"decision=fallback_node|error=true|phone={phone}"
-        )
-        return "fallback_node"
+        print(f"GREETING|error|{str(e)}")
+        # Fallback to simple response
+        fallback_text = "Olá! Eu sou a Cecília do Kumon Vila A. Qual é o seu nome?"
 
+        try:
+            delivery_result = send_text(
+                state.get("phone", ""),
+                fallback_text,
+                state.get("instance", "kumon_assistant"),
+            )
+            phone = state.get("phone")
+            if phone:
+                save_conversation_state(phone, {"greeting_sent": True})
 
-def greeting_node(state: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle greeting intent and set flag for next turn routing."""
-    result = _execute_node(state, "greeting", get_greeting_prompt)
-
-    # Set flag to indicate greeting was sent (for next turn routing)
-    result["greeting_sent"] = True
-
-    # CRITICAL FIX: Save only greeting_sent flag, not contaminated full_state
-    phone = state.get("phone")
-    if phone:
-        save_conversation_state(phone, {"greeting_sent": True})
-
-    return result
+            return {
+                **state,
+                "sent": delivery_result.get("sent", "false"),
+                "response": fallback_text,
+                "greeting_sent": True,
+                "error_reason": str(e),
+            }
+        except Exception as send_error:
+            return {
+                **state,
+                "sent": "false",
+                "response": fallback_text,
+                "greeting_sent": True,
+                "error_reason": f"{str(e)} | {str(send_error)}",
+            }
 
 
 async def qualification_node_wrapper(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -515,7 +422,7 @@ def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[st
         return result_state
 
 
-def route_from_greeting(_state: Dict[str, Any]) -> str:  # noqa: U101
+def route_from_greeting(_state: Dict[str, Any]) -> str:
     """
     Greeting always ends the current turn to wait for user response.
     The next turn will be routed by Gemini classifier based on context.

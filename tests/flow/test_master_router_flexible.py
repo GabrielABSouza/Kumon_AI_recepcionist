@@ -9,7 +9,7 @@ Following TDD Step 1.1: Create test_router_prioritizes_explicit_intent_over_cont
 
 from unittest.mock import patch
 
-from app.core.langgraph_flow import master_router
+from app.core.routing.master_router import master_router
 
 
 class TestMasterRouterFlexible:
@@ -35,9 +35,9 @@ class TestMasterRouterFlexible:
         }
 
         with patch(
-            "app.core.langgraph_flow.get_conversation_state"
+            "app.core.routing.master_router.get_conversation_state"
         ) as mock_get_state, patch(
-            "app.core.langgraph_flow.classifier.classify"
+            "app.core.routing.master_router.classifier.classify"
         ) as mock_classifier:
             # Mock conversation state showing qualification in progress
             mock_get_state.return_value = {
@@ -89,9 +89,9 @@ class TestMasterRouterFlexible:
         }
 
         with patch(
-            "app.core.langgraph_flow.get_conversation_state"
+            "app.core.routing.master_router.get_conversation_state"
         ) as mock_get_state, patch(
-            "app.core.langgraph_flow.classifier.classify"
+            "app.core.routing.master_router.classifier.classify"
         ) as mock_classifier:
             # Mock conversation state showing qualification in progress
             mock_get_state.return_value = {

@@ -8,7 +8,7 @@ principle and that responsibility duplication has been eliminated.
 from unittest.mock import patch
 
 # Intent enum removed - now using string-based intents
-from app.core.langgraph_flow import classify_intent, master_router
+from app.core.routing.master_router import check_for_continuation_rule, master_router
 
 
 class TestMasterRouterValidation:
@@ -19,7 +19,7 @@ class TestMasterRouterValidation:
         VALIDATION TEST: Master router implements "Rules First, AI After" correctly.
 
         This test confirms that:
-        1. Business rules are checked first (classify_intent)
+        1. Business rules are checked first (check_for_continuation_rule)
         2. AI classification only happens when no business rules apply
         3. Responsibility duplication has been eliminated
         """
@@ -30,9 +30,9 @@ class TestMasterRouterValidation:
         }
 
         with patch(
-            "app.core.langgraph_flow.get_conversation_state"
+            "app.core.routing.master_router.get_conversation_state"
         ) as mock_get_state, patch(
-            "app.core.langgraph_flow.classifier"
+            "app.core.routing.master_router.classifier"
         ) as mock_classifier:
             # Mock business rule applies
             mock_get_state.return_value = {"greeting_sent": True}
@@ -66,9 +66,9 @@ class TestMasterRouterValidation:
         }
 
         with patch(
-            "app.core.langgraph_flow.get_conversation_state"
+            "app.core.routing.master_router.get_conversation_state"
         ) as mock_get_state, patch(
-            "app.core.langgraph_flow.classifier"
+            "app.core.routing.master_router.classifier"
         ) as mock_classifier:
             # No saved state = no business rules apply
             mock_get_state.return_value = {}
@@ -97,27 +97,27 @@ class TestMasterRouterValidation:
 
             print("✅ VALIDATION PASSED: AI After - AI used when no business rules")
 
-    def test_classify_intent_only_business_logic_no_ai(self):
+    def test_check_for_continuation_rule_only_business_logic_no_ai(self):
         """
-        VALIDATION TEST: classify_intent contains only business logic, no AI.
+        VALIDATION TEST: check_for_continuation_rule contains only business logic, no AI.
 
         This confirms responsibility separation has been achieved.
         """
-        # Test that classify_intent never calls AI
+        # Test that check_for_continuation_rule never calls AI
         state = {
             "phone": "5511999999999",
             "text": "anything",
         }
 
         with patch(
-            "app.core.langgraph_flow.get_conversation_state"
+            "app.core.routing.master_router.get_conversation_state"
         ) as mock_get_state, patch(
-            "app.core.langgraph_flow.classifier"
+            "app.core.routing.master_router.classifier"
         ) as mock_classifier:
             mock_get_state.return_value = {"greeting_sent": True}
 
-            # Call classify_intent directly
-            result = classify_intent(state)
+            # Call check_for_continuation_rule directly
+            result = check_for_continuation_rule(state)
 
             # ASSERTION 1: Should return business decision
             assert (
@@ -126,11 +126,13 @@ class TestMasterRouterValidation:
 
             # ASSERTION 2: Should never call AI classifier
             assert not mock_classifier.classify.called, (
-                f"CRITICAL: classify_intent called AI classifier! "
+                f"CRITICAL: check_for_continuation_rule called AI classifier! "
                 f"Responsibility separation violated."
             )
 
-            print("✅ VALIDATION PASSED: classify_intent contains only business logic")
+            print(
+                "✅ VALIDATION PASSED: check_for_continuation_rule contains only business logic"
+            )
 
     def test_master_router_graceful_error_handling(self):
         """
@@ -144,9 +146,9 @@ class TestMasterRouterValidation:
         }
 
         with patch(
-            "app.core.langgraph_flow.get_conversation_state"
+            "app.core.routing.master_router.get_conversation_state"
         ) as mock_get_state, patch(
-            "app.core.langgraph_flow.classifier"
+            "app.core.routing.master_router.classifier"
         ) as mock_classifier:
             # Simulate business rule failure
             mock_get_state.side_effect = Exception("Database error")
@@ -180,7 +182,7 @@ class TestMasterRouterValidation:
 
         This is the ultimate test that our refactoring achieved its goal.
         """
-        # Test 1: Business rules only in classify_intent
+        # Test 1: Business rules only in check_for_continuation_rule
         state_business = {
             "phone": "5511999999999",
             "text": "test",
@@ -193,9 +195,9 @@ class TestMasterRouterValidation:
         }
 
         with patch(
-            "app.core.langgraph_flow.get_conversation_state"
+            "app.core.routing.master_router.get_conversation_state"
         ) as mock_get_state, patch(
-            "app.core.langgraph_flow.classifier"
+            "app.core.routing.master_router.classifier"
         ) as mock_classifier:
             # Setup for business rule test
             mock_get_state.side_effect = [
@@ -209,8 +211,8 @@ class TestMasterRouterValidation:
                 "confidence": 0.9,
             }
 
-            # STEP 1: Call classify_intent (should use business logic only)
-            business_result = classify_intent(state_business)
+            # STEP 1: Call check_for_continuation_rule (should use business logic only)
+            business_result = check_for_continuation_rule(state_business)
 
             # STEP 2: Call master_router with no business rules (should use AI)
             ai_result = master_router(state_ai)
@@ -231,7 +233,7 @@ class TestMasterRouterValidation:
             ), f"Expected exactly 1 AI call (from master_router), got {mock_classifier.classify.call_count}"
 
             print("✅ FINAL VALIDATION PASSED: No responsibility duplication")
-            print("   - classify_intent: Business logic only ✅")
+            print("   - check_for_continuation_rule: Business logic only ✅")
             print("   - master_router: Orchestrates Rules First, AI After ✅")
             print("   - GeminiClassifier: AI classification only ✅")
             print("   - Architecture: Clean separation of concerns ✅")
@@ -272,11 +274,11 @@ class TestMasterRouterValidation:
         ]
 
         with patch(
-            "app.core.langgraph_flow.get_conversation_state"
+            "app.core.routing.master_router.get_conversation_state"
         ) as mock_get_state, patch(
             "app.core.langgraph_flow.get_conversation_history"
         ) as mock_get_history, patch(
-            "app.core.langgraph_flow.classifier"
+            "app.core.routing.master_router.classifier"
         ) as mock_classifier:
             # STEP 3: Mock the return values - simulate NEW conversation scenario
             # For NEW conversation, get_conversation_state returns {} (no business rules)
@@ -301,7 +303,7 @@ class TestMasterRouterValidation:
 
             # ASSERTION 1: Should call get_conversation_state to collect state
             # Note: get_conversation_state is called twice:
-            # 1. In classify_intent (for business rules)
+            # 1. In check_for_continuation_rule (for business rules)
             # 2. In master_router (for AI context)
             assert (
                 mock_get_state.call_count == 2
@@ -340,11 +342,11 @@ class TestMasterRouterValidation:
         state_with_business_rule = {"phone": "5511888888888", "text": "test"}
 
         with patch(
-            "app.core.langgraph_flow.get_conversation_state"
+            "app.core.routing.master_router.get_conversation_state"
         ) as mock_get_state2, patch(
             "app.core.langgraph_flow.get_conversation_history"
         ) as mock_get_history2, patch(
-            "app.core.langgraph_flow.classifier"
+            "app.core.routing.master_router.classifier"
         ) as mock_classifier2:
             # Business rule applies (greeting_sent=True)
             mock_get_state2.return_value = {"greeting_sent": True}
