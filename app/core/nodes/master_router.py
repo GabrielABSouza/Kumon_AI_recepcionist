@@ -96,7 +96,9 @@ async def master_router(state: Dict[str, Any]) -> Dict[str, Any]:
             state["collected_data"] = {}
 
         # 2. Obter Análise da IA
+        print(f"DEBUG|master_router|calling_classifier|text='{text}'")
         nlu_result = await classifier.classify(text, context=context)
+        print(f"DEBUG|master_router|classifier_result|nlu_result={nlu_result}")
         state["nlu_result"] = nlu_result
         primary_intent = nlu_result.get("primary_intent", "fallback")
 
