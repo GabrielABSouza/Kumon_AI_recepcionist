@@ -98,16 +98,27 @@ async def information_node(state: CeciliaState) -> CeciliaState:
         f"Processing information request for {state.get('phone_number')} - simplified mode"
     )
 
-    # 2. GET USER QUESTION (already in state)
+    # 2. PROCESS NLU ENTITIES INTO COLLECTED_DATA (transfer from nlu_entities)
+    nlu_entities = state.get("nlu_entities", {})
+    collected_data = state.get("collected_data", {})
+    
+    # Transfer entities to collected_data if they exist
+    for entity_key, entity_value in nlu_entities.items():
+        if entity_value:  # Only transfer non-empty values
+            collected_data[entity_key] = entity_value
+    
+    state["collected_data"] = collected_data
+    
+    # 3. GET USER QUESTION (already in state)
     user_question = state.get("text", "")
 
-    # 3. GET NEXT QUALIFICATION QUESTION (from shared qualification logic)
+    # 4. GET NEXT QUALIFICATION QUESTION (from shared qualification logic)
     next_q_question = get_next_qualification_question_from_state(state)
 
-    # 4. BUILD BLENDED RESPONSE PROMPT
+    # 5. BUILD BLENDED RESPONSE PROMPT
     prompt = build_blended_response_prompt(user_question, next_q_question)
 
-    # 5. GENERATE RESPONSE WITH LLM
+    # 6. GENERATE RESPONSE WITH LLM
     try:
         from ..llm.openai_adapter import OpenAIClient
 
@@ -130,7 +141,7 @@ async def information_node(state: CeciliaState) -> CeciliaState:
             "Por favor, entre em contato pelo telefone (51) 99692-1999."
         )
 
-    # 6. SEND RESPONSE AND UPDATE STATE
+    # 7. SEND RESPONSE AND UPDATE STATE
     phone = state.get("phone")
     instance = state.get("instance", "kumon_assistant")
 
@@ -141,5 +152,5 @@ async def information_node(state: CeciliaState) -> CeciliaState:
 
     logger.info(f"Information response sent for {state.get('phone_number')}")
 
-    # 7. RETURN UPDATED STATE
+    # 8. RETURN UPDATED STATE
     return state

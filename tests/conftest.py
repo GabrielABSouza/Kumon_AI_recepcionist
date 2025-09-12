@@ -63,6 +63,7 @@ def patch_redis(monkeypatch):
         "app.core.dedup.redis_client",
         "app.core.cache_manager.redis_client",
         "app.services.message_preprocessor.redis_client",
+        "app.core.state_manager.redis_client",
     ]
 
     for path in redis_paths:
@@ -74,6 +75,25 @@ def patch_redis(monkeypatch):
         except Exception:
             pass
 
+    # Patch specific state manager functions
+    try:
+        import app.core.state_manager as sm
+        
+        def mock_get_conversation_state(phone):
+            return {}
+        
+        def mock_save_conversation_state(phone, data):
+            return True
+            
+        def mock_get_conversation_history(phone, limit=10):
+            return []
+        
+        monkeypatch.setattr(sm, "get_conversation_state", mock_get_conversation_state, raising=False)
+        monkeypatch.setattr(sm, "save_conversation_state", mock_save_conversation_state, raising=False)
+        monkeypatch.setattr(sm, "get_conversation_history", mock_get_conversation_history, raising=False)
+    except Exception:
+        pass
+
     return fake
 
 
@@ -82,25 +102,84 @@ def mock_gemini(monkeypatch):
     """Mock Gemini classifier for testing."""
 
     class MockClassifier:
-        def classify(self, text: str):
+        def classify(self, text: str, context=None):
             # Simple mock classification based on keywords
-            if "oi" in text.lower() or "olá" in text.lower():
-                return ("greeting", 0.95)
-            elif "matricular" in text.lower():
-                return ("qualification", 0.90)
-            elif "método" in text.lower():
-                return ("information", 0.85)
-            elif "agendar" in text.lower():
-                return ("scheduling", 0.88)
+            text_lower = text.lower()
+            
+            # Extract entities based on text content
+            entities = {}
+            if "gabriel" in text_lower:
+                entities["parent_name"] = "Gabriel"
+            if "matemática" in text_lower:
+                entities["program_interests"] = ["Matemática"]
+            
+            if "oi" in text_lower or "olá" in text_lower:
+                # For complex greetings with information request
+                if "informações" in text_lower or "método" in text_lower:
+                    return {
+                        "primary_intent": "information",
+                        "secondary_intent": None,
+                        "entities": entities,
+                        "confidence": 0.95
+                    }
+                else:
+                    return {
+                        "primary_intent": "greeting",
+                        "secondary_intent": None,
+                        "entities": entities,
+                        "confidence": 0.95
+                    }
+            elif "matricular" in text_lower:
+                return {
+                    "primary_intent": "qualification",
+                    "secondary_intent": None,
+                    "entities": entities,
+                    "confidence": 0.90
+                }
+            elif "método" in text_lower or "informações" in text_lower:
+                return {
+                    "primary_intent": "information",
+                    "secondary_intent": None,
+                    "entities": entities,
+                    "confidence": 0.85
+                }
+            elif "agendar" in text_lower:
+                return {
+                    "primary_intent": "scheduling",
+                    "secondary_intent": None,
+                    "entities": entities,
+                    "confidence": 0.88
+                }
             else:
-                return ("fallback", 0.50)
+                return {
+                    "primary_intent": "fallback",
+                    "secondary_intent": None,
+                    "entities": {},
+                    "confidence": 0.50
+                }
 
-    try:
-        import app.core.gemini_classifier as gc
-
-        monkeypatch.setattr(gc, "classifier", MockClassifier(), raising=False)
-    except Exception:
-        pass
+    mock_instance = MockClassifier()
+    
+    # Patch all possible import locations
+    import_locations = [
+        "app.core.gemini_classifier",
+        "app.core.routing.master_router", 
+        "app.core.langgraph_flow",
+        "app.core.unified_service_resolver",
+        "app.core.service_registry", 
+        "app.core.service_factory",
+        "app.core.router.smart_router_adapter"
+    ]
+    
+    for location in import_locations:
+        try:
+            mod = __import__(location, fromlist=["classifier"])
+            if hasattr(mod, "classifier"):
+                monkeypatch.setattr(mod, "classifier", mock_instance, raising=False)
+                print(f"Patched classifier in {location}")
+        except Exception as e:
+            print(f"Failed to patch classifier in {location}: {e}")
+            pass
 
     return MockClassifier()
 
@@ -110,7 +189,8 @@ def mock_delivery(monkeypatch):
     """Mock delivery service to avoid actual API calls."""
     from tests.utils.fakes import CallRecorder
 
-    recorder = CallRecorder()
+    # Create recorder that returns proper format
+    recorder = CallRecorder(return_value={"sent": "true", "status": "success"})
 
     try:
         import app.core.delivery as delivery
@@ -126,30 +206,24 @@ def mock_delivery(monkeypatch):
 def mock_openai(monkeypatch):
     """Mock OpenAI for testing."""
 
-    class MockOpenAI:
-        class ChatCompletion:
-            @staticmethod
-            def create(**kwargs):  # noqa: U100
-                return {
-                    "choices": [
-                        {
-                            "message": {
-                                "content": "Olá! Sou Cecília do Kumon. Como posso ajudar?"
-                            }
-                        }
-                    ]
-                }
+    class MockOpenAIClient:
+        async def chat(self, model=None, system_prompt=None, user_prompt=None, temperature=None, max_tokens=None):
+            """Mock chat method that returns a response based on user input."""
+            # Return a smart response based on the user prompt
+            if "informações" in user_prompt.lower() or "método" in user_prompt.lower():
+                return (
+                    "Olá Gabriel! O Kumon de Matemática é um método individualizado que fortalece o raciocínio. "
+                    "Para que eu possa te ajudar melhor, o Kumon é para você mesmo ou para outra pessoa?"
+                )
+            return "Olá! Sou Cecília do Kumon. Como posso ajudar?"
 
     try:
-        pass
-
-        monkeypatch.setattr(
-            "openai.ChatCompletion", MockOpenAI.ChatCompletion, raising=False
-        )
+        import app.core.llm.openai_adapter as openai_adapter
+        monkeypatch.setattr(openai_adapter, "OpenAIClient", MockOpenAIClient, raising=False)
     except Exception:
         pass
 
-    return MockOpenAI
+    return MockOpenAIClient
 
 
 # Gemini Orchestrator fixtures

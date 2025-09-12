@@ -11,7 +11,7 @@ from app.core.state.models import create_initial_cecilia_state
 
 
 @pytest.mark.asyncio
-async def test_handles_complex_initial_message_end_to_end():
+async def test_handles_complex_initial_message_end_to_end(patch_redis, mock_delivery, mock_gemini, mock_openai):
     """
     🧪 TESTE DE INTEGRAÇÃO DE PONTA A PONTA (Cenário Realista)
 
@@ -38,8 +38,10 @@ async def test_handles_complex_initial_message_end_to_end():
         user_message=user_message,
         instance="test_instance",
     )
-    # Adicionamos 'text' para compatibilidade com a forma como o roteador o recebe
+    # Adicionamos campos necessários para compatibilidade com o grafo
     initial_state['text'] = user_message
+    initial_state['phone'] = "5511999999999"
+    initial_state['message_id'] = "test_msg_123"
 
     # --- ACT (Execução) ---
 

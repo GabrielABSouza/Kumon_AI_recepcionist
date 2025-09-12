@@ -3,7 +3,9 @@ Tests for greeting node functionality.
 Updated for new architecture - greeting_node no longer extracts entities globally.
 Entity extraction is now localized to specific nodes that need specific information.
 """
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from app.core.langgraph_flow import greeting_node
 
@@ -190,3 +192,81 @@ class TestGreetingNode:
 
         print("✅ RED PHASE: Teste criado - vai falhar até refatorarmos greeting_node")
         return True
+
+
+@pytest.mark.asyncio
+async def test_greeting_node_sends_only_one_message():
+    """
+    🧪 TESTE RED PHASE: Prova o bug de duplicação no greeting_node
+
+    Este teste irá FALHAR até corrigirmos o bug de chamada assíncrona
+    que causa duplicação de resposta.
+    """
+    # Arrange - Estado de entrada simples
+    state = {"phone": "5511999999999", "instance": "kumon_assistant"}
+
+    # Act & Assert - Espionar a função send_text
+    with patch(
+        "app.core.nodes.greeting.send_text", new_callable=AsyncMock
+    ) as mock_send_text:
+        # Executar o greeting_node
+        result = await greeting_node(state)
+
+        # ASSERTIVA QUE IRÁ FALHAR: send_text deve ser chamado apenas UMA vez
+        # O bug atual faz com que seja chamado duas vezes (normal + fallback)
+        mock_send_text.assert_called_once()
+
+        # Verificar que a resposta foi definida no estado
+        assert "response" in result or "last_bot_response" in result
+        assert result["greeting_sent"] is True
+
+        # Verificar quantas vezes foi chamado (aqui vamos ver o bug)
+        print(f"🔍 send_text foi chamado {mock_send_text.call_count} vezes")
+        if mock_send_text.call_count > 0:
+            print(f"🔍 Chamadas: {mock_send_text.call_args_list}")
+
+        # Verificar o conteúdo da mensagem enviada
+        if mock_send_text.called:
+            call_args = mock_send_text.call_args
+            assert "Cecília" in str(call_args)  # Verificar que tem Cecília na chamada
+
+
+@pytest.mark.asyncio
+async def test_greeting_node_fallback_sends_only_one_message():
+    """
+    🧪 TESTE RED PHASE: Força condição de erro para provar bug de duplicação no fallback
+
+    Simula erro no simplified_greeting_node para acionar o fallback e
+    verificar que send_text não é chamado duas vezes.
+    """
+    from app.core.langgraph_flow import greeting_node as langgraph_greeting_node
+
+    # Arrange - Estado de entrada simples
+    state = {"phone": "5511999999999", "instance": "kumon_assistant"}
+
+    # Mock para forçar exceção no simplified_greeting_node
+    with patch(
+        "app.core.langgraph_flow.simplified_greeting_node",
+        side_effect=Exception("Simulated error"),
+    ) as mock_simplified:
+        with patch(
+            "app.core.langgraph_flow.send_text", new_callable=AsyncMock
+        ) as mock_send_text:
+            with patch("app.core.langgraph_flow.save_conversation_state") as mock_save:
+                # Act - Executar o langgraph greeting_node (que vai para fallback)
+                result = await langgraph_greeting_node(state)
+
+                # Assert - DEVE chamar send_text apenas UMA vez (no fallback)
+                # Se houvesse o bug (sem await), chamaria duas vezes
+                mock_send_text.assert_called_once()
+
+                # Verificar que foi para o fallback
+                assert "error_reason" in result
+                assert (
+                    result["response"]
+                    == "Olá! Eu sou a Cecília do Kumon Vila A. Qual é o seu nome?"
+                )
+
+                print(
+                    f"✅ Fallback executado com {mock_send_text.call_count} chamada(s) a send_text"
+                )

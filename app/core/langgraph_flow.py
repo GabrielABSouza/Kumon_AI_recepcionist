@@ -75,7 +75,7 @@ async def greeting_node(state: Dict[str, Any]) -> Dict[str, Any]:
         fallback_text = "Olá! Eu sou a Cecília do Kumon Vila A. Qual é o seu nome?"
 
         try:
-            delivery_result = send_text(
+            delivery_result = await send_text(
                 state.get("phone", ""),
                 fallback_text,
                 state.get("instance", "kumon_assistant"),
@@ -220,6 +220,12 @@ async def information_node(state: Dict[str, Any]) -> Dict[str, Any]:
             conversation_metrics={"message_count": 0, "failed_attempts": 0},
             collected_data=saved_state or {},
         )
+
+        # CRITICAL: Pass nlu_entities from master_router to the information_node
+        cecil_state["nlu_entities"] = state.get("nlu_entities", {})
+        cecil_state["text"] = state.get("text", "")
+        cecil_state["phone"] = phone
+        cecil_state["instance"] = state.get("instance", "kumon_assistant")
 
         # Call the intelligent information node
         result = await intelligent_information_node(cecil_state)

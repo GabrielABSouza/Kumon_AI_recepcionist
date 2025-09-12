@@ -42,6 +42,11 @@ def check_for_continuation_rule(state: Dict[str, Any]) -> str:
     Returns:
         str: Node name to continue to, or None if no continuation needed
     """
+    # REGRA 1: Post-greeting response - coletou greeting, agora precisa coletar nome
+    if state.get("greeting_sent") and not state.get("parent_name"):
+        print("ROUTER|continuation_rule|post_greeting|collect_parent_name")
+        return "qualification_node"
+
     # Required qualification variables that must be collected
     QUALIFICATION_REQUIRED_VARS = [
         "parent_name",
@@ -50,7 +55,7 @@ def check_for_continuation_rule(state: Dict[str, Any]) -> str:
         "program_interests",
     ]
 
-    # Check if qualification is incomplete and should continue
+    # REGRA 2: Check if qualification is incomplete and should continue
     if state.get("parent_name"):  # User has started qualification
         missing_vars = []
         for var in QUALIFICATION_REQUIRED_VARS:
