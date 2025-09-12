@@ -89,7 +89,7 @@ def check_for_continuation_rule(state: Dict[str, Any]) -> str:
     return None
 
 
-def master_router(state: Dict[str, Any]) -> str:
+async def master_router(state: Dict[str, Any]) -> str:
     """
     Master Router: Implements Flexible Intent Prioritization.
 
@@ -158,7 +158,7 @@ def master_router(state: Dict[str, Any]) -> str:
 
         # STEP A: AI analysis with FULL CONTEXT (not basic only!)
         # 🎯 FIXED: Use conversation_context para análise contextual completa
-        nlu_result = classifier.classify(text, context=conversation_context)
+        nlu_result = await classifier.classify(text, context=conversation_context)
 
         gemini_duration = (time.perf_counter() - gemini_start_time) * 1000
         print(
