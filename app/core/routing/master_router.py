@@ -89,18 +89,24 @@ def check_for_continuation_rule(state: Dict[str, Any]) -> str:
     return None
 
 
-def master_router_sync(state: Dict[str, Any]) -> str:
+def master_router_sync_for_langgraph(state: Dict[str, Any]) -> str:
     """
-    🔄 SYNCHRONOUS WRAPPER for LangGraph 0.0.26 Compatibility
+    🔄 MINIMAL SYNCHRONOUS WRAPPER for LangGraph 0.0.26 Compatibility
 
-    LangGraph 0.0.26 não suporta funções async em conditional entry points.
-    Este wrapper executa o master_router async de forma síncrona.
+    STRATEGY: Use ThreadPoolExecutor to run async function in separate thread
+    This completely avoids all event loop conflicts.
     """
     import asyncio
+    import concurrent.futures
 
-    # Use asyncio.run() for better event loop management
-    # This creates a new event loop, runs the coroutine, and cleans up
-    return asyncio.run(master_router_async(state))
+    # Run the async function in a separate thread with its own event loop
+    # This completely isolates it from the main Uvicorn event loop
+    def run_async_in_thread():
+        return asyncio.run(master_router_async(state))
+
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future = executor.submit(run_async_in_thread)
+        return future.result()
 
 
 async def master_router_async(state: Dict[str, Any]) -> str:
@@ -274,6 +280,8 @@ async def master_router_async(state: Dict[str, Any]) -> str:
         return "fallback_node"
 
 
-# Alias for backward compatibility and cleaner imports
+# Unified async router with safe sync wrapper for LangGraph
 master_router = master_router_async  # For async contexts
-master_router_for_langgraph = master_router_sync  # For LangGraph 0.0.26
+master_router_for_langgraph = (
+    master_router_sync_for_langgraph  # Safe sync wrapper for LangGraph 0.0.26
+)

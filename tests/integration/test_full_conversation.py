@@ -452,3 +452,108 @@ class TestFullConversationFlow:
         print("   └─ Fluxo conversacional mantém continuidade ✅")
 
         return True
+
+    @pytest.mark.asyncio
+    async def test_conversation_completes_second_turn_without_crashing(self, graph):
+        """
+        🚨 RED PHASE: Reproduz o erro 'Event loop is closed'
+
+        Valida que o segundo turno da conversa, que chama o Gemini com contexto,
+        executa sem causar o erro 'Event loop is closed'.
+
+        PROBLEMA ESPERADO:
+        - No segundo turno, o GeminiClassifier é chamado com contexto histórico
+        - As bibliotecas Google (google-generativeai, grpcio) têm bugs de asyncio
+        - Resultado: RuntimeError 'Event loop is closed' ou warnings relacionados
+
+        ESTE TESTE VAI FALHAR até atualizarmos as dependências do Google.
+        """
+        print("🚨 RED PHASE: Testando o segundo turno que causa 'Event loop is closed'")
+
+        # ========== TURNO 1: Primeira interação (normalmente funciona) ==========
+        print("📞 TURNO 1: Primeira interação (deve funcionar normalmente)")
+
+        initial_state = {
+            "text": "olá",
+            "phone": "5551999999999",
+            "instance": "kumon_assistant",
+            "message_id": "event_loop_test_001",
+        }
+
+        try:
+            state_turn_1 = await graph.ainvoke(initial_state)
+            print(f"✅ TURNO 1 OK: {state_turn_1.get('response', 'N/A')[:50]}...")
+        except Exception as e:
+            pytest.fail(f"Turno 1 falhou inesperadamente: {e}")
+
+        # ========== TURNO 2: Segundo turno (onde o erro acontece) ==========
+        print("📞 TURNO 2: Segundo turno com contexto histórico (PONTO CRÍTICO)")
+
+        # Preparar estado do turno 2 com dados do turno anterior
+        state_turn_2_input = state_turn_1.copy()
+        state_turn_2_input["text"] = "Gabriel"  # Usuário fornece nome
+        state_turn_2_input["message_id"] = "event_loop_test_002"
+
+        # 🚨 PONTO CRÍTICO: Este é onde o erro "Event loop is closed" acontece
+        # Quando master_router chama classifier.classify() com contexto histórico
+        try:
+            print("🔍 EXECUTANDO: graph.ainvoke com contexto histórico...")
+            final_state = await graph.ainvoke(state_turn_2_input)
+
+            # Se chegou até aqui, o bug foi corrigido
+            print("🎉 SUCESSO: Segundo turno executou sem 'Event loop is closed'!")
+
+            # Validações básicas para confirmar que funcionou
+            assert (
+                "response" in final_state or "last_bot_response" in final_state
+            ), f"Estado final sem resposta: {final_state.keys()}"
+
+            response = final_state.get("response") or final_state.get(
+                "last_bot_response"
+            )
+            assert (
+                response is not None and response.strip()
+            ), f"Resposta vazia ou None: '{response}'"
+
+            print(f"✅ RESPOSTA TURNO 2: {response[:80]}...")
+            print("✅ TESTE PASSOU: Erro 'Event loop is closed' foi resolvido!")
+
+        except RuntimeError as e:
+            if "Event loop is closed" in str(e):
+                print(f"🚨 ERRO REPRODUZIDO: {e}")
+                pytest.fail(
+                    f"RED PHASE CONFIRMADA: Event loop is closed error reproduced: {e}\n"
+                    f"Este erro confirma que precisamos atualizar as dependências do Google."
+                )
+            else:
+                # Outro tipo de RuntimeError
+                print(f"❓ RuntimeError diferente: {e}")
+                pytest.fail(
+                    f"RuntimeError inesperado (não relacionado ao event loop): {e}"
+                )
+
+        except Exception as e:
+            # Verificar se é erro relacionado ao asyncio/event loop
+            error_msg = str(e).lower()
+            if any(
+                keyword in error_msg
+                for keyword in [
+                    "event loop",
+                    "asyncio",
+                    "coroutine",
+                    "loop",
+                    "grpc",
+                    "google",
+                ]
+            ):
+                print(f"🚨 ERRO RELACIONADO AO ASYNCIO: {e}")
+                pytest.fail(
+                    f"RED PHASE CONFIRMADA: Asyncio/Event loop related error: {e}\n"
+                    f"Este erro confirma que precisamos atualizar as dependências."
+                )
+            else:
+                # Erro não relacionado ao nosso problema
+                print(f"❓ Erro não relacionado ao event loop: {e}")
+                pytest.fail(f"Erro inesperado no segundo turno: {e}")
+
+        print("🎯 Se o teste chegou até aqui, o problema foi resolvido!")

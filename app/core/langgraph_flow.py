@@ -2,7 +2,6 @@
 Minimal LangGraph flow: Entry → [Single Node] → End
 Each node handles its intent and sends a response.
 """
-import asyncio
 import copy
 from typing import Any, Dict
 
@@ -269,17 +268,19 @@ async def information_node(state: Dict[str, Any]) -> Dict[str, Any]:
             }
 
 
-def scheduling_node(state: Dict[str, Any]) -> Dict[str, Any]:
+async def scheduling_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """Handle scheduling intent."""
-    return _execute_node(state, "scheduling", get_scheduling_prompt)
+    return await _execute_node(state, "scheduling", get_scheduling_prompt)
 
 
-def fallback_node(state: Dict[str, Any]) -> Dict[str, Any]:
+async def fallback_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """Handle fallback for unrecognized intents."""
-    return _execute_node(state, "fallback", get_fallback_prompt)
+    return await _execute_node(state, "fallback", get_fallback_prompt)
 
 
-def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[str, Any]:
+async def _execute_node(
+    state: Dict[str, Any], node_name: str, prompt_func
+) -> Dict[str, Any]:
     """Execute a single node: generate response and send."""
     message_id = state.get("message_id")
     if not message_id:
@@ -331,21 +332,15 @@ def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[st
         else:
             prompt = prompt_func(user_text)
 
-        # Generate response with OpenAI adapter (async to sync bridge)
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            reply_text = loop.run_until_complete(
-                get_openai_client().chat(
-                    model="gpt-3.5-turbo",
-                    system_prompt=prompt["system"],
-                    user_prompt=prompt["user"],
-                    temperature=0.7,
-                    max_tokens=300,
-                )
-            )
-        finally:
-            loop.close()
+        # Generate response with OpenAI adapter (direct async usage)
+        # FIXED: Use existing event loop instead of creating new one
+        reply_text = await get_openai_client().chat(
+            model="gpt-3.5-turbo",
+            system_prompt=prompt["system"],
+            user_prompt=prompt["user"],
+            temperature=0.7,
+            max_tokens=300,
+        )
 
         # Send via Evolution API
         phone = state.get("phone")
@@ -355,6 +350,7 @@ def _execute_node(state: Dict[str, Any], node_name: str, prompt_func) -> Dict[st
 
         instance = state.get("instance", "recepcionistakumon")
 
+        # FIXED: send_text is already synchronous and imported at module level
         delivery_result = send_text(phone, reply_text, instance)
         sent_success = delivery_result.get("sent") == "true"
 
@@ -547,10 +543,10 @@ def build_graph():
     graph.add_node("scheduling_node", scheduling_node)
     graph.add_node("fallback_node", fallback_node)
 
-    # Set conditional entry point using SYNCHRONOUS master router wrapper
-    # For langgraph 0.0.26, conditional entry points must be synchronous functions
+    # Set conditional entry point using SAFE sync wrapper for LangGraph 0.0.26
+    # Uses thread pool executor to avoid "Event loop is closed" errors
     graph.set_conditional_entry_point(
-        master_router_for_langgraph,
+        master_router_for_langgraph,  # Safe sync wrapper that doesn't conflict with Uvicorn
         {
             "greeting_node": "greeting_node",
             "qualification_node": "qualification_node",
