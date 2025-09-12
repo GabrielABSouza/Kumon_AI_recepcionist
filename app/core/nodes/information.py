@@ -101,14 +101,14 @@ async def information_node(state: CeciliaState) -> CeciliaState:
     # 2. PROCESS NLU ENTITIES INTO COLLECTED_DATA (transfer from nlu_entities)
     nlu_entities = state.get("nlu_entities", {})
     collected_data = state.get("collected_data", {})
-    
+
     # Transfer entities to collected_data if they exist
     for entity_key, entity_value in nlu_entities.items():
         if entity_value:  # Only transfer non-empty values
             collected_data[entity_key] = entity_value
-    
+
     state["collected_data"] = collected_data
-    
+
     # 3. GET USER QUESTION (already in state)
     user_question = state.get("text", "")
 
