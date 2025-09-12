@@ -7,11 +7,13 @@ from langgraph.graph import END, StateGraph
 
 # Importe os nós e o roteador de seus arquivos dedicados
 from app.core.nodes.greeting import greeting_node
-from app.core.nodes.qualification import qualification_node
+
 # ... importe seus outros nós (information, scheduling, fallback)
-from app.core.routing.master_router import master_router
+from app.core.nodes.master_router import master_router
+from app.core.nodes.qualification import qualification_node
 
 logger = logging.getLogger(__name__)
+
 
 # O "Carteiro" Síncrono e Simples
 def route_from_master_router(state: Dict[str, Any]) -> str:
@@ -22,6 +24,7 @@ def route_from_master_router(state: Dict[str, Any]) -> str:
     decision = state.get("routing_decision", "fallback_node")
     logger.info(f"ROUTING|Post-AI Decision|Routing to: {decision}")
     return decision
+
 
 def build_graph():
     """Constrói o grafo LangGraph com a arquitetura final e robusta."""
@@ -59,6 +62,7 @@ def build_graph():
 
     return workflow.compile()
 
+
 # Instância global do grafo
 graph = build_graph()
 
@@ -73,3 +77,9 @@ async def run_flow(state: Dict[str, Any]) -> Dict[str, Any]:
         logger.error(f"LANGGRAPH_FLOW|FlowError|error={str(e)}", exc_info=True)
         # Retorna um estado de erro
         return {"error": str(e)}
+
+
+# API compatibility alias
+async def run(state: Dict[str, Any]) -> Dict[str, Any]:
+    """API compatibility function - calls run_flow internally."""
+    return await run_flow(state)
