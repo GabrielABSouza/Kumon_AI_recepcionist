@@ -131,6 +131,7 @@ async def master_router(state: Dict[str, Any]) -> Dict[str, Any]:
 
         # 4. Escrever a decisão no "memorando" do estado
         state["routing_decision"] = final_decision
+        print(f"DEBUG|master_router_decision_written|routing_decision={final_decision}")
 
     except Exception as e:
         logger.error(f"MASTER_ROUTER|Error|error={str(e)}", exc_info=True)

@@ -53,7 +53,9 @@ def route_from_master_router(state: Dict[str, Any]) -> str:
     Lê a decisão de roteamento que o master_router já tomou e a retorna.
     É uma função síncrona, rápida e que apenas lê o estado.
     """
+    print(f"DEBUG|route_from_master_router_called|state_keys={list(state.keys())}")
     decision = state.get("routing_decision", "fallback_node")
+    print(f"DEBUG|route_from_master_router|decision={decision}")
     logger.info(f"ROUTING|Post-AI Decision|Routing to: {decision}")
     return decision
 
