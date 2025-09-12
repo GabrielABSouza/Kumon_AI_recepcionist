@@ -148,7 +148,11 @@ async def information_node(state: Dict[str, Any]) -> Dict[str, Any]:
     instance = state.get("instance", "kumon_assistant")
 
     if phone:
-        await send_text(phone, response_text, instance)
+        delivery_result = await send_text(phone, response_text, instance)
+        # CRITICAL FIX: Set sent flag from delivery result
+        state["sent"] = delivery_result.get("sent", "false")
+    else:
+        state["sent"] = "false"
 
     state["last_bot_response"] = response_text
 

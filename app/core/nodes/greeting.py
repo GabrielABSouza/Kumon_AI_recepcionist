@@ -23,13 +23,16 @@ async def greeting_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
     # 3. Enviar a mensagem
     # Garanta que a chamada a send_text esteja com os argumentos corretos (phone, text, instance)
-    await send_text(
+    delivery_result = await send_text(
         phone=state.get("phone"), text=response_text, instance=state.get("instance")
     )
 
     # 4. Atualizar o estado com as ações executadas
     state["last_bot_response"] = response_text
     state["greeting_sent"] = True  # Flag crucial para o roteador no próximo turno
+    
+    # CRITICAL FIX: Set sent flag from delivery result
+    state["sent"] = delivery_result.get("sent", "false")
 
     logger.info("Greeting sent and state updated with greeting_sent=True.")
 

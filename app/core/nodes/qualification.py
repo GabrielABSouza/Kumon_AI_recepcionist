@@ -20,7 +20,9 @@ QUALIFICATION_VARS_SEQUENCE = [
 async def qualification_node(state: Dict[str, Any]) -> Dict[str, Any]:
     print("DEBUG|qualification_node_executed|CALLED!")
     print(f"DEBUG|qualification_node|state_type={type(state)}")
-    print(f"DEBUG|qualification_node|state_keys={list(state.keys()) if isinstance(state, dict) else 'NOT_DICT'}")
+    print(
+        f"DEBUG|qualification_node|state_keys={list(state.keys()) if isinstance(state, dict) else 'NOT_DICT'}"
+    )
     """
     🧠 QUALIFICATION ORCHESTRATOR - NEW ARCHITECTURE
 
@@ -88,7 +90,10 @@ async def qualification_node(state: Dict[str, Any]) -> Dict[str, Any]:
         # Send message via Evolution API
         phone = _get_phone_from_state(state)
         instance = state.get("instance", "kumon_assistant")
-        await send_text(phone, response_text, instance)
+        delivery_result = await send_text(phone, response_text, instance)
+        
+        # CRITICAL FIX: Set sent flag from delivery result
+        state["sent"] = delivery_result.get("sent", "false")
 
         # Update conversation step
         state["current_step"] = _get_step_for_variable(next_var_to_collect)
@@ -130,7 +135,10 @@ async def qualification_node(state: Dict[str, Any]) -> Dict[str, Any]:
         # Send message via Evolution API
         phone = _get_phone_from_state(state)
         instance = state.get("instance", "kumon_assistant")
-        await send_text(phone, response_text, instance)
+        delivery_result = await send_text(phone, response_text, instance)
+        
+        # CRITICAL FIX: Set sent flag from delivery result
+        state["sent"] = delivery_result.get("sent", "false")
 
         state["current_stage"] = ConversationStage.INFORMATION_GATHERING
         state["current_step"] = ConversationStep.METHODOLOGY_EXPLANATION
