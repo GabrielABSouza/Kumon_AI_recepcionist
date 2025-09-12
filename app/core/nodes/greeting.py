@@ -12,6 +12,8 @@ async def greeting_node(state: CeciliaState) -> CeciliaState:
     Envia a mensagem de saudação inicial e prepara o estado para a qualificação.
     Sua única responsabilidade é iniciar a conversa.
     """
+    print("DEBUG|greeting_node_executed|CALLED!")
+    print(f"DEBUG|greeting_node|state_type={type(state)}")
     # 1. Proteger o estado contra mutações inesperadas
     state = copy.deepcopy(state)
     logger.info(f"Executing simplified greeting_node for phone: {state.get('phone')}")

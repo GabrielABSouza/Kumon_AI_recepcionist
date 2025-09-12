@@ -17,6 +17,9 @@ QUALIFICATION_VARS_SEQUENCE = [
 
 
 async def qualification_node(state: CeciliaState) -> CeciliaState:
+    print("DEBUG|qualification_node_executed|CALLED!")
+    print(f"DEBUG|qualification_node|state_type={type(state)}")
+    print(f"DEBUG|qualification_node|state_keys={list(state.keys()) if isinstance(state, dict) else 'NOT_DICT'}")
     """
     🧠 QUALIFICATION ORCHESTRATOR - NEW ARCHITECTURE
 
