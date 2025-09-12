@@ -4,8 +4,13 @@ Returns structured output with primary/secondary intents and extracted entities.
 """
 import os
 from typing import Optional
+import json
+import re
+import logging
 
 import google.generativeai as genai
+
+logger = logging.getLogger(__name__)
 
 
 class GeminiClassifier:
@@ -18,11 +23,15 @@ class GeminiClassifier:
 
         if self.enabled:
             genai.configure(api_key=api_key)
-            self.model = genai.GenerativeModel("gemini-1.5-flash")
+            # ATUALIZADO: Usando um modelo mais recente e especificando a geração de JSON
+            self.model = genai.GenerativeModel(
+                "gemini-1.5-flash",
+                generation_config={"response_mime_type": "application/json"},
+            )
         else:
             self.model = None
 
-    def classify(self, text: str, context: Optional[dict] = None):
+    async def classify(self, text: str, context: Optional[dict] = None) -> dict:
         """
         Classify user message into structured NLU output with optional context.
         Returns structured dict with primary_intent, secondary_intent, entities, confidence.
@@ -53,7 +62,8 @@ class GeminiClassifier:
         prompt = self._build_nlu_prompt(text, context)
 
         try:
-            response = self.model.generate_content(prompt)
+            # ATUALIZADO: Usando `generate_content_async` para performance
+            response = await self.model.generate_content_async(prompt)
             result = response.text.strip()
 
             # Parse structured JSON response
@@ -61,7 +71,7 @@ class GeminiClassifier:
             return structured_result
 
         except Exception as e:
-            print(f"Classification error: {e}")
+            logger.error(f"Gemini classification error: {e}")
             return {
                 "primary_intent": "fallback",
                 "secondary_intent": None,
@@ -69,22 +79,19 @@ class GeminiClassifier:
                 "confidence": 0.0,
             }
 
-    # Legacy _simple_classify() method removed - all code now uses structured format
-
     def _build_nlu_prompt(self, text: str, context: Optional[dict] = None) -> str:
-        """Build unified NLU prompt with optional context.
+        """Build unified NLU prompt with optional context."""
+        
+        conversation_history = self._format_conversation_history(context)
+        missing_vars = self._get_missing_qualification_vars(context)
 
-        If context is provided, renders sophisticated template with history and state.
-        If no context, renders simplified version of the same base template.
-        """
-        if context:
-            # Sophisticated version with context
-            conversation_history = self._format_conversation_history(context)
-            missing_vars = self._get_missing_qualification_vars(context)
+        # 🚀 CORREÇÃO PRINCIPAL: Adicionando Regras Imperativas ao Prompt
+        return f"""Você é um motor de NLU (Natural Language Understanding) para um chatbot de atendimento do Kumon. Sua tarefa é analisar a mensagem do usuário dentro do contexto da conversa e retornar um objeto JSON estruturado.
 
-            return f"""Você é um motor de NLU (Natural Language Understanding) para um
-chatbot de atendimento do Kumon. Sua tarefa é analisar a mensagem do usuário
-dentro do contexto da conversa e retornar um objeto JSON estruturado.
+**REGRAS DE PRIORIDADE MÁXIMA (SIGA-AS RIGOROSAMENTE):**
+1.  **SE** o histórico mostrar que a última pergunta do assistente foi "Qual é o seu nome?" E a mensagem atual do usuário for um nome, a `primary_intent` **DEVE SER** `qualification` e você **DEVE** extrair o nome como `parent_name`.
+2.  **SE** o estado atual indicar que uma qualificação está em andamento (variáveis faltando) E a mensagem do usuário parecer uma resposta a uma pergunta anterior, a `primary_intent` **DEVE SER** `qualification`.
+3.  **SE** a mensagem do usuário contiver uma pergunta explícita sobre "horários", "preço", "agendar", ou "informações", a `primary_intent` **DEVE SER** `information` ou `scheduling`, mesmo que uma qualificação esteja em andamento.
 
 **CONTEXTO DA CONVERSA:**
 - Histórico (últimas 4 mensagens):
@@ -94,77 +101,25 @@ dentro do contexto da conversa e retornar um objeto JSON estruturado.
 **MENSAGEM ATUAL DO USUÁRIO:**
 "{text}"
 
-**TAREFAS DE ANÁLISE:**
-1. **primary_intent:** Determine a intenção principal. Se a mensagem responde a uma
-pergunta anterior, a intenção é 'qualification'. Se introduz um tópico novo, a
-intenção é esse novo tópico (ex: 'information', 'scheduling').
-2. **secondary_intent:** Se a mensagem contiver um pedido secundário (ex: responder
-E fazer uma nova pergunta), identifique-o aqui. Caso contrário, retorne null.
-3. **entities:** Extraia as seguintes entidades do texto, se presentes:
+**TAREFAS DE ANÁLISE (siga as regras de prioridade acima):**
+1.  **primary_intent:** Determine a intenção principal.
+2.  **secondary_intent:** Se a mensagem contiver um pedido secundário (ex: responder E fazer uma nova pergunta), identifique-o aqui. Caso contrário, retorne null.
+3.  **entities:** Extraia as seguintes entidades do texto, se presentes:
    - parent_name (string)
    - beneficiary_type (string, valores possíveis: 'self' ou 'child')
    - student_name (string)
    - student_age (integer)
    - program_interests (list[string])
-4. **confidence:** Sua confiança na classificação da intenção primária (de 0.0 a 1.0).
+4.  **confidence:** Sua confiança na classificação da intenção primária (de 0.0 a 1.0).
 
-**OUTPUT (retorne APENAS o objeto JSON, sem nenhum texto adicional):**
-{{
-  "primary_intent": "qualification|information|scheduling|greeting|fallback",
-  "secondary_intent": "information|scheduling|qualification|null",
-  "entities": {{
-    "parent_name": "string ou null",
-    "beneficiary_type": "self|child ou null",
-    "student_name": "string ou null",
-    "student_age": "integer ou null",
-    "program_interests": ["string"] ou null
-  }},
-  "confidence": 0.0
-}}"""
-        else:
-            # Simplified version without context
-            return f"""Você é um motor de NLU para um chatbot do Kumon.
-Analise a mensagem e retorne um objeto JSON.
-
-**MENSAGEM DO USUÁRIO:**
-"{text}"
-
-**TAREFAS DE ANÁLISE:**
-1. **primary_intent:** greeting, qualification, information, scheduling, ou fallback
-2. **entities:** Extraia nomes, idades, tipo de beneficiário se presentes
-3. **confidence:** Confiança na classificação (0.0 a 1.0)
-
-**OUTPUT (retorne APENAS o objeto JSON, sem nenhum texto adicional):**
-{{
-  "primary_intent": "qualification|information|scheduling|greeting|fallback",
-  "secondary_intent": null,
-  "entities": {{
-    "parent_name": "string ou null",
-    "beneficiary_type": "self|child ou null",
-    "student_name": "string ou null",
-    "student_age": "integer ou null",
-    "program_interests": ["string"] ou null
-  }},
-  "confidence": 0.0
-}}"""
-
-    # Legacy _parse_response() method removed - replaced by _parse_structured_response()
+**OUTPUT (retorne APENAS o objeto JSON, sem nenhum texto adicional ou markdown):**
+"""
 
     def _parse_structured_response(self, response: str) -> dict:
         """Parse Gemini JSON response into structured dict with robust error handling."""
-        import json
-        import re
-
         try:
-            # Try to extract JSON from response (in case there's extra text)
-            json_match = re.search(r"\{.*\}", response, re.DOTALL)
-            if json_match:
-                json_str = json_match.group()
-            else:
-                json_str = response
-
-            # Parse JSON
-            parsed = json.loads(json_str)
+            # O modelo agora está configurado para retornar JSON, o parse deve ser direto
+            parsed = json.loads(response)
 
             # Validate and normalize the structure
             result = {
@@ -180,18 +135,15 @@ Analise a mensagem e retorne um objeto JSON.
             else:
                 result["secondary_intent"] = str(result["secondary_intent"]).lower()
 
-            # Ensure entities is a dict
             if not isinstance(result["entities"], dict):
                 result["entities"] = {}
 
-            # Validate confidence range
             result["confidence"] = max(0.0, min(1.0, result["confidence"]))
 
             return result
 
         except (json.JSONDecodeError, ValueError, TypeError) as e:
-            print(f"JSON parsing error: {e}. Response was: {response}")
-            # Return fallback structure
+            logger.error(f"JSON parsing error: {e}. Response was: {response}")
             return {
                 "primary_intent": "fallback",
                 "secondary_intent": None,
@@ -199,22 +151,18 @@ Analise a mensagem e retorne um objeto JSON.
                 "confidence": 0.0,
             }
 
-    def _format_conversation_history(self, context: dict) -> str:
+    def _format_conversation_history(self, context: Optional[dict]) -> str:
         """Format conversation history for prompt."""
-        # Support both old format (direct) and new format (nested)
-        if "history" in context:
-            # New format: {'state': {...}, 'history': [...]}
-            history = context.get("history", [])
-        else:
-            # Old format: {'conversation_history': [...]}
-            history = context.get("conversation_history", [])
-
+        if not context:
+            return "Nenhum histórico anterior (conversa iniciando)"
+        
+        history = context.get("history", [])
         if not history:
             return "Nenhum histórico anterior (conversa iniciando)"
 
         formatted_lines = []
-        for entry in history[-5:]:  # Last 5 exchanges
-            role = entry.get("role", "unknown")
+        for entry in history[-4:]:  # Last 4 messages
+            role = entry.get("role", "unknown").replace("ai", "assistant") # Normaliza role
             content = entry.get("content", "")
 
             if role == "assistant":
@@ -222,37 +170,28 @@ Analise a mensagem e retorne um objeto JSON.
             elif role == "user":
                 formatted_lines.append(f"Usuário: {content}")
 
-        return (
-            "\n".join(formatted_lines)
-            if formatted_lines
-            else "Nenhum histórico disponível"
-        )
+        return "\n".join(formatted_lines) if formatted_lines else "Nenhum histórico disponível"
 
-    def _get_missing_qualification_vars(self, context: dict) -> str:
+    def _get_missing_qualification_vars(self, context: Optional[dict]) -> str:
         """Get missing qualification variables for NLU prompt."""
-        # Support both old format (direct) and new format (nested)
-        if "state" in context:
-            # New format: {'state': {...}, 'history': [...]}
-            state_data = context.get("state", {})
-        else:
-            # Old format: state variables directly in context
-            state_data = context
+        if not context:
+            return "Nenhuma"
 
-        # Standard qualification variables
+        state_data = context.get("state", {})
+        
         qualification_vars = [
             "parent_name",
+            "beneficiary_type",
             "student_name",
             "student_age",
             "program_interests",
         ]
 
-        missing = []
-        for var in qualification_vars:
-            if var not in state_data or not state_data.get(var):
-                missing.append(var)
+        # Usa o `collected_data` dentro do state, que é a fonte da verdade
+        collected_data = state_data.get("collected_data", {})
+        missing = [var for var in qualification_vars if not collected_data.get(var)]
 
         return ", ".join(missing) if missing else "Nenhuma"
-
 
 # Global instance
 classifier = GeminiClassifier()
