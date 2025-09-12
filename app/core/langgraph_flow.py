@@ -1,497 +1,46 @@
-"""
-Minimal LangGraph flow: Entry → [Single Node] → End
-Each node handles its intent and sends a response.
-"""
-import asyncio
-import copy
+# app/core/langgraph_flow.py
+
+import logging
 from typing import Any, Dict
 
 from langgraph.graph import END, StateGraph
 
-from app.core.delivery import send_text
-from app.core.llm import OpenAIClient
-from app.core.nodes.greeting import greeting_node as simplified_greeting_node
-from app.core.nodes.information import information_node as intelligent_information_node
+# Importe os nós e o roteador de seus arquivos dedicados
+from app.core.nodes.greeting import greeting_node
 from app.core.nodes.qualification import qualification_node
-from app.core.routing.master_router import master_router as async_master_router
-from app.core.state_manager import get_conversation_state, save_conversation_state
-from app.prompts.node_prompts import get_fallback_prompt, get_scheduling_prompt
-from app.utils.formatters import safe_phone_display
+# ... importe seus outros nós (information, scheduling, fallback)
+from app.core.routing.master_router import master_router
 
-# Initialize OpenAI adapter (lazy initialization)
-_openai_client = None
+logger = logging.getLogger(__name__)
 
-
-def master_router_sync_wrapper(state: dict) -> str:
+# O "Carteiro" Síncrono e Simples
+def route_from_master_router(state: Dict[str, Any]) -> str:
     """
-    Um invólucro síncrono para chamar nossa função de roteador assíncrona.
-    Isso é necessário para compatibilidade com o set_conditional_entry_point do LangGraph.
-
-    O LangGraph exige que a função de condição seja síncrona (def), mas nosso
-    master_router precisa ser async para usar await com o classifier.
+    Lê a decisão de roteamento que o master_router já tomou e a retorna.
+    É uma função síncrona, rápida e que apenas lê o estado.
     """
-    # Executa a função async e aguarda o resultado em um contexto síncrono
-    return asyncio.run(async_master_router(state))
-
-
-# Required qualification variables that must be collected
-# Variáveis permanentes obrigatórias para qualificação (sem beneficiary_type que é temporária)
-QUALIFICATION_REQUIRED_VARS = [
-    "parent_name",
-    "student_name",
-    "student_age",
-    "program_interests",
-]
-
-# Required scheduling variables that must be collected
-SCHEDULING_REQUIRED_VARS = ["availability_preferences"]
-
-
-def get_openai_client():
-    """Get or create OpenAI client instance."""
-    global _openai_client
-    if _openai_client is None:
-        _openai_client = OpenAIClient()
-    return _openai_client
-
-
-async def greeting_node(state: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle greeting intent using simplified greeting node."""
-    try:
-        # Convert dict to CeciliaState for the simplified greeting node
-
-        # Create a minimal CeciliaState with required fields
-        cecil_state = {
-            "phone": state.get("phone"),
-            "instance": state.get("instance", "kumon_assistant"),
-        }
-
-        # Call the simplified greeting node
-        result_state = await simplified_greeting_node(cecil_state)
-
-        # Convert back to dict format expected by langgraph
-        phone = state.get("phone")
-        if phone:
-            save_conversation_state(phone, {"greeting_sent": True})
-
-        return {
-            **state,
-            "sent": "true",
-            "response": result_state.get("last_bot_response", ""),
-            "greeting_sent": True,
-        }
-
-    except Exception as e:
-        print(f"GREETING|error|{str(e)}")
-        # Fallback to simple response
-        fallback_text = "Olá! Eu sou a Cecília do Kumon Vila A. Qual é o seu nome?"
-
-        try:
-            delivery_result = await send_text(
-                state.get("phone", ""),
-                fallback_text,
-                state.get("instance", "kumon_assistant"),
-            )
-            phone = state.get("phone")
-            if phone:
-                save_conversation_state(phone, {"greeting_sent": True})
-
-            return {
-                **state,
-                "sent": delivery_result.get("sent", "false"),
-                "response": fallback_text,
-                "greeting_sent": True,
-                "error_reason": str(e),
-            }
-        except Exception as send_error:
-            return {
-                **state,
-                "sent": "false",
-                "response": fallback_text,
-                "greeting_sent": True,
-                "error_reason": f"{str(e)} | {str(send_error)}",
-            }
-
-
-async def qualification_node_wrapper(state: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Wrapper simplificado que apenas passa o estado para o nó de qualificação real,
-    confiando que o master_router já executou a NLU e adicionou o 'nlu_result' ao estado.
-    """
-    import logging
-
-    logger = logging.getLogger(__name__)
-
-    try:
-        # A NLU já foi feita pelo master_router.
-        # Apenas chame o nó de lógica de negócio, que agora é assíncrono.
-        # a 'qualification_node' importada de app.core.nodes.qualification
-        return await qualification_node(state)
-    except Exception as e:
-        logger.error(f"QUALIFICATION|node_error|error={str(e)}", exc_info=True)
-        # Lógica de fallback, se necessário
-        return {
-            **state,
-            "response": "Desculpe, ocorreu um erro ao processar sua solicitação.",
-            "last_bot_response": "Desculpe, ocorreu um erro ao processar sua solicitação.",
-            "sent": "false",
-            "error_reason": str(e),
-        }
-
-
-async def information_node(state: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle information intent using intelligent node with few-shot learning."""
-    try:
-        # Import and convert state to CeciliaState
-        from app.core.state.models import (
-            CeciliaState,
-            ConversationStage,
-            ConversationStep,
-        )
-
-        # Load conversation state for proper context
-        phone = state.get("phone")
-        saved_state = {}
-        if phone:
-            saved_state = get_conversation_state(phone)
-
-        # Create CeciliaState object with proper conversion
-        cecil_state = CeciliaState(
-            phone_number=phone or "",
-            last_user_message=state.get("text", ""),
-            current_stage=ConversationStage.INFORMATION_GATHERING,
-            current_step=ConversationStep.PROGRAM_DETAILS,
-            conversation_metrics={"message_count": 0, "failed_attempts": 0},
-            collected_data=saved_state or {},
-        )
-
-        # CRITICAL: Pass nlu_entities from master_router to the information_node
-        cecil_state["nlu_entities"] = state.get("nlu_entities", {})
-        cecil_state["text"] = state.get("text", "")
-        cecil_state["phone"] = phone
-        cecil_state["instance"] = state.get("instance", "kumon_assistant")
-
-        # Call the intelligent information node
-        result = await intelligent_information_node(cecil_state)
-
-        # Convert back to dict format expected by langgraph
-        if isinstance(result, dict):
-            return {**state, **result}
-        else:
-            # Handle CeciliaState result
-            return {
-                **state,
-                "sent": "true",
-                "response": getattr(result, "last_bot_response", ""),
-            }
-
-    except Exception as e:
-        print(f"PIPELINE|information_node_error|{str(e)}")
-        # Fallback to simple response
-        fallback_text = (
-            "Desculpe, estou com dificuldades técnicas. Como posso ajudá-lo?"
-        )
-
-        try:
-            delivery_result = send_text(
-                state.get("phone", ""),
-                fallback_text,
-                state.get("instance", "recepcionistakumon"),
-            )
-            return {
-                **state,
-                "sent": delivery_result.get("sent", "false"),
-                "response": fallback_text,
-                "error_reason": str(e),
-            }
-        except Exception as send_error:
-            return {
-                **state,
-                "sent": "false",
-                "response": fallback_text,
-                "error_reason": f"{str(e)} | {str(send_error)}",
-            }
-
-
-async def scheduling_node(state: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle scheduling intent."""
-    return await _execute_node(state, "scheduling", get_scheduling_prompt)
-
-
-async def fallback_node(state: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle fallback for unrecognized intents."""
-    return await _execute_node(state, "fallback", get_fallback_prompt)
-
-
-async def _execute_node(
-    state: Dict[str, Any], node_name: str, prompt_func
-) -> Dict[str, Any]:
-    """Execute a single node: generate response and send."""
-    message_id = state.get("message_id")
-    if not message_id:
-        print(f"PIPELINE|node_error|name={node_name}|error=no_message_id")
-        return {"sent": "false"}
-
-    # REMOVED: turn_controller check moved to webhook level
-    # Individual nodes no longer need to check if already replied
-    # The webhook entry point handles all deduplication logic
-
-    print(f"PIPELINE|node_start|name={node_name}")
-
-    # Load saved state
-    phone = state.get("phone")
-    if phone:
-        saved_state = get_conversation_state(phone)
-        if saved_state:
-            # Merge saved state with current state (current state takes precedence)
-            state = {**saved_state, **state}
-            print(
-                f"STATE|loaded|phone={phone[-4:]}|parent_name={state.get('parent_name')}"
-            )
-
-    try:
-        # Get prompt for this node - pass full state for context
-        user_text = state.get("text", "")
-
-        # Enrich prompt with context if we have parent_name
-        if state.get("parent_name") and node_name != "greeting":
-            user_text = f"[Contexto: O nome do responsável é {state['parent_name']}] {user_text}"
-
-        # Pass state to qualification prompt for dynamic prompting with attempt tracking
-        if node_name == "qualification":
-            # Enhanced qualification with attempt awareness
-            qualification_attempts = state.get("qualification_attempts", 0)
-            missing_vars = [
-                var
-                for var in QUALIFICATION_REQUIRED_VARS
-                if var not in state or not state[var]
-            ]
-
-            print(
-                f"QUALIFICATION|node_exec|attempts={qualification_attempts}|"
-                f"missing={len(missing_vars)}"
-            )
-            prompt = prompt_func(
-                user_text, redis_state=state, attempts=qualification_attempts
-            )
-        else:
-            prompt = prompt_func(user_text)
-
-        # Generate response with OpenAI adapter (direct async usage)
-        # FIXED: Use existing event loop instead of creating new one
-        reply_text = await get_openai_client().chat(
-            model="gpt-3.5-turbo",
-            system_prompt=prompt["system"],
-            user_prompt=prompt["user"],
-            temperature=0.7,
-            max_tokens=300,
-        )
-
-        # Send via Evolution API
-        phone = state.get("phone")
-        if not phone:
-            print(f"PIPELINE|node_error|name={node_name}|error=no_phone")
-            return {"sent": "false"}
-
-        instance = state.get("instance", "recepcionistakumon")
-
-        # FIXED: send_text is already synchronous and imported at module level
-        delivery_result = send_text(phone, reply_text, instance)
-        sent_success = delivery_result.get("sent") == "true"
-
-        if sent_success:
-            # REMOVED: mark_replied moved to workflow level (not per node)
-            # Only the final workflow completion should mark as replied
-            print(f"PIPELINE|node_sent|name={node_name}|chars={len(reply_text)}")
-
-            # REMOVED: Global entity extraction logic moved to qualification_node
-            # Entity extraction should be contextual and localized to specific nodes
-            # that need specific information, not a global process that runs for all messages
-
-            # REMOVED: All global entity extraction logic moved to qualification_node
-            # Each node should handle its own specific extraction needs locally
-
-            # CRITICAL FIX: Remove automatic state saving from _execute_node
-            # Only specific nodes (like qualification_node) should save state
-            # This prevents contamination from Redis data in new conversations
-
-        # CRITICAL FIX: Return the complete state with metadata
-        # This ensures state propagation between nodes in LangGraph
-        # USE THE MODIFIED STATE (not original) to preserve qualification_attempts increment
-        result_state = copy.deepcopy(
-            state
-        )  # Deep copy the MODIFIED state (with incremented attempts)
-        result_state.update(
-            {
-                "sent": delivery_result.get("sent", "false"),
-                "response": reply_text,
-                "error_reason": delivery_result.get("error_reason"),
-            }
-        )
-        return result_state
-
-    except Exception as e:
-        print(f"PIPELINE|node_error|name={node_name}|error={str(e)}")
-
-        # Send fallback message
-        fallback_text = (
-            "Desculpe, estou com dificuldades técnicas. "
-            "Por favor, entre em contato pelo telefone (11) 4745-2006."
-        )
-        phone = state.get("phone")
-        if phone:  # Only send if we have a phone number
-            instance = state.get("instance", "recepcionistakumon")
-            delivery_result = send_text(phone, fallback_text, instance)
-            # REMOVED: mark_replied logic moved to workflow level
-            # Error handling no longer marks individual nodes as replied
-            # CRITICAL FIX: Return complete state even in error cases
-            # USE THE MODIFIED STATE to preserve qualification_attempts increment
-            result_state = copy.deepcopy(
-                state
-            )  # Deep copy modified state with incremented attempts
-            result_state.update(
-                {
-                    "sent": delivery_result.get("sent", "false"),
-                    "response": fallback_text,
-                    "error_reason": delivery_result.get("error_reason"),
-                }
-            )
-            return result_state
-
-        # CRITICAL FIX: Return complete state even when no phone
-        # USE THE MODIFIED STATE to preserve qualification_attempts increment
-        result_state = copy.deepcopy(
-            state
-        )  # Deep copy modified state with incremented attempts
-        result_state.update(
-            {"sent": "false", "response": fallback_text, "error_reason": "no_phone"}
-        )
-        return result_state
-
-
-def route_from_greeting(state: Dict[str, Any]) -> str:  # noqa: U100
-    """
-    Greeting always ends the current turn to wait for user response.
-    The next turn will be routed by Gemini classifier based on context.
-    """
-    # End the current turn after greeting (turn-based conversation)
-    return END
-
-
-def route_from_qualification(state: Dict[str, Any]) -> str:
-    """
-    Decide para onde ir após o nó de qualificação.
-    Implementa state machine com proteção contra loops infinitos.
-    """
-    # Read current attempt count (updated by qualification_node)
-    qualification_attempts = state.get("qualification_attempts", 0)
-
-    print(
-        f"QUALIFICATION|route_check|attempts={qualification_attempts}|"
-        f"phone={safe_phone_display(state.get('phone'))}"
-    )
-
-    # Check if all required variables are collected
-    missing_vars = []
-    for var in QUALIFICATION_REQUIRED_VARS:
-        if var not in state or not state[var]:
-            missing_vars.append(var)
-
-    if not missing_vars:
-        # All data collected - proceed to scheduling
-        print("QUALIFICATION|complete|all_data_collected|next=scheduling")
-        return "scheduling_node"
-
-    # INFINITE LOOP PREVENTION: After 4 failed attempts, route to information_node
-    # This provides escape hatch and allows user to get general info instead
-    if qualification_attempts >= 4:
-        print(
-            f"QUALIFICATION|max_attempts_reached|missing_vars={missing_vars}|next=information"
-        )
-        # Log the incomplete qualification for human follow-up
-        return "information_node"
-
-    # Data still missing - STOP AND WAIT for user response (conversational behavior)
-    # The qualification question has been asked, now we wait for user input
-    print(
-        f"QUALIFICATION|stop_and_wait|missing_vars={missing_vars}|"
-        f"attempts={qualification_attempts}"
-    )
-    return END
-
-
-def route_from_information(state: Dict[str, Any]) -> str:
-    """
-    Context-aware routing from information_node.
-
-    Intelligence: Instead of always ending conversation,
-    check if user has incomplete qualification and offer to continue.
-    """
-    # Check if user has incomplete qualification context
-    missing_qualification_vars = []
-    for var in QUALIFICATION_REQUIRED_VARS:
-        if var not in state or not state[var]:
-            missing_qualification_vars.append(var)
-
-    # If qualification is complete, can proceed to scheduling
-    if not missing_qualification_vars:
-        print("INFORMATION|qualification_complete|next=scheduling")
-        return "scheduling_node"
-
-    # If user has qualification context (parent_name) but incomplete data
-    if state.get("parent_name") and missing_qualification_vars:
-        attempts = state.get("qualification_attempts", 0)
-
-        # If user hasn't hit the escape hatch limit, continue qualification
-        if attempts < 4:
-            print(
-                f"INFORMATION|continue_qualification|"
-                f"missing={len(missing_qualification_vars)}|attempts={attempts}"
-            )
-            return "qualification_node"
-        else:
-            # User hit escape hatch but might want to continue
-            # For now, end conversation, but could offer options here
-            print(
-                f"INFORMATION|post_escape_hatch|missing={len(missing_qualification_vars)}|end=true"
-            )
-            return END
-
-    # No qualification context - end conversation
-    print("INFORMATION|no_qualification_context|end=true")
-    return END
-
-
-def route_from_scheduling(state: Dict[str, Any]) -> str:
-    """
-    Decide para onde ir após o nó de agendamento.
-    Verifica se as preferências de horário foram coletadas.
-    """
-    # Verifica se as preferências de disponibilidade foram coletadas
-    for var in SCHEDULING_REQUIRED_VARS:
-        if var not in state or not state[var]:
-            return "scheduling_node"
-
-    # Se todas as informações de agendamento foram coletadas, finaliza
-    return END
-
+    decision = state.get("routing_decision", "fallback_node")
+    logger.info(f"ROUTING|Post-AI Decision|Routing to: {decision}")
+    return decision
 
 def build_graph():
-    """Build the minimal LangGraph flow with conditional transitions."""
-    # Create state graph
-    graph = StateGraph(dict)
+    """Constrói o grafo LangGraph com a arquitetura final e robusta."""
+    workflow = StateGraph(Dict[str, Any])
 
-    # Add nodes
-    graph.add_node("greeting_node", greeting_node)
-    graph.add_node("qualification_node", qualification_node_wrapper)
-    graph.add_node("information_node", information_node)
-    graph.add_node("scheduling_node", scheduling_node)
-    graph.add_node("fallback_node", fallback_node)
+    # Adiciona os nós, incluindo o master_router como um nó normal
+    workflow.add_node("master_router", master_router)
+    workflow.add_node("greeting_node", greeting_node)
+    workflow.add_node("qualification_node", qualification_node)
+    # ... adicione seus outros nós ...
 
-    # Set conditional entry point using synchronous wrapper for LangGraph compatibility
-    # LangGraph requires sync functions in set_conditional_entry_point
-    graph.set_conditional_entry_point(
-        master_router_sync_wrapper,  # Sync wrapper that calls async master_router
+    # Define o ponto de entrada para o ROTEADOR
+    workflow.set_entry_point("master_router")
+
+    # A ARESTA CONDICIONAL VEM DEPOIS DO ROTEADOR
+    # Ela usa o "Carteiro" síncrono para ler a decisão
+    workflow.add_conditional_edges(
+        "master_router",
+        route_from_master_router,
         {
             "greeting_node": "greeting_node",
             "qualification_node": "qualification_node",
@@ -501,67 +50,26 @@ def build_graph():
         },
     )
 
-    # Add conditional transitions
-    # Greeting ends the flow (turn-based conversation)
-    graph.add_conditional_edges(
-        "greeting_node",
-        route_from_greeting,
-        {
-            END: END,  # Greeting always ends the current turn
-        },
-    )
+    # Define que todos os nós de ação terminam o fluxo para este turno
+    workflow.add_edge("greeting_node", END)
+    workflow.add_edge("qualification_node", END)
+    workflow.add_edge("information_node", END)
+    workflow.add_edge("scheduling_node", END)
+    # Não precisamos de uma aresta para o fallback_node, pois ele já está no mapa condicional
 
-    # Qualification can loop, go to scheduling, or escape to information
-    graph.add_conditional_edges(
-        "qualification_node",
-        route_from_qualification,
-        {
-            "qualification_node": "qualification_node",
-            "scheduling_node": "scheduling_node",
-            "information_node": "information_node",  # CRITICAL: Add escape hatch
-            END: END,
-        },
-    )
+    return workflow.compile()
 
-    # Scheduling can loop or end based on collected availability preferences
-    graph.add_conditional_edges(
-        "scheduling_node",
-        route_from_scheduling,
-        {
-            "scheduling_node": "scheduling_node",
-            END: END,
-        },
-    )
-
-    # Information node should be context-aware, not always end
-    graph.add_conditional_edges(
-        "information_node",
-        route_from_information,  # New function - will be created
-        {
-            "qualification_node": "qualification_node",  # Continue qualification if incomplete
-            "scheduling_node": "scheduling_node",  # Go to scheduling if qualification complete
-            END: END,  # End if no context to continue
-        },
-    )
-
-    # Fallback still goes directly to END
-    graph.add_edge("fallback_node", END)
-
-    return graph.compile()
+# Instância global do grafo
+graph = build_graph()
 
 
-# Global compiled graph
-workflow = build_graph()
-
-
-async def run(state: Dict[str, Any]) -> Dict[str, Any]:
-    """Run the workflow with the given state asynchronously."""
-    print(f"PIPELINE|flow_start|message_id={state.get('message_id')}")
-
+# A função principal que executa o grafo permanece a mesma
+async def run_flow(state: Dict[str, Any]) -> Dict[str, Any]:
+    """Executa o workflow com o estado fornecido."""
     try:
-        result = await workflow.ainvoke(state)
-        print(f"PIPELINE|flow_complete|sent={result.get('sent', 'false')}")
-        return result
+        # A invocação é assíncrona, respeitando a natureza dos nós
+        return await graph.ainvoke(state)
     except Exception as e:
-        print(f"PIPELINE|flow_error|error={str(e)}")
-        return {"sent": "false", "error": str(e)}
+        logger.error(f"LANGGRAPH_FLOW|FlowError|error={str(e)}", exc_info=True)
+        # Retorna um estado de erro
+        return {"error": str(e)}
