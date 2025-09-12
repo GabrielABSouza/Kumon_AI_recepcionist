@@ -155,6 +155,8 @@ async def information_node(state: Dict[str, Any]) -> Dict[str, Any]:
         state["sent"] = "false"
 
     state["last_bot_response"] = response_text
+    # CRITICAL FIX: Set response field for evolution.py compatibility
+    state["response"] = response_text
 
     logger.info(f"Information response sent for {state.get('phone_number')}")
 

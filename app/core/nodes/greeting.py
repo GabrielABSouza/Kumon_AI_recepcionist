@@ -29,6 +29,8 @@ async def greeting_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
     # 4. Atualizar o estado com as ações executadas
     state["last_bot_response"] = response_text
+    # CRITICAL FIX: Set response field for evolution.py compatibility
+    state["response"] = response_text
     state["greeting_sent"] = True  # Flag crucial para o roteador no próximo turno
     
     # CRITICAL FIX: Set sent flag from delivery result

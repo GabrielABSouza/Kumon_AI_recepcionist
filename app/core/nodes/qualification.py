@@ -88,6 +88,8 @@ async def qualification_node(state: Dict[str, Any]) -> Dict[str, Any]:
         )
 
         state["last_bot_response"] = response_text
+        # CRITICAL FIX: Set response field for evolution.py compatibility
+        state["response"] = response_text
 
         # Send message via Evolution API
         phone = _get_phone_from_state(state)
@@ -134,6 +136,8 @@ async def qualification_node(state: Dict[str, Any]) -> Dict[str, Any]:
         )
 
         state["last_bot_response"] = response_text
+        # CRITICAL FIX: Set response field for evolution.py compatibility
+        state["response"] = response_text
 
         # Send message via Evolution API
         phone = _get_phone_from_state(state)
