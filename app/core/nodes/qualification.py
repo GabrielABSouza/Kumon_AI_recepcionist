@@ -72,9 +72,11 @@ async def qualification_node(state: Dict[str, Any]) -> Dict[str, Any]:
     logger.info(f"QUALIFICATION_DEBUG|Current collected data: {collected}")
 
     # 4. GERE A RESPOSTA
+    print(f"DEBUG|qualification_node|next_var_to_collect={next_var_to_collect}")
     if next_var_to_collect:
         # Generate question for next variable
         response_text = _generate_question_for_variable(state, next_var_to_collect)
+        print(f"DEBUG|qualification_node|response_text='{response_text}'")
 
         # 🎥 LOG DE DEPURAÇÃO: Resposta gerada (simulando prompt LLM)
         logger.info(
@@ -102,6 +104,7 @@ async def qualification_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
     else:
         # A qualificação está completa
+        print("DEBUG|qualification_node|qualification_complete_path")
         logger.info("All qualification variables collected - generating summary")
 
         collected = state["collected_data"]
