@@ -57,3 +57,96 @@ docker-run:
 .PHONY: pre-deploy-check
 pre-deploy-check: clean test-deploy
 	@echo "✅ Pre-deploy checks passed!"
+
+# ============================================================================
+# DEVELOPMENT ENVIRONMENT TARGETS
+# ============================================================================
+
+SHELL := /bin/bash
+PROJECT_ROOT := /Users/gabrielbastos/recepcionista_kumon
+COMPOSE_FILE := $(PROJECT_ROOT)/docker-compose.dev.yml
+ENV_FILE := $(PROJECT_ROOT)/.env-dev
+COMPOSE := docker compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE)
+
+.PHONY: dev-up dev-down dev-logs dev-ps dev-health dev-wait dev-db-migrate dev-db-seed dev-db-reset dev-recreate
+
+# ============================================================================
+# CORE DEV TARGETS
+# ============================================================================
+
+dev-up: ## Start development environment with build
+	@echo "🚀 Starting development environment..."
+	$(COMPOSE) --profile dev up -d --build
+
+dev-down: ## Stop development environment and remove volumes
+	@echo "🛑 Stopping development environment..."
+	$(COMPOSE) --profile dev down -v
+
+dev-logs: ## Follow logs for all services
+	@echo "📋 Following development logs..."
+	$(COMPOSE) logs -f --tail=200
+
+dev-ps: ## Show development services status
+	@echo "📊 Development services status:"
+	$(COMPOSE) ps
+
+# ============================================================================
+# HEALTH & MONITORING
+# ============================================================================
+
+dev-health: ## Check health of all services
+	@echo "🔍 Checking service health..."
+	@set -e; \
+	APP_PORT=$${APP_PORT:-3001}; \
+	echo "Checking APP on http://localhost:$$APP_PORT/health"; \
+	curl -fsS "http://localhost:$$APP_PORT/health" && echo "✅ APP OK" || (echo "❌ APP health failed" && exit 1); \
+	echo "Checking PostgreSQL"; \
+	$(COMPOSE) exec -T db-dev pg_isready -U $${DB_USER:-kumon_dev_user} -d $${DB_NAME:-kumon_dev} && echo "✅ DB OK" || (echo "❌ DB not ready" && exit 1); \
+	echo "Checking Redis"; \
+	$(COMPOSE) exec -T redis-dev redis-cli PING | grep -q PONG && echo "✅ Redis OK" || (echo "❌ Redis failed" && exit 1); \
+	echo "🎉 All services healthy!"
+
+dev-wait: ## Wait for all services to be healthy (120s timeout)
+	@echo "⏳ Waiting for services to be healthy..."
+	@set -e; \
+	end=$$(($(shell date +%s)+120)); \
+	until $(MAKE) dev-health >/dev/null 2>&1; do \
+		if [ $(shell date +%s) -gt $$end ]; then \
+			echo "❌ Timeout waiting for services"; \
+			exit 1; \
+		fi; \
+		echo "⏳ Waiting for services... ($$(( $$end - $(shell date +%s) ))s remaining)"; \
+		sleep 4; \
+	done; \
+	echo "✅ All services are healthy!"
+
+# ============================================================================
+# DATABASE OPERATIONS
+# ============================================================================
+
+dev-db-migrate: ## Run database migrations (tries npm then yarn)
+	@echo "📊 Running database migrations..."
+	$(COMPOSE) exec -T app-dev sh -lc 'npm run migrate:dev || yarn migrate:dev || echo "ℹ️  No migrate script found"'
+
+dev-db-seed: ## Run database seeding (tries npm then yarn)
+	@echo "🌱 Seeding database..."
+	$(COMPOSE) exec -T app-dev sh -lc 'npm run seed:dev || yarn seed:dev || echo "ℹ️  No seed script found"'
+
+dev-db-reset: ## Reset database (recreate + migrate + seed)
+	@echo "🔄 Resetting database..."
+	$(COMPOSE) --profile dev down -v
+	$(COMPOSE) --profile dev up -d --build
+	$(MAKE) dev-wait
+	$(MAKE) dev-db-migrate
+	$(MAKE) dev-db-seed
+	@echo "✅ Database reset complete"
+
+# ============================================================================
+# UTILITY TARGETS
+# ============================================================================
+
+dev-recreate: ## Recreate development environment (preserving build cache)
+	@echo "🔄 Recreating development environment..."
+	$(COMPOSE) --profile dev down -v
+	$(MAKE) dev-up
+	$(MAKE) dev-wait

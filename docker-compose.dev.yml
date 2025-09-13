@@ -1,34 +1,56 @@
 version: '3.8'
 
+networks:
+  project_dev_net:
+    driver: bridge
+
 services:
   postgres:
     image: postgres:17
-    container_name: kumon-postgres-dev
+    container_name: db-dev
+    profiles: ["dev"]
+    networks: ["project_dev_net"]
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: kumon_dev
+      POSTGRES_USER: ${DB_USER:-kumon_dev_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-dev_password_change_me}
+      POSTGRES_DB: ${DB_NAME:-kumon_dev}
     ports:
-      - "5432:5432"
+      - "${DB_PORT:-5433}:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - pg_data_dev:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d kumon_dev"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-kumon_dev_user} -d ${DB_NAME:-kumon_dev}"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 30s
 
+  redis:
+    image: redis:7-alpine
+    container_name: redis-dev
+    profiles: ["dev"]
+    networks: ["project_dev_net"]
+    ports:
+      - "${REDIS_PORT:-6380}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
   app:
     build: .
-    container_name: kumon-app-dev
-    environment:
-      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/kumon_dev
-      - ENVIRONMENT=development
+    container_name: app-dev
+    profiles: ["dev"]
+    networks: ["project_dev_net"]
+    env_file:
+      - .env-dev
     ports:
-      - "8000:8000"
+      - "${APP_PORT:-3001}:8000"
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     volumes:
       - .:/app
@@ -36,4 +58,4 @@ services:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 volumes:
-  postgres_data:
+  pg_data_dev:

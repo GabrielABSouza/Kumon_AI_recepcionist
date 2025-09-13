@@ -1,0 +1,81 @@
+name: Dev Smoke Test
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'docker-compose.dev.yml'
+      - '.env-dev'
+      - 'Makefile'
+      - 'app/**'
+      - 'requirements.txt'
+      - 'Dockerfile'
+
+jobs:
+  dev-smoke:
+    name: Development Environment Smoke Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create minimal .env-dev for CI
+        run: |
+          cat > .env-dev << EOF
+          APP_PORT=3001
+          DB_HOST=db
+          DB_PORT=5433
+          DB_NAME=kumon_dev
+          DB_USER=kumon_dev_user
+          DB_PASSWORD=ci_test_password
+          REDIS_HOST=redis
+          REDIS_PORT=6380
+          NODE_ENV=development
+          LOG_LEVEL=info
+          JWT_SECRET=ci_test_secret_change_me
+          GEMINI_API_KEY=ci_test_key
+          EVOLUTION_API_BASE=http://localhost:8080
+          EVOLUTION_INSTANCE=kumon_ci
+          EOF
+
+      - name: Start development environment
+        run: |
+          make dev-up
+
+      - name: Wait for services to be healthy
+        run: |
+          make dev-wait
+
+      - name: Run health checks
+        run: |
+          make dev-health
+
+      - name: Test database connectivity
+        run: |
+          docker compose -f docker-compose.dev.yml exec -T db-dev pg_isready -U kumon_dev_user -d kumon_dev
+
+      - name: Test Redis connectivity
+        run: |
+          docker compose -f docker-compose.dev.yml exec -T redis-dev redis-cli ping
+
+      - name: Show service status
+        run: |
+          make dev-ps
+
+      - name: Show logs on failure
+        if: failure()
+        run: |
+          echo "=== APP LOGS ==="
+          docker compose -f docker-compose.dev.yml logs app-dev
+          echo "=== DB LOGS ==="
+          docker compose -f docker-compose.dev.yml logs db-dev
+          echo "=== REDIS LOGS ==="
+          docker compose -f docker-compose.dev.yml logs redis-dev
+
+      - name: Cleanup
+        if: always()
+        run: |
+          make dev-down || true
+          docker system prune -f
