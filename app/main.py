@@ -49,7 +49,9 @@ from fastapi.responses import JSONResponse
 # from app.api.v1 import auth
 # Temporarily disable workflows until cryptography is installed
 # from app.api.v1 import workflows, llm_service, config
-from app.api import embeddings, evolution
+# Temporarily disable embeddings due to qdrant-client dependency
+# from app.api import embeddings, evolution
+from app.api import evolution
 from app.api.v1 import conversation, health, units
 from app.core.config import settings
 from app.core.logger import app_logger
@@ -223,7 +225,8 @@ app.include_router(conversation.router, prefix="/api/v1", tags=["conversation"])
 # app.include_router(config.router, prefix="/api/v1", tags=["configuration"])
 
 # Embeddings and semantic search endpoints
-app.include_router(embeddings.router, tags=["embeddings"])
+# Temporarily disabled due to qdrant-client dependency
+# app.include_router(embeddings.router, tags=["embeddings"])
 
 # Evolution API WhatsApp integration endpoints
 app.include_router(evolution.router, tags=["evolution"])
@@ -241,9 +244,11 @@ app.include_router(evolution.router, tags=["evolution"])
 # app.include_router(auth.router, prefix="/api/v1/auth", tags=["authentication"])
 
 # Security management endpoints (Phase 3)
-from app.api.v1 import security
+# Temporarily disable security due to jwt dependency
+# from app.api.v1 import security
 
-app.include_router(security.router, prefix="/api/v1/security", tags=["security"])
+# Temporarily disabled due to jwt dependency
+# app.include_router(security.router, prefix="/api/v1/security", tags=["security"])
 
 # Calendar monitoring endpoints (Architecture Hardening)
 from app.api.v1 import calendar_monitoring
@@ -302,8 +307,8 @@ async def root():
             "legacy_webhook": "/api/v1/whatsapp/webhook",
             "unit_webhooks": "/api/v1/units/{user_id}/webhook",
             "unit_management": "/api/v1/units",
-            "embeddings": "/api/v1/embeddings",
-            "semantic_search": "/api/v1/embeddings/search",
+            # "embeddings": "/api/v1/embeddings",  # Disabled - qdrant dependency
+            # "semantic_search": "/api/v1/embeddings/search",  # Disabled - qdrant dependency
             "evolution_instances": "/api/v1/evolution/instances",
             "evolution_webhook": "/api/v1/evolution/webhook",
             "evolution_health": "/api/v1/evolution/health",
@@ -325,11 +330,11 @@ async def root():
             "auth_roles": "/api/v1/auth/roles",
             "auth_permissions": "/api/v1/auth/permissions",
             "auth_metrics": "/api/v1/auth/metrics",
-            "security_metrics": "/api/v1/security/metrics",
-            "security_dashboard": "/api/v1/security/dashboard",
-            "threat_detection": "/api/v1/security/threats",
-            "encryption_status": "/api/v1/security/encryption",
-            "audit_logs": "/api/v1/security/audit",
+            # "security_metrics": "/api/v1/security/metrics",  # Disabled - jwt dependency
+            # "security_dashboard": "/api/v1/security/dashboard",  # Disabled - jwt dependency  
+            # "threat_detection": "/api/v1/security/threats",  # Disabled - jwt dependency
+            # "encryption_status": "/api/v1/security/encryption",  # Disabled - jwt dependency
+            # "audit_logs": "/api/v1/security/audit",  # Disabled - jwt dependency
             "workflow_orchestrator": "/api/v1/workflows/orchestrator/status",
             "workflow_execution": "/api/v1/workflows/orchestrator/execute/{workflow_id}",
             "development_status": "/api/v1/workflows/development/status",
@@ -486,16 +491,18 @@ async def startup_event():
     )
     # UPDATED: Using CeciliaWorkflow instead of secure_workflow - use safely initialized instance
     dependencies.cecilia_workflow = workflow
-    dependencies.langchain_rag_service = (
-        optimized_startup_manager.service_instances.get("langchain_rag_service")
-    )
+    # Temporarily disabled due to qdrant dependency
+    # dependencies.langchain_rag_service = (
+    #     optimized_startup_manager.service_instances.get("langchain_rag_service")
+    # )
+    dependencies.langchain_rag_service = None
 
     # Validate critical service availability
     critical_services = {
         "llm_service": dependencies.llm_service,
         "intent_classifier": dependencies.intent_classifier,
         "cecilia_workflow": dependencies.cecilia_workflow,
-        "langchain_rag_service": dependencies.langchain_rag_service,
+        # "langchain_rag_service": dependencies.langchain_rag_service,  # Disabled - qdrant dependency
     }
 
     for service_name, service_instance in critical_services.items():
@@ -528,9 +535,11 @@ async def startup_event():
         )
         # UPDATED: Using CeciliaWorkflow instead of secure_workflow from service factory
         dependencies.cecilia_workflow = workflow
-        dependencies.langchain_rag_service = await service_factory.get_service(
-            "langchain_rag_service"
-        )
+        # Temporarily disabled due to qdrant dependency
+        # dependencies.langchain_rag_service = await service_factory.get_service(
+        #     "langchain_rag_service"
+        # )
+        dependencies.langchain_rag_service = None
 
     app_logger.info(
         "✅ Core services (LLM, Intent Classifier, CeciliaWorkflow, RAG) initialized via optimized startup"

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Request
 
 from app.core import langgraph_flow
 from app.core.dedup import turn_controller
+from app.core.state_manager import save_conversation_state
 from app.utils.webhook_normalizer import normalize_webhook_payload
 
 router = APIRouter()
@@ -141,6 +142,13 @@ async def webhook(request: Request) -> Dict[str, Any]:
 
         # Run the ONE_TURN flow asynchronously
         result = await langgraph_flow.run(state)
+
+        # ---> A CORREÇÃO CRÍTICA E FINAL ESTÁ AQUI <---
+        # Garante que o estado final, com todos os dados coletados, seja salvo.
+        phone = state.get("phone")  # Pega o telefone do estado inicial do turno
+        if phone and result:
+            save_conversation_state(phone, result)
+            print(f"PIPELINE|turn_saved|message_id={state.get('message_id')}")
 
         # DEBUG: Log result after LangGraph execution
         print(f"DEBUG|after_langgraph|result_keys={list(result.keys())}")

@@ -57,5 +57,46 @@ services:
       - /app/__pycache__
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
+  # Evolution API Mock (ativado apenas com USE_EVOLUTION_MOCK=true)
+  evo-mock:
+    image: node:20-alpine
+    container_name: evo-mock-dev
+    profiles: ["dev-mock"]
+    networks: ["project_dev_net"]
+    ports:
+      - "8081:8081"
+    environment:
+      - NODE_ENV=development
+    command: >
+      sh -lc "
+      echo 'Installing Express...' &&
+      npm init -y &&
+      npm install express &&
+      echo 'Starting Evolution API Mock on port 8081...' &&
+      node -e \"
+        const express = require('express');
+        const app = express();
+        app.use(express.json());
+        app.all('/*', (req, res) => {
+          console.log('MOCK_EVO:', req.method, req.url, JSON.stringify(req.body).slice(0, 200));
+          res.json({
+            status: 'ok',
+            messageId: 'mock_' + Date.now(),
+            timestamp: new Date().toISOString(),
+            mock: true
+          });
+        });
+        app.listen(8081, '0.0.0.0', () => {
+          console.log('🚀 Evolution API Mock listening on http://0.0.0.0:8081');
+          console.log('📝 All requests will be logged and return 200 OK');
+        });
+      \"
+      "
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8081/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
 volumes:
   pg_data_dev:

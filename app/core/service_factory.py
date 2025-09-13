@@ -290,7 +290,8 @@ def register_core_services():
     logger.info("📋 Registering core services...")
 
     # Import here to avoid circular imports
-    from ..services.langchain_rag import LangChainRAGService
+    # Temporarily disable LangChainRAGService due to qdrant dependency  
+    # from ..services.langchain_rag import LangChainRAGService
     from ..services.production_llm_service import ProductionLLMService
     from ..workflows.intent_classifier import AdvancedIntentClassifier
     # REMOVED: SecureConversationWorkflow replaced by CeciliaWorkflow
@@ -321,12 +322,13 @@ def register_core_services():
     #     async_init=False,
     # )
 
-    # Register LangChain RAG service (depends on LLM service)
-    service_factory.register_service(
-        name="langchain_rag_service",
-        service_class=LangChainRAGService,
-        dependencies=["llm_service"],
-        async_init=True,
-    )
+    # Register LangChain RAG service (depends on LLM service)  
+    # Temporarily disabled due to qdrant dependency
+    # service_factory.register_service(
+    #     name="langchain_rag_service",
+    #     service_class=LangChainRAGService,
+    #     dependencies=["llm_service"],
+    #     async_init=True,
+    # )
 
     logger.info("✅ Core services registered successfully")

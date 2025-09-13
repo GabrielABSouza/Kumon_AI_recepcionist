@@ -98,12 +98,12 @@ dev-health: ## Check health of all services
 	@echo "🔍 Checking service health..."
 	@set -e; \
 	APP_PORT=$${APP_PORT:-3001}; \
-	echo "Checking APP on http://localhost:$$APP_PORT/health"; \
-	curl -fsS "http://localhost:$$APP_PORT/health" && echo "✅ APP OK" || (echo "❌ APP health failed" && exit 1); \
+	echo "Checking APP on http://localhost:$$APP_PORT/api/v1/health"; \
+	curl -fsS "http://localhost:$$APP_PORT/api/v1/health" && echo "✅ APP OK" || (echo "❌ APP health failed" && exit 1); \
 	echo "Checking PostgreSQL"; \
-	$(COMPOSE) exec -T db-dev pg_isready -U $${DB_USER:-kumon_dev_user} -d $${DB_NAME:-kumon_dev} && echo "✅ DB OK" || (echo "❌ DB not ready" && exit 1); \
+	docker exec db-dev pg_isready -U $${DB_USER:-kumon_dev_user} -d $${DB_NAME:-kumon_dev} && echo "✅ DB OK" || (echo "❌ DB not ready" && exit 1); \
 	echo "Checking Redis"; \
-	$(COMPOSE) exec -T redis-dev redis-cli PING | grep -q PONG && echo "✅ Redis OK" || (echo "❌ Redis failed" && exit 1); \
+	docker exec redis-dev redis-cli PING | grep -q PONG && echo "✅ Redis OK" || (echo "❌ Redis failed" && exit 1); \
 	echo "🎉 All services healthy!"
 
 dev-wait: ## Wait for all services to be healthy (120s timeout)
@@ -150,3 +150,50 @@ dev-recreate: ## Recreate development environment (preserving build cache)
 	$(COMPOSE) --profile dev down -v
 	$(MAKE) dev-up
 	$(MAKE) dev-wait
+
+# ============================================================================
+# EVOLUTION API DIAGNOSTICS
+# ============================================================================
+
+dev-evo-check: ## Check Evolution API connectivity and configuration
+	@echo "🔍 Checking Evolution API connectivity..."
+	@set -e; \
+	URL=$$(grep -E '^EVOLUTION_API_URL=' $(ENV_FILE) | tail -1 | cut -d= -f2-); \
+	if [ -z "$$URL" ]; then \
+		echo "❌ EVOLUTION_API_URL not defined in $(ENV_FILE)"; \
+		exit 1; \
+	fi; \
+	echo "📡 Testing Evolution API at: $$URL"; \
+	$(COMPOSE) exec -T app python scripts/test_evolution_connectivity.py
+
+dev-evo-send-test: ## Send test message via Evolution API
+	@echo "📨 Sending test message via Evolution API..."
+	$(COMPOSE) exec -T app python scripts/test_evolution_send.py
+
+dev-mock-up: ## Start Evolution API mock server
+	@echo "🎭 Starting Evolution API Mock server..."
+	$(COMPOSE) --profile dev-mock up -d evo-mock
+	@echo "⏳ Waiting for mock to be ready..."
+	@sleep 5
+	@echo "✅ Evolution API Mock is running on http://localhost:8081"
+	@echo "💡 To use mock: export EVOLUTION_API_URL=http://evo-mock:8081"
+
+dev-mock-down: ## Stop Evolution API mock server
+	@echo "🛑 Stopping Evolution API Mock server..."
+	$(COMPOSE) --profile dev-mock down
+
+dev-mock-logs: ## Show Evolution API mock logs
+	@echo "📋 Evolution API Mock logs:"
+	$(COMPOSE) logs -f evo-mock
+
+dev-evo-config: ## Show current Evolution API configuration
+	@echo "⚙️ Current Evolution API Configuration:"
+	@echo "----------------------------------------"
+	@$(COMPOSE) exec -T app env | grep -E "EVOLUTION_|USE_.*MOCK" | sort
+
+dev-full-test: ## Complete integration test (health + evo check + send test)
+	@echo "🧪 Running complete integration test..."
+	$(MAKE) dev-health
+	$(MAKE) dev-evo-check  
+	$(MAKE) dev-evo-send-test
+	@echo "✅ All integration tests passed!"
