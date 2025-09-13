@@ -88,8 +88,20 @@ async def master_router(state: Dict[str, Any]) -> Dict[str, Any]:
         if phone:
             persisted_state = get_conversation_state(phone)
             history = get_conversation_history(phone, limit=4)
+
+            # LÓGICA DE MESCLAGEM PROFUNDA CORRIGIDA
             if persisted_state:
+                # Pega o 'collected_data' antigo como base
+                old_collected_data = persisted_state.get("collected_data", {})
+                # Pega o 'collected_data' novo (geralmente vazio no início do turno)
+                new_collected_data = state.get("collected_data", {})
+                # Atualiza o antigo com qualquer novidade do novo
+                old_collected_data.update(new_collected_data)
+
+                # Unifica os estados, mas garante que o 'collected_data' mesclado seja usado
                 state = {**persisted_state, **state}
+                state["collected_data"] = old_collected_data
+
             context = {"state": state, "history": history}
 
         if "collected_data" not in state:
