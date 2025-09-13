@@ -3,6 +3,7 @@ Conversation state management module.
 Handles Redis-backed state persistence with fallback for testing.
 """
 import json
+import logging
 import os
 from typing import Any, Dict
 
@@ -29,15 +30,23 @@ def get_conversation_state(phone: str) -> Dict[str, Any]:
     session_key = f"conversation:{phone.lstrip('+')}"
 
     try:
+        retrieved_state = {}
         if REDIS_AVAILABLE:
             state_json = redis_client.get(session_key)
             if state_json:
-                return json.loads(state_json)
+                retrieved_state = json.loads(state_json)
         else:
             # Fallback to memory store
             state_json = _memory_store.get(session_key)
             if state_json:
-                return json.loads(state_json)
+                retrieved_state = json.loads(state_json)
+
+        # ---> CÂMERA DE SEGURANÇA: LOG CRÍTICO DE LEITURA <---
+        logging.critical(
+            f"STATE_AUDIT|LOADING|phone={phone}|loaded_state={retrieved_state}"
+        )
+        return retrieved_state
+
     except Exception as e:
         print(f"STATE|error_loading|key={session_key}|error={str(e)}")
 
@@ -56,6 +65,9 @@ def save_conversation_state(phone: str, state: Dict[str, Any]) -> bool:
 
     try:
         state_json = json.dumps(state)
+
+        # ---> CÂMERA DE SEGURANÇA: LOG CRÍTICO DE ESCRITA <---
+        logging.critical(f"STATE_AUDIT|SAVING|phone={phone}|state_to_save={state}")
 
         if REDIS_AVAILABLE:
             # Set with 30 minute TTL
