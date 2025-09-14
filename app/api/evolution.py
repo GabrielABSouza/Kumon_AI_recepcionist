@@ -142,12 +142,12 @@ async def webhook(request: Request) -> Dict[str, Any]:
         # ARQUITETURA DEFINITIVA: LangGraph Checkpoints
         phone = state.get("phone")
         config = {"configurable": {"thread_id": phone}}
-        
+
         print(f"PIPELINE|checkpoint_config|thread_id={phone}")
-        
+
         # A chamada agora inclui a configuração para persistência automática
         result = await langgraph_flow.run_flow(state, config=config)
-        
+
         # NÃO PRECISAMOS MAIS CHAMAR save_conversation_state!
         # O LangGraph Checkpoints faz isso automaticamente
         print(f"PIPELINE|checkpoint_persisted|thread_id={phone}")

@@ -5,20 +5,23 @@ import os
 from typing import Any, Dict
 
 from langgraph.graph import END, StateGraph
+
 try:
     from langgraph.checkpoint.postgres import PostgresSaver
+
     CHECKPOINTS_AVAILABLE = True
 except ImportError:
     CHECKPOINTS_AVAILABLE = False
     print("WARNING: LangGraph checkpoints not available - using fallback")
 
+from app.core.gemini_classifier import GeminiClassifier
+
 # Importe os nós e o roteador de seus arquivos dedicados
 from app.core.nodes.greeting import greeting_node
 from app.core.nodes.information import information_node
-from app.core.nodes.master_router import master_router, QUALIFICATION_REQUIRED_VARS
+from app.core.nodes.master_router import master_router
 from app.core.nodes.qualification import qualification_node
 from app.core.nodes.scheduling import scheduling_node
-from app.core.gemini_classifier import GeminiClassifier
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +89,7 @@ def build_graph():
     # Pega a URL do banco de dados das variáveis de ambiente
     db_url = os.getenv("DATABASE_URL")
     checkpointer = None
-    
+
     if db_url and CHECKPOINTS_AVAILABLE:
         try:
             # Garante que a conexão só será feita se a URL existir
@@ -99,7 +102,7 @@ def build_graph():
     else:
         print(f"INFO|checkpoints_unavailable|using_manual_persistence")
         checkpointer = None
-    
+
     workflow = StateGraph(Dict[str, Any])
 
     # Adiciona os nós, incluindo o master_router_wrapper que injeta o classifier
@@ -145,7 +148,9 @@ print(f"DEBUG|graph_built|is_none={graph is None}")
 
 
 # A função principal que executa o grafo com checkpoints
-async def run_flow(state: Dict[str, Any], config: Dict[str, Any] = None) -> Dict[str, Any]:
+async def run_flow(
+    state: Dict[str, Any], config: Dict[str, Any] = None
+) -> Dict[str, Any]:
     """Executa o workflow com o estado fornecido e configuração opcional."""
     print(f"DEBUG|run_flow_called|message_id={state.get('message_id')}")
     print(f"PIPELINE|flow_start|message_id={state.get('message_id')}")
@@ -155,11 +160,13 @@ async def run_flow(state: Dict[str, Any], config: Dict[str, Any] = None) -> Dict
         # A chamada agora aceita config para checkpoints
         if config:
             result = await graph.ainvoke(state, config=config)
-            print(f"DEBUG|using_config|thread_id={config.get('configurable', {}).get('thread_id')}")
+            print(
+                f"DEBUG|using_config|thread_id={config.get('configurable', {}).get('thread_id')}"
+            )
         else:
             result = await graph.ainvoke(state)
             print("DEBUG|no_config_provided")
-            
+
         print(
             f"DEBUG|after_ainvoke|result_keys={list(result.keys()) if isinstance(result, dict) else 'NOT_DICT'}"
         )

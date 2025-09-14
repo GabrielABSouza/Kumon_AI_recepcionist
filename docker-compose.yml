@@ -12,11 +12,11 @@ services:
       # Authentication
       - AUTHENTICATION_TYPE=apikey
       - AUTHENTICATION_API_KEY=${EVOLUTION_API_KEY:-development-key-change-in-production}
-      
+
       # Server Configuration
       - SERVER_PORT=8080
       - SERVER_URL=http://localhost:8080
-      
+
       # Instance Management - Fix for message recovery loop
       - DEL_INSTANCE=true
       - DATABASE_ENABLED=false
@@ -27,27 +27,27 @@ services:
       - DATABASE_SAVE_DATA_CHATS=false
       - DATABASE_SAVE_DATA_HISTORIC=false
       - DATABASE_DELETE_MESSAGE=false
-      
+
       # QR Code Configuration
       - QRCODE_LIMIT=30
       - QRCODE_COLOR=#198754
-      
+
       # Store Configuration - Disable message recovery
       - STORE_MESSAGES=false
       - STORE_MESSAGE_UP=false
       - STORE_CONTACTS=false
-      
+
       # Disable message recovery completely
       - CLEAN_STORE_CLEANING_INTERVAL=0
       - CLEAN_STORE_MESSAGES=false
       - CLEAN_STORE_MESSAGE_UP=false
       - CLEAN_STORE_CONTACTS=false
       - CLEAN_STORE_CHATS=false
-      
+
       # Logging
       - LOG_LEVEL=INFO
       - LOG_COLOR=true
-      
+
       # Redis Configuration - Disable to fix recovery loop
       - REDIS_ENABLED=false
       - CACHE_REDIS_ENABLED=false
@@ -70,9 +70,9 @@ services:
     environment:
       - REDIS_PASSWORD=${REDIS_PASSWORD:-}
     command: >
-      redis-server 
-      --appendonly yes 
-      --maxmemory 512mb 
+      redis-server
+      --appendonly yes
+      --maxmemory 512mb
       --maxmemory-policy allkeys-lru
       --save 300 1
     networks:

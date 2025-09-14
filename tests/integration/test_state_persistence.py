@@ -1,9 +1,11 @@
 # tests/integration/test_state_persistence.py
-import pytest
 import uuid
+
+import pytest
 
 # Importe o 'workflow' e a função de criação de estado inicial
 from app.core.langgraph_flow import graph
+
 
 def create_initial_cecilia_state(phone_number: str, user_message: str) -> dict:
     """Helper function to create initial state for testing."""
@@ -14,6 +16,7 @@ def create_initial_cecilia_state(phone_number: str, user_message: str) -> dict:
         "instance": "test_instance",
         "collected_data": {},
     }
+
 
 @pytest.mark.asyncio
 async def test_langgraph_checkpoints_persist_state_across_turns():
@@ -28,10 +31,10 @@ async def test_langgraph_checkpoints_persist_state_across_turns():
     # --- TURNO 1: Usuário envia "olá" ---
     print("\n--- 🧪 Executando Turno 1: Greeting ---")
     state_turn_1 = create_initial_cecilia_state(
-        phone_number=conversation_id, # Usamos o ID como telefone para consistência
+        phone_number=conversation_id,  # Usamos o ID como telefone para consistência
         user_message="olá",
     )
-    
+
     final_state_1 = await graph.ainvoke(state_turn_1, config=config)
 
     # Assertiva do Turno 1: Verifica se o bot pediu o nome
@@ -51,11 +54,14 @@ async def test_langgraph_checkpoints_persist_state_across_turns():
     # ASSERTIVA CRÍTICA (que irá falhar):
     # O 'collected_data' no estado final do Turno 2 DEVE conter o nome coletado.
     collected_data_2 = final_state_2.get("collected_data", {})
-    assert collected_data_2.get("parent_name") == "Gabriel", \
-        "O estado do Turno 2 falhou em persistir o 'parent_name' coletado."
+    assert (
+        collected_data_2.get("parent_name") == "Gabriel"
+    ), "O estado do Turno 2 falhou em persistir o 'parent_name' coletado."
 
     # Assertiva de continuação: Verifica se o bot pediu o próximo passo
-    assert "para você mesmo ou para outra pessoa" in final_state_2.get("last_bot_response", "").lower(), \
-        "O bot não continuou a qualificação após coletar o nome."
+    assert (
+        "para você mesmo ou para outra pessoa"
+        in final_state_2.get("last_bot_response", "").lower()
+    ), "O bot não continuou a qualificação após coletar o nome."
 
     print("\n--- ✅ SUCESSO: Persistência de estado entre turnos confirmada! ---")

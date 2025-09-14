@@ -5,7 +5,7 @@ import logging
 from typing import Any, Dict
 
 from app.core.gemini_classifier import GeminiClassifier
-from app.core.state_manager import get_conversation_history
+# REMOVIDO: get_conversation_history - substituído por LangGraph Checkpoints
 from app.utils.formatters import safe_phone_display
 
 logger = logging.getLogger(__name__)
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 # Constante com as variáveis obrigatórias de qualificação
 QUALIFICATION_REQUIRED_VARS = [
     "parent_name",
-    "beneficiary_type", 
+    "beneficiary_type",
     "student_name",
     "student_age",
     "program_interests",
@@ -59,7 +59,9 @@ def _get_continuation_decision(state: Dict[str, Any]) -> str | None:
     return None
 
 
-async def master_router(state: Dict[str, Any], classifier: GeminiClassifier) -> Dict[str, Any]:
+async def master_router(
+    state: Dict[str, Any], classifier: GeminiClassifier
+) -> Dict[str, Any]:
     """
     NÓ DECISOR (ASSÍNCRONO)
 
@@ -79,11 +81,8 @@ async def master_router(state: Dict[str, Any], classifier: GeminiClassifier) -> 
 
     try:
         # ARQUITETURA DEFINITIVA: Com LangGraph Checkpoints, o estado é automaticamente
-        # carregado e persistido. Não precisamos mais da lógica manual de get/save.
-        context = None
-        if phone:
-            history = get_conversation_history(phone, limit=4)
-            context = {"state": state, "history": history}
+        # carregado e persistido. Histórico é mantido automaticamente no estado.
+        context = {"state": state, "history": []}
 
         if "collected_data" not in state:
             state["collected_data"] = {}

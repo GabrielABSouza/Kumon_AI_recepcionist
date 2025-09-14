@@ -3,9 +3,8 @@ Conversation state management module.
 Handles Redis-backed state persistence with fallback for testing.
 """
 import json
-import logging
 import os
-from typing import Any, Dict
+from typing import Dict
 
 try:
     import redis
@@ -22,7 +21,7 @@ _memory_store: Dict[str, str] = {}
 
 
 # REMOVIDO: get_conversation_state e save_conversation_state
-# 
+#
 # Essas funções foram substituídas pelo sistema nativo de checkpoints do LangGraph.
 # O LangGraph agora faz o gerenciamento automático de estado usando PostgreSQL
 # como backend de persistência, eliminando nossa lógica manual.
