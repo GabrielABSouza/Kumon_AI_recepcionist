@@ -194,6 +194,6 @@ dev-evo-config: ## Show current Evolution API configuration
 dev-full-test: ## Complete integration test (health + evo check + send test)
 	@echo "🧪 Running complete integration test..."
 	$(MAKE) dev-health
-	$(MAKE) dev-evo-check  
+	$(MAKE) dev-evo-check
 	$(MAKE) dev-evo-send-test
 	@echo "✅ All integration tests passed!"

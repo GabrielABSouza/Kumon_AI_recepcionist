@@ -331,7 +331,7 @@ async def root():
             "auth_permissions": "/api/v1/auth/permissions",
             "auth_metrics": "/api/v1/auth/metrics",
             # "security_metrics": "/api/v1/security/metrics",  # Disabled - jwt dependency
-            # "security_dashboard": "/api/v1/security/dashboard",  # Disabled - jwt dependency  
+            # "security_dashboard": "/api/v1/security/dashboard",  # Disabled - jwt dependency
             # "threat_detection": "/api/v1/security/threats",  # Disabled - jwt dependency
             # "encryption_status": "/api/v1/security/encryption",  # Disabled - jwt dependency
             # "audit_logs": "/api/v1/security/audit",  # Disabled - jwt dependency

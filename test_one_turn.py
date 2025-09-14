@@ -49,11 +49,14 @@ def test_dedup():
     print("✅ Turn Controller OK")
 
 
-def test_classifier():
+async def test_classifier():
     """Testa o classificador Gemini."""
     print("\n3. Testando Classificador Gemini...")
     try:
-        from app.core.gemini_classifier import classifier
+        from app.core.gemini_classifier import GeminiClassifier
+        
+        # Criar instância do classificador
+        classifier = GeminiClassifier()
 
         # Teste com diferentes mensagens
         test_messages = [
@@ -64,7 +67,7 @@ def test_classifier():
         ]
 
         for msg, _expected_intent in test_messages:
-            nlu_result = classifier.classify(msg)
+            nlu_result = await classifier.classify(msg)
             primary_intent = nlu_result.get("primary_intent", "fallback")
             confidence = nlu_result.get("confidence", 0.0)
             entities_count = len(nlu_result.get("entities", {}))
@@ -135,7 +138,8 @@ def test_fastapi():
         print(f"❌ FastAPI erro: {e}")
 
 
-if __name__ == "__main__":
+async def main():
+    """Função principal dos testes."""
     print("=" * 50)
     print("TESTE DA ARQUITETURA ONE_TURN")
     print("=" * 50)
@@ -143,7 +147,7 @@ if __name__ == "__main__":
     try:
         test_config()
         test_dedup()
-        test_classifier()
+        await test_classifier()  # Agora é async
         test_prompts()
         test_delivery()
         test_fastapi()
@@ -159,3 +163,8 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\n❌ Erro inesperado: {e}")
         sys.exit(1)
+
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())

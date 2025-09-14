@@ -111,7 +111,7 @@ Se o usuário fizer pergunta explícita, priorize responder essa pergunta.
 
 **Histórico:**
 Assistente: Entendido, Gabriel. O Kumon é para você mesmo ou para outra pessoa?
-**Mensagem Atual do Usuário:** 
+**Mensagem Atual do Usuário:**
 "É para o meu filho João. A propósito, quais são os horários de funcionamento?"
 
 **Seu Output JSON Ideal:**
@@ -202,13 +202,15 @@ Assistente: Entendido, Gabriel. O Kumon é para você mesmo ou para outra pessoa
             else "Nenhum histórico disponível"
         )
 
+    # app/core/gemini_classifier.py
+
     def _get_missing_qualification_vars(self, context: Optional[dict]) -> str:
         """Get missing qualification variables for NLU prompt."""
         if not context:
             return "Nenhuma"
 
         state_data = context.get("state", {})
-
+        
         qualification_vars = [
             "parent_name",
             "beneficiary_type",
@@ -217,12 +219,11 @@ Assistente: Entendido, Gabriel. O Kumon é para você mesmo ou para outra pessoa
             "program_interests",
         ]
 
-        # Usa o `collected_data` dentro do state, que é a fonte da verdade
         collected_data = state_data.get("collected_data", {})
-        missing = [var for var in qualification_vars if not collected_data.get(var)]
+        
+        # A CORREÇÃO CRÍTICA ESTÁ AQUI:
+        # Verificamos explicitamente se a chave 'var' NÃO ESTÁ em 'collected_data'.
+        # Isso evita que valores como 'None' ou '[]' sejam tratados como "faltando".
+        missing = [var for var in qualification_vars if var not in collected_data]
 
         return ", ".join(missing) if missing else "Nenhuma"
-
-
-# Global instance
-classifier = GeminiClassifier()

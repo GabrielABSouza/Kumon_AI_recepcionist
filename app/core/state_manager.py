@@ -56,8 +56,10 @@ def get_conversation_state(phone: str) -> Dict[str, Any]:
 def save_conversation_state(phone: str, state: Dict[str, Any]) -> bool:
     """Save conversation state with 30 minute TTL."""
     # ---> PROVA DEFINITIVA: LOG ÚNICO PARA DIAGNÓSTICO <---
-    logging.critical(f"STATE_SAVE_CALLED|Attempting to save state for phone {phone} with data: {state.get('collected_data')}")
-    
+    logging.critical(
+        f"STATE_SAVE_CALLED|Attempting to save state for phone {phone} with data: {state.get('collected_data')}"
+    )
+
     if not phone or not state:
         return False
 

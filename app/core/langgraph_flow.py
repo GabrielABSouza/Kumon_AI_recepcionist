@@ -8,11 +8,24 @@ from langgraph.graph import END, StateGraph
 # Importe os nós e o roteador de seus arquivos dedicados
 from app.core.nodes.greeting import greeting_node
 from app.core.nodes.information import information_node
-from app.core.nodes.master_router import master_router
+from app.core.nodes.master_router import master_router, QUALIFICATION_REQUIRED_VARS
 from app.core.nodes.qualification import qualification_node
 from app.core.nodes.scheduling import scheduling_node
+from app.core.gemini_classifier import GeminiClassifier
 
 logger = logging.getLogger(__name__)
+
+# 🧠 INSTÂNCIA CENTRALIZADA: Criada em um único lugar, eliminando importação circular
+gemini_classifier = GeminiClassifier()
+
+
+# 🔧 WRAPPER: Injeção de Dependência do GeminiClassifier
+async def master_router_wrapper(state: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Wrapper que injeta a instância do GeminiClassifier no master_router.
+    Elimina a dependência circular e centraliza a instanciação.
+    """
+    return await master_router(state, gemini_classifier)
 
 
 # Simple fallback node implementation
@@ -64,8 +77,8 @@ def build_graph():
     """Constrói o grafo LangGraph com a arquitetura final e robusta."""
     workflow = StateGraph(Dict[str, Any])
 
-    # Adiciona os nós, incluindo o master_router como um nó normal
-    workflow.add_node("master_router", master_router)
+    # Adiciona os nós, incluindo o master_router_wrapper que injeta o classifier
+    workflow.add_node("master_router", master_router_wrapper)
     workflow.add_node("greeting_node", greeting_node)
     workflow.add_node("qualification_node", qualification_node)
     workflow.add_node("information_node", information_node)

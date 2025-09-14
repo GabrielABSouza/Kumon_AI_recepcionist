@@ -138,13 +138,17 @@ class ServiceFactory:
             # Handle different initialization patterns
             if name == "intent_classifier":
                 # Intent classifier can work without LLM (uses pattern matching as fallback)
-                instance = service_class(llm_service_instance=dependencies.get("llm_service", None))
+                instance = service_class(
+                    llm_service_instance=dependencies.get("llm_service", None)
+                )
             elif name == "langchain_rag_service":
                 # Special case: Create LangChain adapter for RAG service
                 from ..adapters.langchain_adapter import create_langchain_adapter
 
                 llm_service = dependencies.get("llm_service")
-                langchain_adapter = create_langchain_adapter(llm_service, adapter_type="runnable")
+                langchain_adapter = create_langchain_adapter(
+                    llm_service, adapter_type="runnable"
+                )
                 instance = service_class(langchain_adapter)
             elif config["dependencies"] and any(
                 "llm_service" in dep for dep in config["dependencies"]
@@ -166,14 +170,18 @@ class ServiceFactory:
             self._initialization_status[name] = True
 
             elapsed = time.time() - start_time
-            self._logger.info(f"✅ Service created successfully: {name} ({elapsed:.2f}s)")
+            self._logger.info(
+                f"✅ Service created successfully: {name} ({elapsed:.2f}s)"
+            )
 
             return instance
 
         except Exception as e:
             self._initialization_status[name] = False
             elapsed = time.time() - start_time
-            self._logger.error(f"❌ Failed to create service '{name}' ({elapsed:.2f}s): {e}")
+            self._logger.error(
+                f"❌ Failed to create service '{name}' ({elapsed:.2f}s): {e}"
+            )
             raise RuntimeError(f"Service initialization failed: {name}") from e
 
     def get_service_sync(self, name: str) -> Optional[Any]:
@@ -290,13 +298,13 @@ def register_core_services():
     logger.info("📋 Registering core services...")
 
     # Import here to avoid circular imports
-    # Temporarily disable LangChainRAGService due to qdrant dependency  
+    # Temporarily disable LangChainRAGService due to qdrant dependency
     # from ..services.langchain_rag import LangChainRAGService
     from ..services.production_llm_service import ProductionLLMService
     from ..workflows.intent_classifier import AdvancedIntentClassifier
+
     # REMOVED: SecureConversationWorkflow replaced by CeciliaWorkflow
     # from ..workflows.secure_conversation_workflow import SecureConversationWorkflow
-
     # Register LLM service (no dependencies)
     service_factory.register_service(
         name="llm_service",
@@ -310,7 +318,9 @@ def register_core_services():
         name="intent_classifier",
         service_class=AdvancedIntentClassifier,
         dependencies=[],  # No hard dependencies - LLM is optional
-        initialization_args={"llm_service_instance": None},  # Optional - will be added if available
+        initialization_args={
+            "llm_service_instance": None
+        },  # Optional - will be added if available
         async_init=False,
     )
 
@@ -322,7 +332,7 @@ def register_core_services():
     #     async_init=False,
     # )
 
-    # Register LangChain RAG service (depends on LLM service)  
+    # Register LangChain RAG service (depends on LLM service)
     # Temporarily disabled due to qdrant dependency
     # service_factory.register_service(
     #     name="langchain_rag_service",

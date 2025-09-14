@@ -4,11 +4,20 @@ import copy
 import logging
 from typing import Any, Dict
 
-from app.core.gemini_classifier import classifier
+from app.core.gemini_classifier import GeminiClassifier
 from app.core.state_manager import get_conversation_history, get_conversation_state
 from app.utils.formatters import safe_phone_display
 
 logger = logging.getLogger(__name__)
+
+# Constante com as variáveis obrigatórias de qualificação
+QUALIFICATION_REQUIRED_VARS = [
+    "parent_name",
+    "beneficiary_type", 
+    "student_name",
+    "student_age",
+    "program_interests",
+]
 
 
 def _map_intent_to_node(intent: str) -> str:
@@ -33,15 +42,6 @@ def _get_continuation_decision(state: Dict[str, Any]) -> str | None:
         logger.info("ROUTER|Rule|Applying post-greeting continuation to qualification.")
         return "qualification_node"
 
-    # Required qualification variables
-    QUALIFICATION_REQUIRED_VARS = [
-        "parent_name",
-        "beneficiary_type",
-        "student_name",
-        "student_age",
-        "program_interests",
-    ]
-
     # REGRA 2: Check if qualification is incomplete
     collected_data = state.get("collected_data", {})
     if collected_data.get(
@@ -59,7 +59,7 @@ def _get_continuation_decision(state: Dict[str, Any]) -> str | None:
     return None
 
 
-async def master_router(state: Dict[str, Any]) -> Dict[str, Any]:
+async def master_router(state: Dict[str, Any], classifier: GeminiClassifier) -> Dict[str, Any]:
     """
     NÓ DECISOR (ASSÍNCRONO)
 
