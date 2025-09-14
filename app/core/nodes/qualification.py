@@ -21,7 +21,8 @@ async def qualification_node(state: Dict[str, Any]) -> Dict[str, Any]:
     print("DEBUG|qualification_node_executed|CALLED!")
     print(f"DEBUG|qualification_node|state_type={type(state)}")
     print(
-        f"DEBUG|qualification_node|state_keys={list(state.keys()) if isinstance(state, dict) else 'NOT_DICT'}"
+        f"DEBUG|qualification_node|state_keys="
+        f"{list(state.keys()) if isinstance(state, dict) else 'NOT_DICT'}"
     )
     """
     🧠 QUALIFICATION ORCHESTRATOR - NEW ARCHITECTURE
@@ -95,7 +96,7 @@ async def qualification_node(state: Dict[str, Any]) -> Dict[str, Any]:
         phone = _get_phone_from_state(state)
         instance = state.get("instance", "kumon_assistant")
         delivery_result = await send_text(phone, response_text, instance)
-        
+
         # CRITICAL FIX: Set sent flag from delivery result
         state["sent"] = delivery_result.get("sent", "false")
 
@@ -143,7 +144,7 @@ async def qualification_node(state: Dict[str, Any]) -> Dict[str, Any]:
         phone = _get_phone_from_state(state)
         instance = state.get("instance", "kumon_assistant")
         delivery_result = await send_text(phone, response_text, instance)
-        
+
         # CRITICAL FIX: Set sent flag from delivery result
         state["sent"] = delivery_result.get("sent", "false")
 
@@ -166,20 +167,20 @@ def _process_nlu_entities(state: Dict[str, Any]) -> None:
     Esta função apenas valida e salva as entidades que já foram extraídas.
     """
     print("DEBUG|_process_nlu_entities|function_called")
-    
+
     # DIAGNOSTIC: Check both possible locations for entities
     nlu_entities_old = state.get("nlu_entities", {})
     nlu_result = state.get("nlu_result", {})
     nlu_entities_new = nlu_result.get("entities", {})
-    
+
     print(f"DEBUG|_process_nlu_entities|nlu_entities_old={nlu_entities_old}")
     print(f"DEBUG|_process_nlu_entities|nlu_entities_new={nlu_entities_new}")
     print(f"DEBUG|_process_nlu_entities|nlu_result_keys={list(nlu_result.keys())}")
-    
+
     # Use the correct location (new format from nlu_result)
     nlu_entities = nlu_entities_new
     collected = state["collected_data"]
-    
+
     print(f"DEBUG|_process_nlu_entities|collected_before={collected}")
     print(f"DEBUG|_process_nlu_entities|processing_entities={nlu_entities}")
 
@@ -188,21 +189,60 @@ def _process_nlu_entities(state: Dict[str, Any]) -> None:
         if entity_value is not None and entity_key in QUALIFICATION_VARS_SEQUENCE:
             # Validação adicional se necessário
             if entity_key == "student_age":
-                # Validar idade
+                # Validar idade - COM LÓGICA DEFENSIVA
                 if isinstance(entity_value, int) and 2 <= entity_value <= 25:
-                    collected[entity_key] = entity_value
-                    logger.info(f"NLU extracted {entity_key}: {entity_value}")
+                    # 🛡️ LÓGICA DEFENSIVA: Não sobrescrever dados já coletados
+                    if entity_key not in collected or not collected.get(entity_key):
+                        collected[entity_key] = entity_value
+                        logger.info(f"NLU extracted {entity_key}: {entity_value}")
+                    else:
+                        print(
+                            f"DEBUG|_process_nlu_entities|defensive_skip|"
+                            f"{entity_key}='{collected[entity_key]}' already exists, "
+                            f"ignoring NLU='{entity_value}'"
+                        )
+                        logger.info(
+                            f"Defensive skip: {entity_key} already collected as "
+                            f"'{collected[entity_key]}', ignoring NLU extraction '{entity_value}'"
+                        )
             elif entity_key == "program_interests":
-                # Validar interesses
+                # Validar interesses - COM LÓGICA DEFENSIVA
                 if isinstance(entity_value, list) and entity_value:
-                    collected[entity_key] = entity_value
-                    logger.info(f"NLU extracted {entity_key}: {entity_value}")
+                    # 🛡️ LÓGICA DEFENSIVA: Não sobrescrever dados já coletados
+                    if entity_key not in collected or not collected.get(entity_key):
+                        collected[entity_key] = entity_value
+                        logger.info(f"NLU extracted {entity_key}: {entity_value}")
+                    else:
+                        print(
+                            f"DEBUG|_process_nlu_entities|defensive_skip|"
+                            f"{entity_key}='{collected[entity_key]}' already exists, "
+                            f"ignoring NLU='{entity_value}'"
+                        )
+                        logger.info(
+                            f"Defensive skip: {entity_key} already collected as "
+                            f"'{collected[entity_key]}', ignoring NLU extraction '{entity_value}'"
+                        )
             else:
-                # Para strings simples (names, beneficiary_type)
+                # Para strings simples (names, beneficiary_type) - COM LÓGICA DEFENSIVA
                 if isinstance(entity_value, str) and len(entity_value.strip()) > 0:
-                    collected[entity_key] = entity_value.strip()
-                    print(f"DEBUG|_process_nlu_entities|extracted_string|{entity_key}={entity_value}")
-                    logger.info(f"NLU extracted {entity_key}: {entity_value}")
+                    # 🛡️ LÓGICA DEFENSIVA: Não sobrescrever dados já coletados
+                    if entity_key not in collected or not collected.get(entity_key):
+                        collected[entity_key] = entity_value.strip()
+                        print(
+                            f"DEBUG|_process_nlu_entities|extracted_string|"
+                            f"{entity_key}={entity_value}"
+                        )
+                        logger.info(f"NLU extracted {entity_key}: {entity_value}")
+                    else:
+                        print(
+                            f"DEBUG|_process_nlu_entities|defensive_skip|"
+                            f"{entity_key}='{collected[entity_key]}' already exists, "
+                            f"ignoring NLU='{entity_value}'"
+                        )
+                        logger.info(
+                            f"Defensive skip: {entity_key} already collected as "
+                            f"'{collected[entity_key]}', ignoring NLU extraction '{entity_value}'"
+                        )
 
     print(f"DEBUG|_process_nlu_entities|collected_after={collected}")
     logger.info(f"NLU processing complete. Collected: {collected}")

@@ -653,6 +653,132 @@ class TestQualificationSequentialLogic:
         return True
 
     @pytest.mark.asyncio
+    async def test_process_nlu_entities_does_not_overwrite_existing_data(self):
+        """
+        🚨 RED PHASE TEST: NLU processing should NOT overwrite existing collected data.
+
+        PROBLEMA: A função _process_nlu_entities pode estar sobrescrevendo dados já coletados
+        quando o Gemini extrai informações incorretas ou diferentes.
+
+        CENÁRIO CRÍTICO:
+        - collected_data já contém {'parent_name': 'Gabriel'}
+        - NLU extrai {'parent_name': 'Miguel'} (incorreto/diferente)
+        - EXPECTATIVA: parent_name deve permanecer 'Gabriel' (não sobrescrever)
+
+        🔥 ESTE TESTE DEVE FALHAR se não houver lógica defensiva
+        """
+        from app.core.nodes.qualification import _process_nlu_entities
+
+        # ARRANGE: Estado completo com parent_name já coletado
+        state = {
+            "collected_data": {"parent_name": "Gabriel"},
+            "nlu_result": {
+                "entities": {"parent_name": "Miguel"}
+            },  # Formato correto usado pela função
+            "phone": "5511999999999",
+        }
+
+        print(f"🧪 ARRANJO - Dados existentes: {state['collected_data']}")
+        print(f"🧪 ARRANJO - NLU entities: {state['nlu_result']['entities']}")
+
+        # ACT: Processar entidades NLU (função modifica o state diretamente)
+        _process_nlu_entities(state)
+
+        print(f"🔍 RESULTADO - Dados após processamento: {state['collected_data']}")
+
+        # ASSERT CRÍTICO: Valor original deve ser preservado
+        assert state["collected_data"].get("parent_name") == "Gabriel", (
+            f"FALHA DEFENSIVA: parent_name foi sobrescrito! "
+            f"Esperado: 'Gabriel', Atual: '{state['collected_data'].get('parent_name')}'. "
+            f"Dados existentes não devem ser sobrescritos por extrações incorretas do NLU."
+        )
+
+        print("✅ GREEN PHASE: Lógica defensiva implementada e funcionando!")
+
+    @pytest.mark.asyncio
+    async def test_process_nlu_entities_allows_new_data_when_field_empty(self):
+        """
+        🟢 GREEN PHASE TEST: NLU processing should allow new data when field is empty.
+
+        CENÁRIO POSITIVO: Quando não há dados coletados, o NLU deve extrair normalmente.
+        """
+        from app.core.nodes.qualification import _process_nlu_entities
+
+        # ARRANGE: Estado sem parent_name coletado
+        state = {
+            "collected_data": {},
+            "nlu_result": {"entities": {"parent_name": "Gabriel"}},
+            "phone": "5511999999999",
+        }
+
+        print(f"🧪 ARRANJO - Dados existentes: {state['collected_data']}")
+        print(f"🧪 ARRANJO - NLU entities: {state['nlu_result']['entities']}")
+
+        # ACT: Processar entidades NLU
+        _process_nlu_entities(state)
+
+        print(f"🔍 RESULTADO - Dados após processamento: {state['collected_data']}")
+
+        # ASSERT: Deve extrair o valor normalmente
+        assert state["collected_data"].get("parent_name") == "Gabriel", (
+            f"Deveria extrair parent_name quando campo está vazio. "
+            f"Esperado: 'Gabriel', Atual: '{state['collected_data'].get('parent_name')}'"
+        )
+
+        print("✅ GREEN PHASE: Extração normal funcionando quando campo vazio!")
+
+    @pytest.mark.asyncio
+    async def test_process_nlu_entities_preserves_multiple_existing_fields(self):
+        """
+        🛡️ COMPREHENSIVE TEST: Verifica proteção de múltiplos campos já coletados.
+        """
+        from app.core.nodes.qualification import _process_nlu_entities
+
+        # ARRANGE: Estado com múltiplos campos já coletados
+        state = {
+            "collected_data": {
+                "parent_name": "Gabriel",
+                "beneficiary_type": "child",
+                "student_age": 8,
+            },
+            "nlu_result": {
+                "entities": {
+                    "parent_name": "Miguel",  # Tentativa sobrescrita
+                    "beneficiary_type": "self",  # Tentativa sobrescrita
+                    "student_age": 12,  # Tentativa sobrescrita
+                    "student_name": "Pedro",  # Campo novo - deve permitir
+                }
+            },
+            "phone": "5511999999999",
+        }
+
+        print(f"🧪 ARRANJO - Dados existentes: {state['collected_data']}")
+        print(f"🧪 ARRANJO - NLU entities: {state['nlu_result']['entities']}")
+
+        # ACT: Processar entidades NLU
+        _process_nlu_entities(state)
+
+        print(f"🔍 RESULTADO - Dados após processamento: {state['collected_data']}")
+
+        # ASSERT: Campos existentes devem ser preservados
+        assert (
+            state["collected_data"]["parent_name"] == "Gabriel"
+        ), "parent_name deve ser preservado"
+        assert (
+            state["collected_data"]["beneficiary_type"] == "child"
+        ), "beneficiary_type deve ser preservado"
+        assert (
+            state["collected_data"]["student_age"] == 8
+        ), "student_age deve ser preservado"
+
+        # ASSERT: Campo novo deve ser adicionado
+        assert (
+            state["collected_data"]["student_name"] == "Pedro"
+        ), "student_name deve ser extraído normalmente"
+
+        print("✅ COMPREHENSIVE: Lógica defensiva protege múltiplos campos!")
+
+    @pytest.mark.asyncio
     async def test_qualification_node_relies_exclusively_on_nlu_entities(self):
         """
         🚨 RED PHASE TEST: qualification_node deve confiar 100% nas entidades do GeminiClassifier.
