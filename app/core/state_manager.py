@@ -21,72 +21,11 @@ except ImportError:
 _memory_store: Dict[str, str] = {}
 
 
-def get_conversation_state(phone: str) -> Dict[str, Any]:
-    """Retrieve conversation state for a phone number."""
-    if not phone:
-        return {}
-
-    # Remove + prefix and use as session key
-    session_key = f"conversation:{phone.lstrip('+')}"
-
-    try:
-        retrieved_state = {}
-        if REDIS_AVAILABLE:
-            state_json = redis_client.get(session_key)
-            if state_json:
-                retrieved_state = json.loads(state_json)
-        else:
-            # Fallback to memory store
-            state_json = _memory_store.get(session_key)
-            if state_json:
-                retrieved_state = json.loads(state_json)
-
-        # ---> CÂMERA DE SEGURANÇA: LOG CRÍTICO DE LEITURA <---
-        logging.critical(
-            f"STATE_AUDIT|LOADING|phone={phone}|loaded_state={retrieved_state}"
-        )
-        return retrieved_state
-
-    except Exception as e:
-        print(f"STATE|error_loading|key={session_key}|error={str(e)}")
-
-    return {}
-
-
-def save_conversation_state(phone: str, state: Dict[str, Any]) -> bool:
-    """Save conversation state with 30 minute TTL."""
-    # ---> PROVA DEFINITIVA: LOG ÚNICO PARA DIAGNÓSTICO <---
-    logging.critical(
-        f"STATE_SAVE_CALLED|Attempting to save state for phone {phone} with data: {state.get('collected_data')}"
-    )
-
-    if not phone or not state:
-        return False
-
-    # State validation could be added here if needed for debugging
-
-    # Remove + prefix and use as session key
-    session_key = f"conversation:{phone.lstrip('+')}"
-
-    try:
-        state_json = json.dumps(state)
-
-        # ---> CÂMERA DE SEGURANÇA: LOG CRÍTICO DE ESCRITA <---
-        logging.critical(f"STATE_AUDIT|SAVING|phone={phone}|state_to_save={state}")
-
-        if REDIS_AVAILABLE:
-            # Set with 30 minute TTL
-            redis_client.setex(session_key, 1800, state_json)
-        else:
-            # Fallback to memory store (no TTL in testing)
-            _memory_store[session_key] = state_json
-
-        print(f"STATE|saved|key={session_key}|fields={list(state.keys())}")
-        return True
-
-    except Exception as e:
-        print(f"STATE|error_saving|key={session_key}|error={str(e)}")
-        return False
+# REMOVIDO: get_conversation_state e save_conversation_state
+# 
+# Essas funções foram substituídas pelo sistema nativo de checkpoints do LangGraph.
+# O LangGraph agora faz o gerenciamento automático de estado usando PostgreSQL
+# como backend de persistência, eliminando nossa lógica manual.
 
 
 def get_conversation_history(phone: str, limit: int = 4) -> list:

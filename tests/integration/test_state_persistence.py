@@ -1,60 +1,61 @@
 # tests/integration/test_state_persistence.py
-from unittest.mock import MagicMock, patch
-
 import pytest
+import uuid
 
-# O caminho para o webhook handler pode precisar de ajuste
-from app.api.evolution import webhook
+# Importe o 'workflow' e a função de criação de estado inicial
+from app.core.langgraph_flow import graph
 
+def create_initial_cecilia_state(phone_number: str, user_message: str) -> dict:
+    """Helper function to create initial state for testing."""
+    return {
+        "phone": phone_number,
+        "message_id": f"test_msg_{uuid.uuid4()}",
+        "text": user_message,
+        "instance": "test_instance",
+        "collected_data": {},
+    }
 
 @pytest.mark.asyncio
-# Mockamos as duas dependências externas do webhook: o fluxo e a função de salvar
-@patch("app.api.evolution.save_conversation_state")
-@patch("app.core.langgraph_flow.run_flow")
-async def test_webhook_handler_saves_state_after_flow_completes(
-    mock_run_flow, mock_save_state
-):
+async def test_langgraph_checkpoints_persist_state_across_turns():
     """
-    Garante que o webhook handler CUMPRA sua responsabilidade de chamar
-    save_conversation_state com o resultado final do fluxo.
+    🧪 TESTE DE INTEGRAÇÃO DEFINITIVO: Valida a persistência automática
+    do estado entre os turnos usando o sistema de Checkpoints do LangGraph.
     """
-    # ARRANGE:
-    # Simulamos que o grafo rodou e retornou um estado final com dados coletados
-    final_state_from_graph = {
-        "phone": "12345",
-        "collected_data": {"parent_name": "Gabriel"},
-        "last_bot_response": "Ótimo, Gabriel! E para quem é o curso?",
-    }
-    mock_run_flow.return_value = final_state_from_graph
+    # ARRANGE: Define um ID de conversa único para este teste
+    conversation_id = f"test-thread-{uuid.uuid4()}"
+    config = {"configurable": {"thread_id": conversation_id}}
 
-    # Criamos um mock de um request do FastAPI com payload correto
-    mock_request = MagicMock()
+    # --- TURNO 1: Usuário envia "olá" ---
+    print("\n--- 🧪 Executando Turno 1: Greeting ---")
+    state_turn_1 = create_initial_cecilia_state(
+        phone_number=conversation_id, # Usamos o ID como telefone para consistência
+        user_message="olá",
+    )
+    
+    final_state_1 = await graph.ainvoke(state_turn_1, config=config)
 
-    async def json():
-        return {
-            "instance": "cecilia_nova",
-            "data": {
-                "key": {
-                    "remoteJid": "12345@s.whatsapp.net",
-                    "fromMe": False,
-                    "id": "ABC",
-                },
-                "message": {"conversation": "Gabriel"},
-            },
-        }
+    # Assertiva do Turno 1: Verifica se o bot pediu o nome
+    assert "qual é o seu nome" in final_state_1.get("last_bot_response", "").lower()
+    assert final_state_1.get("greeting_sent") is True
 
-    mock_request.json = json
+    # --- TURNO 2: Usuário envia o nome "Gabriel" ---
+    print("\n--- 🧪 Executando Turno 2: Coleta de Nome ---")
+    state_turn_2 = create_initial_cecilia_state(
+        phone_number=conversation_id,
+        user_message="Gabriel",
+    )
 
-    # ACT:
-    await webhook(mock_request)
+    # A mágica do checkpoint: o 'ainvoke' com o mesmo 'thread_id' deve carregar o estado anterior
+    final_state_2 = await graph.ainvoke(state_turn_2, config=config)
 
-    # ASSERT (Isto irá falhar com o código atual):
-    # A assertiva é simples: a função de salvar foi chamada uma vez?
-    mock_save_state.assert_called_once()
+    # ASSERTIVA CRÍTICA (que irá falhar):
+    # O 'collected_data' no estado final do Turno 2 DEVE conter o nome coletado.
+    collected_data_2 = final_state_2.get("collected_data", {})
+    assert collected_data_2.get("parent_name") == "Gabriel", \
+        "O estado do Turno 2 falhou em persistir o 'parent_name' coletado."
 
-    # E ela foi chamada com os dados corretos que vieram do grafo?
-    saved_phone_arg = mock_save_state.call_args[0][0]
-    saved_state_arg = mock_save_state.call_args[0][1]
+    # Assertiva de continuação: Verifica se o bot pediu o próximo passo
+    assert "para você mesmo ou para outra pessoa" in final_state_2.get("last_bot_response", "").lower(), \
+        "O bot não continuou a qualificação após coletar o nome."
 
-    assert saved_phone_arg == "12345"
-    assert saved_state_arg["collected_data"].get("parent_name") == "Gabriel"
+    print("\n--- ✅ SUCESSO: Persistência de estado entre turnos confirmada! ---")

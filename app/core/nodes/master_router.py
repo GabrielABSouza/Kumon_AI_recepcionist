@@ -5,7 +5,7 @@ import logging
 from typing import Any, Dict
 
 from app.core.gemini_classifier import GeminiClassifier
-from app.core.state_manager import get_conversation_history, get_conversation_state
+from app.core.state_manager import get_conversation_history
 from app.utils.formatters import safe_phone_display
 
 logger = logging.getLogger(__name__)
@@ -78,26 +78,11 @@ async def master_router(state: Dict[str, Any], classifier: GeminiClassifier) -> 
     )
 
     try:
-        # 1. Carregar e Unificar o Estado de Forma Segura
+        # ARQUITETURA DEFINITIVA: Com LangGraph Checkpoints, o estado é automaticamente
+        # carregado e persistido. Não precisamos mais da lógica manual de get/save.
         context = None
         if phone:
-            persisted_state = get_conversation_state(phone)
             history = get_conversation_history(phone, limit=4)
-
-            # A CORREÇÃO CRÍTICA ESTÁ AQUI:
-            # Unifica o estado de forma explícita e segura.
-            if persisted_state:
-                # Pega o 'collected_data' antigo como base
-                old_collected_data = persisted_state.get("collected_data", {})
-                # Pega o 'collected_data' novo (geralmente vazio no início do turno)
-                new_collected_data = state.get("collected_data", {})
-                # Atualiza o antigo com qualquer novidade do novo
-                old_collected_data.update(new_collected_data)
-
-                # Unifica os estados, garantindo que o 'collected_data' mesclado seja usado
-                state = {**persisted_state, **state}
-                state["collected_data"] = old_collected_data
-
             context = {"state": state, "history": history}
 
         if "collected_data" not in state:

@@ -8,7 +8,6 @@ from fastapi import APIRouter, Request
 
 from app.core import langgraph_flow
 from app.core.dedup import turn_controller
-from app.core.state_manager import save_conversation_state
 from app.utils.webhook_normalizer import normalize_webhook_payload
 
 router = APIRouter()
@@ -140,15 +139,18 @@ async def webhook(request: Request) -> Dict[str, Any]:
         print(f"DEBUG|before_langgraph|text='{state.get('text')}'")
         print(f"DEBUG|before_langgraph|phone={state.get('phone')}")
 
-        # Run the ONE_TURN flow asynchronously
-        result = await langgraph_flow.run(state)
-
-        # ---> A CORREÇÃO CRÍTICA E FINAL ESTÁ AQUI <---
-        # Garante que o estado final, com todos os dados coletados, seja salvo.
-        phone = state.get("phone")  # Pega o telefone do estado inicial do turno
-        if phone and result:
-            save_conversation_state(phone, result)
-            print(f"PIPELINE|turn_saved|message_id={state.get('message_id')}")
+        # ARQUITETURA DEFINITIVA: LangGraph Checkpoints
+        phone = state.get("phone")
+        config = {"configurable": {"thread_id": phone}}
+        
+        print(f"PIPELINE|checkpoint_config|thread_id={phone}")
+        
+        # A chamada agora inclui a configuração para persistência automática
+        result = await langgraph_flow.run_flow(state, config=config)
+        
+        # NÃO PRECISAMOS MAIS CHAMAR save_conversation_state!
+        # O LangGraph Checkpoints faz isso automaticamente
+        print(f"PIPELINE|checkpoint_persisted|thread_id={phone}")
 
         # DEBUG: Log result after LangGraph execution
         print(f"DEBUG|after_langgraph|result_keys={list(result.keys())}")

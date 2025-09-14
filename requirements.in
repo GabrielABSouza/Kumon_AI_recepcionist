@@ -31,9 +31,11 @@ google-api-python-client
 # Database
 asyncpg
 redis
+psycopg[binary]  # Required for LangGraph PostgreSQL checkpoints
 
 # LangChain ecosystem
-langgraph==0.0.26
+langgraph>=0.6.0  # Version with checkpoints support
+langgraph-checkpoint-postgres  # PostgreSQL checkpoints backend
 langchain
 langchain-core
 langsmith

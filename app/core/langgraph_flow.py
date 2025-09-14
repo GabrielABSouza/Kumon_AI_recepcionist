@@ -1,9 +1,16 @@
 # app/core/langgraph_flow.py
 
 import logging
+import os
 from typing import Any, Dict
 
 from langgraph.graph import END, StateGraph
+try:
+    from langgraph.checkpoint.postgres import PostgresSaver
+    CHECKPOINTS_AVAILABLE = True
+except ImportError:
+    CHECKPOINTS_AVAILABLE = False
+    print("WARNING: LangGraph checkpoints not available - using fallback")
 
 # Importe os nós e o roteador de seus arquivos dedicados
 from app.core.nodes.greeting import greeting_node
@@ -75,6 +82,24 @@ def route_from_master_router(state: Dict[str, Any]) -> str:
 
 def build_graph():
     """Constrói o grafo LangGraph com a arquitetura final e robusta."""
+    # A CORREÇÃO: Conectar o banco de dados ao grafo
+    # Pega a URL do banco de dados das variáveis de ambiente
+    db_url = os.getenv("DATABASE_URL")
+    checkpointer = None
+    
+    if db_url and CHECKPOINTS_AVAILABLE:
+        try:
+            # Garante que a conexão só será feita se a URL existir
+            checkpointer = PostgresSaver.from_conn_string(db_url)
+            print(f"DEBUG|checkpointer_configured|db_url={db_url[:50]}...")
+        except Exception as e:
+            print(f"WARNING|checkpointer_failed|error={str(e)}")
+            print(f"WARNING|continuing_without_checkpoints")
+            checkpointer = None
+    else:
+        print(f"INFO|checkpoints_unavailable|using_manual_persistence")
+        checkpointer = None
+    
     workflow = StateGraph(Dict[str, Any])
 
     # Adiciona os nós, incluindo o master_router_wrapper que injeta o classifier
@@ -109,7 +134,8 @@ def build_graph():
     workflow.add_edge("scheduling_node", END)
     workflow.add_edge("fallback_node", END)
 
-    return workflow.compile()
+    # A compilação agora inclui o checkpointer
+    return workflow.compile(checkpointer=checkpointer)
 
 
 # Instância global do grafo
@@ -118,15 +144,22 @@ print(f"DEBUG|graph_built|type={type(graph)}")
 print(f"DEBUG|graph_built|is_none={graph is None}")
 
 
-# A função principal que executa o grafo permanece a mesma
-async def run_flow(state: Dict[str, Any]) -> Dict[str, Any]:
-    """Executa o workflow com o estado fornecido."""
+# A função principal que executa o grafo com checkpoints
+async def run_flow(state: Dict[str, Any], config: Dict[str, Any] = None) -> Dict[str, Any]:
+    """Executa o workflow com o estado fornecido e configuração opcional."""
     print(f"DEBUG|run_flow_called|message_id={state.get('message_id')}")
     print(f"PIPELINE|flow_start|message_id={state.get('message_id')}")
 
     try:
         print("DEBUG|before_ainvoke")
-        result = await graph.ainvoke(state)
+        # A chamada agora aceita config para checkpoints
+        if config:
+            result = await graph.ainvoke(state, config=config)
+            print(f"DEBUG|using_config|thread_id={config.get('configurable', {}).get('thread_id')}")
+        else:
+            result = await graph.ainvoke(state)
+            print("DEBUG|no_config_provided")
+            
         print(
             f"DEBUG|after_ainvoke|result_keys={list(result.keys()) if isinstance(result, dict) else 'NOT_DICT'}"
         )

@@ -132,11 +132,14 @@ services:
       - EVOLUTION_API_URL=http://evolution-api:8080
       - EVOLUTION_API_KEY=${EVOLUTION_API_KEY:-development-key-change-in-production}
       - QDRANT_URL=http://qdrant:6333
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_API_KEY=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
+      - GEMINI_API_KEY=AIzaSyBxMcwYJ1h9wak7J7daeTSn7cvsARkeAGU
       # Memory System Configuration
       - MEMORY_REDIS_URL=redis://redis:6379/0
       - MEMORY_POSTGRES_URL=postgresql://kumon_user:${POSTGRES_PASSWORD:-kumon_dev_password}@postgres:5432/kumon_analytics
       - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      # LangGraph Checkpoints
+      - DATABASE_URL=postgresql://kumon_user:${POSTGRES_PASSWORD:-kumon_dev_password}@postgres:5432/kumon_analytics
       # LangSmith Configuration - FASE 5 CRITICAL
       - LANGSMITH_API_KEY=${LANGSMITH_API_KEY}
       - LANGSMITH_PROJECT=${LANGSMITH_PROJECT:-kumon-assistant}
