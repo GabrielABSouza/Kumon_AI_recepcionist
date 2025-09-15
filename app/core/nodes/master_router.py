@@ -5,6 +5,7 @@ import logging
 from typing import Any, Dict
 
 from app.core.gemini_classifier import GeminiClassifier
+
 # REMOVIDO: get_conversation_history - substituído por LangGraph Checkpoints
 from app.utils.formatters import safe_phone_display
 
