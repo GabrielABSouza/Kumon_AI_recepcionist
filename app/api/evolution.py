@@ -124,24 +124,68 @@ async def webhook(request: Request) -> Dict[str, Any]:
 
         print(f"PIPELINE|turn_start|message_id={message_id}")
 
-        # Build state for LangGraph with all required fields initialized
+        # 🧠 HISTORIADOR: Implementação da lógica sofisticada para construir histórico
+
+        # 1. Configuração do checkpoint para carregar estado anterior
+        config = {"configurable": {"thread_id": phone}}
+
+        # 2. Carrega o estado MAIS RECENTE do checkpoint
+        try:
+            last_state = await langgraph_flow.graph.aget_state(config)
+            current_state_dict = (
+                last_state.values if last_state and last_state.values else {}
+            )
+            print(
+                f"HISTORIAN|state_loaded|has_previous_state={bool(current_state_dict)}"
+            )
+        except ValueError as e:
+            if "No checkpointer set" in str(e):
+                print("HISTORIAN|no_checkpointer|using_fallback_history_strategy")
+                current_state_dict = {}
+            else:
+                print(f"HISTORIAN|state_load_error|error={str(e)}")
+                current_state_dict = {}
+        except Exception as e:
+            print(f"HISTORIAN|state_load_error|error={str(e)}")
+            current_state_dict = {}
+
+        # 3. Atua como "Historiador" construindo o histórico completo
+        history = current_state_dict.get("history", [])
+        last_bot_response = current_state_dict.get("last_bot_response")
+
+        print(
+            f"HISTORIAN|current_history_length={len(history)}|"
+            f"has_bot_response={bool(last_bot_response)}"
+        )
+
+        # Adiciona a última resposta do bot ao histórico (se existir)
+        if last_bot_response:
+            history.append({"role": "assistant", "content": last_bot_response})
+            print(
+                f"HISTORIAN|bot_response_added|content_preview={last_bot_response[:50]}..."
+            )
+
+        # Adiciona a nova mensagem do usuário ao histórico
+        history.append({"role": "user", "content": text})
+        print(f"HISTORIAN|user_message_added|total_history={len(history)}")
+
+        # 4. Build state for LangGraph with all required fields + histórico
         state = {
             "phone": phone,
             "message_id": message_id,
             "text": text,
             "instance": instance,
             # ARCHITECTURAL FIX: Initialize collected_data at the source
-            "collected_data": {},
+            "collected_data": current_state_dict.get("collected_data", {}),
+            # 🎯 HISTORIADOR: Passa o histórico atualizado
+            "history": history,
         }
 
         # DEBUG: Log state before LangGraph execution
         print(f"DEBUG|before_langgraph|state_keys={list(state.keys())}")
         print(f"DEBUG|before_langgraph|text='{state.get('text')}'")
         print(f"DEBUG|before_langgraph|phone={state.get('phone')}")
-
-        # ARQUITETURA DEFINITIVA: LangGraph Checkpoints
-        phone = state.get("phone")
-        config = {"configurable": {"thread_id": phone}}
+        print(f"DEBUG|before_langgraph|history_length={len(state.get('history', []))}")
 
         print(f"PIPELINE|checkpoint_config|thread_id={phone}")
 
