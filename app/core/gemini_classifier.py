@@ -63,7 +63,10 @@ class GeminiClassifier:
             }
 
         # Build unified NLU prompt
+        context_keys = list(context.keys()) if context else "None"
+        print(f"DEBUG|ANTES_BUILD_PROMPT|text='{text}'|context_keys={context_keys}")
         prompt = self._build_nlu_prompt(text, context)
+        print(f"DEBUG|DEPOIS_BUILD_PROMPT|prompt_len={len(prompt)}")
 
         try:
             print(f"DEBUG|gemini_classifier|calling_api|prompt_len={len(prompt)}")
@@ -95,6 +98,13 @@ class GeminiClassifier:
 
         conversation_history = self._format_conversation_history(context)
         missing_vars = self._get_missing_qualification_vars(context)
+
+        # ---> LOG DE AUDITORIA EXATAMENTE AQUI <---
+        audit_msg = (
+            f"HISTORY_AUDIT|Conteúdo do 'conversation_history' ANTES "
+            f"da construção do prompt: [{conversation_history}]"
+        )
+        print(audit_msg)
 
         # O novo prompt elegante
         return f"""Você é o cérebro de NLU da Cecília, assistente virtual do Kumon.
@@ -175,34 +185,50 @@ Assistente: Entendido, Gabriel. O Kumon é para você mesmo ou para outra pessoa
                 "confidence": 0.0,
             }
 
+    # app/core/gemini_classifier.py
+
     def _format_conversation_history(self, context: Optional[dict]) -> str:
-        """Format conversation history for prompt."""
+        """
+        Formata o histórico da conversa para o prompt de forma robusta,
+        entendendo a estrutura do 'state' vindo dos checkpoints.
+        """
         if not context:
             return "Nenhum histórico anterior (conversa iniciando)"
 
-        history = context.get("history", [])
+        # A fonte da verdade é o 'state' vindo do checkpoint
+        state_data = context  # O 'context' que passamos É o 'state'
+
+        # Procura por uma lista de histórico completa primeiro
+        history = state_data.get("history", [])
+
+        # SE não houver uma lista de histórico, CONSTRUA um histórico mínimo
+        # a partir da última resposta do bot, que é a informação mais crucial.
+        if not history and state_data.get("last_bot_response"):
+            history.append(
+                {"role": "assistant", "content": state_data["last_bot_response"]}
+            )
+
         if not history:
             return "Nenhum histórico anterior (conversa iniciando)"
 
         formatted_lines = []
-        for entry in history[-4:]:  # Last 4 messages
-            role = entry.get("role", "unknown").replace(
-                "ai", "assistant"
-            )  # Normaliza role
-            content = entry.get("content", "")
-
+        # Usamos [-2:] para pegar apenas a última troca (bot -> user)
+        # para manter o prompt focado e eficiente.
+        for entry in history[-2:]:
+            role = str(entry.get("role", "unknown")).replace("ai", "assistant")
+            content = str(entry.get("content", ""))
             if role == "assistant":
                 formatted_lines.append(f"Assistente: {content}")
             elif role == "user":
-                formatted_lines.append(f"Usuário: {content}")
+                # A mensagem atual do usuário não faz parte do histórico;
+                # ela é adicionada separadamente no prompt principal.
+                pass
 
         return (
-            "\n".join(formatted_lines)
+            "\\n".join(formatted_lines)
             if formatted_lines
             else "Nenhum histórico disponível"
         )
-
-    # app/core/gemini_classifier.py
 
     def _get_missing_qualification_vars(self, context: Optional[dict]) -> str:
         """Get missing qualification variables for NLU prompt."""
@@ -210,7 +236,7 @@ Assistente: Entendido, Gabriel. O Kumon é para você mesmo ou para outra pessoa
             return "Nenhuma"
 
         state_data = context.get("state", {})
-        
+
         qualification_vars = [
             "parent_name",
             "beneficiary_type",
@@ -220,7 +246,7 @@ Assistente: Entendido, Gabriel. O Kumon é para você mesmo ou para outra pessoa
         ]
 
         collected_data = state_data.get("collected_data", {})
-        
+
         # A CORREÇÃO CRÍTICA ESTÁ AQUI:
         # Verificamos explicitamente se a chave 'var' NÃO ESTÁ em 'collected_data'.
         # Isso evita que valores como 'None' ou '[]' sejam tratados como "faltando".

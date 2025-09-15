@@ -84,23 +84,25 @@ def route_from_master_router(state: Dict[str, Any]) -> str:
 
 
 def build_graph():
-    """Constrói o grafo LangGraph com a arquitetura final e robusta."""
-    # A CORREÇÃO: Conectar o banco de dados ao grafo
-    # Pega a URL do banco de dados das variáveis de ambiente
+    """Constrói o grafo LangGraph com a arquitetura final e persistência ativada."""
+    # CONFIGURAÇÃO DO CHECKPOINTER POSTGRESQL
     db_url = os.getenv("DATABASE_URL")
     checkpointer = None
 
     if db_url and CHECKPOINTS_AVAILABLE:
         try:
-            # Garante que a conexão só será feita se a URL existir
+            # Instancia o checkpointer PostgreSQL
             checkpointer = PostgresSaver.from_conn_string(db_url)
-            print(f"DEBUG|checkpointer_configured|db_url={db_url[:50]}...")
+            print(f"SUCCESS|checkpointer_configured|db_url={db_url[:50]}...")
         except Exception as e:
-            print(f"WARNING|checkpointer_failed|error={str(e)}")
-            print(f"WARNING|continuing_without_checkpoints")
+            print(f"ERROR|checkpointer_failed|error={str(e)}")
+            print("WARNING|continuing_without_checkpoints")
             checkpointer = None
     else:
-        print(f"INFO|checkpoints_unavailable|using_manual_persistence")
+        if not db_url:
+            print("WARNING|no_database_url|checkpoints_disabled")
+        if not CHECKPOINTS_AVAILABLE:
+            print("WARNING|postgres_saver_not_available|checkpoints_disabled")
         checkpointer = None
 
     workflow = StateGraph(Dict[str, Any])
@@ -160,22 +162,20 @@ async def run_flow(
         # A chamada agora aceita config para checkpoints
         if config:
             result = await graph.ainvoke(state, config=config)
-            print(
-                f"DEBUG|using_config|thread_id={config.get('configurable', {}).get('thread_id')}"
-            )
+            config_thread = config.get("configurable", {}).get("thread_id")
+            print(f"DEBUG|using_config|thread_id={config_thread}")
         else:
             result = await graph.ainvoke(state)
             print("DEBUG|no_config_provided")
 
-        print(
-            f"DEBUG|after_ainvoke|result_keys={list(result.keys()) if isinstance(result, dict) else 'NOT_DICT'}"
-        )
-        print(
-            f"DEBUG|after_ainvoke|sent={result.get('sent', 'NO_SENT') if isinstance(result, dict) else 'NOT_DICT'}"
-        )
-        print(
-            f"PIPELINE|flow_complete|sent={result.get('sent', 'false') if isinstance(result, dict) else 'false'}"
-        )
+        is_dict = isinstance(result, dict)
+        result_keys = list(result.keys()) if is_dict else "NOT_DICT"
+        sent_value = result.get("sent", "NO_SENT") if is_dict else "NOT_DICT"
+        sent_final = result.get("sent", "false") if is_dict else "false"
+
+        print(f"DEBUG|after_ainvoke|result_keys={result_keys}")
+        print(f"DEBUG|after_ainvoke|sent={sent_value}")
+        print(f"PIPELINE|flow_complete|sent={sent_final}")
         return result
     except Exception as e:
         print(f"DEBUG|flow_error|error={str(e)}|type={type(e).__name__}")
